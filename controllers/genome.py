@@ -8,6 +8,7 @@ try:
 except ModuleNotFoundError:
     from brain import Brain
 
+MUTATION_RANGE = 10
 
 # Resolve paths relative to this file
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -120,8 +121,8 @@ class Genome:
 
         # Mutate traits
         for trait, info in new_genome.traits.items():
-            random_a = r.randint(1, 10)
-            random_b = r.randint(1, 10)
+            random_a = r.randint(1, MUTATION_RANGE)
+            random_b = r.randint(1, MUTATION_RANGE)
 
             if random_a == random_b:
                 mutation_factor = r.uniform(0.85, 1.02)
@@ -134,8 +135,8 @@ class Genome:
 
         # Mutate brain weights
         for i in range(len(new_genome.brain_weights)):
-            random_a = r.randint(1, 10)
-            random_b = r.randint(1, 10)
+            random_a = r.randint(1, MUTATION_RANGE)
+            random_b = r.randint(1, MUTATION_RANGE)
 
             if random_a == random_b:
                 new_genome.brain_weights[i] = new_genome.brain_weights[i] * r.uniform(
