@@ -141,16 +141,38 @@ class Environment:
         """
         Execute one simulation step.
         
-        Updates all agents and removes dead ones.
+        Process:
+        1. Update all agents (age, metabolism, decision making, movement, turning)
+        2. Process eating in speed-priority order (faster agents eat first)
+        3. Add offspring from reproduction
+        4. Remove dead agents
         """
         self.step_count += 1
         
         # Update all agents and collect offspring
         new_agents = []
+        agents_wanting_to_eat = []  # Track agents that chose to eat
+        
         for agent in self.agents:
-            offspring = agent.update(self)
+            # Agent updates but doesn't eat yet
+            action, offspring = agent.update_without_eating(self)
+            
+            # Track if agent wants to eat
+            if action == 2:  # ACTION_EAT
+                agents_wanting_to_eat.append(agent)
+            
+            # Collect offspring
             if offspring:
                 new_agents.append(offspring)
+        
+        # Process eating in speed-priority order
+        # Sort agents by speed (highest first)
+        agents_wanting_to_eat.sort(key=lambda a: a.get_trait("speed") or 1.0, reverse=True)
+        
+        # Let agents eat in order of speed
+        for agent in agents_wanting_to_eat:
+            if agent.is_alive():  # Only if still alive after metabolism
+                agent.eat(self)
         
         # Add new offspring to population
         self.agents.extend(new_agents)
@@ -194,8 +216,10 @@ class Environment:
 
 
 if __name__ == "__main__":
-    # Create simulation environment
-    env = Environment(grid_size=10, num_agents=100, food_units=50)
+    # Create simulation environment with severe scarcity
+    # 100 agents need ~10 energy/tick total (0.1 base metabolism each)
+    # With only 10 food units, agents will starve quickly
+    env = Environment(grid_size=10, num_agents=100, food_units=10)
     
     # Print initial state
     print("Initial Environment State:")
@@ -208,10 +232,15 @@ if __name__ == "__main__":
     
     # Run a few simulation steps
     print("\nRunning simulation...")
-    for i in range(5):
+    for i in range(500):
         env.step()
         stats = env.get_stats()
         print(f"Step {stats['step']}: Population={stats['population']}, Food={stats['total_food']}")
+        print("Current simulation stats: ")
+        for key, value in stats.items():
+            print(f"  {key}: {value}")
+        print("Current grid: ")
+        env.print_grid()
     
     # Print final grid
     env.print_grid()
