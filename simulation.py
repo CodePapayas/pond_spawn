@@ -202,14 +202,43 @@ class Environment:
         }
     
     def print_grid(self):
-        """Print a visual representation of the grid."""
+        """
+        Print a visual representation of the grid with color coding.
+        
+        Color scheme:
+        - Agents: 0 = red, 1 = yellow, 2+ = green
+        - Food: 0 = red, 1 = yellow, 2+ = green (inverse priority)
+        """
+        # ANSI color codes
+        RED = '\033[91m'
+        YELLOW = '\033[93m'
+        GREEN = '\033[92m'
+        RESET = '\033[0m'
+        
         print(f"\n=== Step {self.step_count} ===")
         for y in range(self.grid_size):
             row = []
             for x in range(self.grid_size):
                 agents_here = len(self.get_agents_at(x, y))
                 food = self.grid[x][y].get_food_units()
-                cell = f"A:{agents_here} F:{food}"
+                
+                # Color code agents: 0=red, 1=yellow, 2+=green
+                if agents_here == 0:
+                    agent_color = RED
+                elif agents_here == 1:
+                    agent_color = YELLOW
+                else:
+                    agent_color = GREEN
+                
+                # Color code food: 0=red, 1=yellow, 2+=green
+                if food == 0:
+                    food_color = RED
+                elif food == 1:
+                    food_color = YELLOW
+                else:
+                    food_color = GREEN
+                
+                cell = f"{agent_color}A:{agents_here}{RESET} {food_color}F:{food}{RESET}"
                 row.append(cell)
             print(" | ".join(row))
         print()
