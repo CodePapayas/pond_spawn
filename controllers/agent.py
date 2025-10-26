@@ -3,6 +3,7 @@ from pathlib import Path
 
 from controllers.brain import Brain
 from controllers.genome import Genome
+from controllers.landscape import Biome
 
 
 class Agent:
@@ -51,20 +52,32 @@ class Agent:
         Returns:
             torch.Tensor: Input tensor for the brain (shape: [1, input_size])
         """
-        # TODO: Implement perception logic
-        # Gather observations from environment and convert to tensor
-        # Example: [energy, food_nearby, agents_nearby, biome_visibility, biome_speed]
-        
+
+        # Collect observational data
         x, y = self.position
         biome = environment.get_biome(x, y)
+        food_available = biome.get_food_units()
+        movement_speed = biome.get_movement_speed()
+        visibility = biome.get_visibility()
+
+        # Count nearby agents based on visual ability
+        visual_range = self.get_trait("vision") or 1.0
+        nearby_agents = environment.count_agents_in_range(self.position, visual_range)
+
+        #Normalize inputs for processing
+        normalized_energy = self.energy / 100.0
+        normalized_food = food_available / 3.0
+        normalized_agent_count = min(nearby_agents / 10.0, 1.0)
+        normalized_visibility = visibility
+        normalized_movement = movement_speed
         
         # Placeholder perception - replace with actual logic
         perception = [
-            self.energy / 100.0,  # Normalized energy
-            0.0,  # Food in current tile
-            0.0,  # Agents nearby
-            0.0,  # Biome visibility
-            0.0,  # Biome movement speed
+            normalized_energy,
+            normalized_food,
+            normalized_agent_count,
+            normalized_visibility,
+            normalized_movement
         ]
         
         return t.tensor([perception], dtype=t.float32)

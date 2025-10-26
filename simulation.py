@@ -110,6 +110,33 @@ class Environment:
         """
         return [agent for agent in self.agents if agent.position == (x, y)]
     
+    def count_agents_in_range(self, position, radius):
+        """
+        Count the number of agents within a given radius of a position.
+        
+        Uses Manhattan distance (grid-based distance).
+        
+        Args:
+            position (tuple): Center position (x, y)
+            radius (float): Search radius
+            
+        Returns:
+            int: Number of agents within radius (excluding self at exact position)
+        """
+        x, y = position
+        count = 0
+        
+        for agent in self.agents:
+            ax, ay = agent.position
+            # Calculate Manhattan distance
+            distance = abs(ax - x) + abs(ay - y)
+            
+            # Count agents within radius (but not at exact same position)
+            if distance > 0 and distance <= radius:
+                count += 1
+        
+        return count
+    
     def step(self):
         """
         Execute one simulation step.
