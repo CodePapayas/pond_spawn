@@ -137,6 +137,12 @@ class Environment:
         
         return count
     
+    def redist_food(self, amount):
+        if amount < 0 or type(amount) is not int:
+            print("INVALID FOOD QUANTITY: SIMULATION TERMINATED")
+
+        self._distribute_food(amount)
+    
     def step(self):
         """
         Execute one simulation step.
@@ -179,6 +185,9 @@ class Environment:
         
         # Remove dead agents
         self.agents = [agent for agent in self.agents if agent.is_alive()]
+
+        # Replenish food
+        self.redist_food(3)
     
     def get_stats(self):
         """
