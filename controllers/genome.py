@@ -8,8 +8,6 @@ try:
 except ModuleNotFoundError:
     from brain import Brain
 
-MUTATION_RANGE = 10
-
 # Resolve paths relative to this file
 ROOT_DIR = Path(__file__).resolve().parent.parent
 GENOME_PATH = ROOT_DIR / "genomes" / "genome.json"
@@ -106,10 +104,12 @@ class Genome:
 
         This method produces a new Genome instance with:
         1. A new unique ID
-        2. Traits that have a 10% chance (1 in 10) of being mutated by a factor
-           between 0.85 and 1.02, clamped to their min/max ranges
-        3. Brain weights that have a 10% chance (1 in 10) of being mutated by
-           a factor between 0.85 and 1.02
+        2. Traits that may be mutated based on the parent's mutation_rate trait
+        3. Brain weights that may be mutated based on the parent's mutation_rate trait
+        
+        The mutation_rate trait determines:
+        - The probability of mutation (e.g., 0.1 = 10% chance)
+        - The magnitude of mutation (scales the mutation factor range)
 
         Returns:
             Genome: A new Genome instance with mutated values
@@ -119,13 +119,17 @@ class Genome:
         new_genome.traits = c.deepcopy(self.traits)
         new_genome.brain_weights = c.deepcopy(self.brain_weights)
 
+        # Get mutation rate from parent genome (default to 0.1 if not found)
+        mutation_rate = self.traits.get("mutation_rate", {}).get("value", 0.1)
+
         # Mutate traits
         for trait, info in new_genome.traits.items():
-            random_a = r.randint(1, MUTATION_RANGE)
-            random_b = r.randint(1, MUTATION_RANGE)
-
-            if random_a == random_b:
-                mutation_factor = r.uniform(0.85, 1.02)
+            # Each trait has a chance equal to mutation_rate to mutate
+            if r.random() < mutation_rate:
+                # Mutation factor scales with mutation_rate
+                # Higher mutation_rate = larger potential changes
+                mutation_magnitude = mutation_rate * 0.5  # Scale factor
+                mutation_factor = r.uniform(1.0 - mutation_magnitude, 1.0 + mutation_magnitude)
                 mutated_value = info["value"] * mutation_factor
 
                 if "min" in info and "max" in info:
@@ -135,13 +139,11 @@ class Genome:
 
         # Mutate brain weights
         for i in range(len(new_genome.brain_weights)):
-            random_a = r.randint(1, MUTATION_RANGE)
-            random_b = r.randint(1, MUTATION_RANGE)
-
-            if random_a == random_b:
-                new_genome.brain_weights[i] = new_genome.brain_weights[i] * r.uniform(
-                    0.85, 1.02
-                )
+            # Each weight has a chance equal to mutation_rate to mutate
+            if r.random() < mutation_rate:
+                mutation_magnitude = mutation_rate * 0.5
+                mutation_factor = r.uniform(1.0 - mutation_magnitude, 1.0 + mutation_magnitude)
+                new_genome.brain_weights[i] = new_genome.brain_weights[i] * mutation_factor
 
         return new_genome
 
