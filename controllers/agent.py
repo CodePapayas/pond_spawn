@@ -1,4 +1,5 @@
 import torch as t
+import random as r
 from pathlib import Path
 
 from controllers.brain import Brain
@@ -76,7 +77,7 @@ class Agent:
 
         #Normalize inputs for processing
         normalized_energy = self.energy / 100.0
-        normalized_food = food_available / 3.0
+        normalized_food = food_available / 2.0
         normalized_agent_count = min(nearby_agents / 10.0, 1.0)
         normalized_visibility = visibility
         normalized_movement = movement_speed
@@ -96,8 +97,12 @@ class Agent:
         """
         Use the brain to make a decision based on perception.
         
-        Uses winner-takes-all: the output neuron with the highest value
-        determines which action the agent takes.
+        Uses hard-coded survival rules for critical situations, otherwise
+        uses winner-takes-all neural network decision.
+        
+        Critical survival rules:
+        - Low energy + no food -> MOVE (search for food)
+        - Too many competing agents -> MOVE (avoid competition)
         
         Args:
             perception (torch.Tensor): Sensory input tensor
@@ -105,6 +110,17 @@ class Agent:
         Returns:
             int: Action index (0=MOVE, 1=TURN, 2=EAT, 3=REPRODUCE)
         """
+        energy, food, agents, visibility, movement = perception[0]
+
+        # Critical: Low energy and no food available -> must move to find food
+        if energy < 0.25 and food == 0:
+            return ACTION_MOVE
+        
+        # Too much competition for available food -> move to find better location
+        if food > 0 and agents > (food * 2 + 1):
+            return ACTION_MOVE
+
+        # Otherwise, let the brain decide using winner-takes-all
         self.brain.eval()  # Set to evaluation mode
         with t.no_grad():
             output = self.brain(perception)
@@ -208,9 +224,10 @@ class Agent:
         Attempt to reproduce if energy threshold is met.
         
         Reproduction rules:
-        - Costs 25% of current energy
+        - Requires minimum energy threshold (50 energy)
+        - Costs 40% of current energy
         - Creates a mutated offspring at nearby position
-        - Parent and offspring split the remaining energy
+        - Offspring gets the energy cost as starting energy
         
         Args:
             environment: The simulation environment
@@ -218,28 +235,27 @@ class Agent:
         Returns:
             Agent or None: New offspring agent if reproduction successful
         """
-        # Check if we have enough energy (need at least 25% to give)
         x, y = self.position
-        reproduction_cost = self.energy * 0.25
         biome_locale = environment.get_biome(x, y)
 
-        if self.energy <= 60:
+        # Need minimum energy to reproduce
+        if self.energy < 50:
             return None
         
-        if reproduction_cost < 25:  # Minimum threshold
-            return None
-        
+        # Can't reproduce on empty food tiles (not sustainable)
         if biome_locale.get_food_units() == 0:
             return None
         
-        # Deduct reproduction cost
+        # Calculate reproduction cost (40% of current energy)
+        reproduction_cost = self.energy * 0.40
+        
+        # Deduct reproduction cost from parent
         self.consume_energy(reproduction_cost)
         
         # Create mutated genome from parent
         offspring_genome = self.genome.mutate()
         
         # Try to find a nearby valid position for offspring
-        x, y = self.position
         possible_positions = [
             (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)
         ]
@@ -255,7 +271,6 @@ class Agent:
             return None
         
         # Choose random valid position
-        import random as r
         offspring_position = r.choice(valid_positions)
         
         # Create offspring with starting energy from parent
@@ -315,7 +330,8 @@ class Agent:
         Update method that defers eating to allow speed-based priority.
         
         This version returns the action so the environment can process
-        eating in speed-priority order.
+        eating in speed-priority order. If eating fails (no food), agent
+        will move instead.
         
         Args:
             environment: The simulation environment
@@ -350,7 +366,15 @@ class Agent:
         elif action == ACTION_REPRODUCE:
             offspring = self.reproduce(environment)
             self.consume_energy(0.1 * metabolism)
-        # ACTION_EAT is NOT executed here - returned for priority processing
+        elif action == ACTION_EAT:
+            # Check if eating is possible before returning the action
+            x, y = self.position
+            biome = environment.get_biome(x, y)
+            if biome.get_food_units() <= 0:
+                # No food available - move instead
+                action = ACTION_MOVE
+                self.move(environment)
+                self.consume_energy(0.08 * metabolism)
         
         return (action, offspring)
     
