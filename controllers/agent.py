@@ -194,7 +194,7 @@ class Agent:
         
         if energy_needed > 0:
             # Consume 1 food unit (provides energy)
-            food_energy_value = 10.0  # Each food unit provides 10 energy
+            food_energy_value = 25.0  # Each food unit provides 10 energy
             energy_gained = min(food_energy_value, energy_needed)
             
             self.add_energy(energy_gained)
@@ -343,10 +343,10 @@ class Agent:
         
         if action == ACTION_MOVE:
             self.move(environment)
-            self.consume_energy(0.25 * metabolism)
+            self.consume_energy(0.08 * metabolism)
         elif action == ACTION_TURN:
             self.turn()
-            self.consume_energy(0.1 * metabolism)
+            self.consume_energy(0.04 * metabolism)
         elif action == ACTION_REPRODUCE:
             offspring = self.reproduce(environment)
             self.consume_energy(0.1 * metabolism)
