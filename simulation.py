@@ -8,7 +8,7 @@ from controllers.agent import Agent
 
 # Global variables
 POPULATION = 50
-FOOD_RESUPPLY = 5
+FOOD_RESUPPLY = 15
 
 class Environment:
     """
