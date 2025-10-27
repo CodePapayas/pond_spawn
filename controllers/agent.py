@@ -222,6 +222,9 @@ class Agent:
         x, y = self.position
         reproduction_cost = self.energy * 0.25
         biome_locale = environment.get_biome(x, y)
+
+        if self.energy <= 60:
+            return None
         
         if reproduction_cost < 25:  # Minimum threshold
             return None
@@ -346,7 +349,7 @@ class Agent:
             self.consume_energy(0.1 * metabolism)
         elif action == ACTION_REPRODUCE:
             offspring = self.reproduce(environment)
-            self.consume_energy(0.5 * metabolism)
+            self.consume_energy(0.1 * metabolism)
         # ACTION_EAT is NOT executed here - returned for priority processing
         
         return (action, offspring)
