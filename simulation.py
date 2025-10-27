@@ -1,5 +1,6 @@
 import random as r
 from pathlib import Path
+import time
 
 from controllers.landscape import Biome
 from controllers.genome import Genome
@@ -7,7 +8,7 @@ from controllers.agent import Agent
 
 
 # Global variables
-POPULATION = 250
+POPULATION = 1000
 FOOD_RESUPPLY = 2
 TICKS = 1000
 
@@ -283,6 +284,7 @@ if __name__ == "__main__":
             print(f"  {key}: {value}")
         print("Current grid: ")
         env.print_grid()
+        time.sleep(0.001)
     
     # Print final grid
     env.print_grid()
