@@ -6,6 +6,10 @@ from controllers.genome import Genome
 from controllers.agent import Agent
 
 
+# Global variables
+POPULATION = 50
+FOOD_RESUPPLY = 5
+
 class Environment:
     """
     Represents the simulation environment containing a grid of biomes and agents.
@@ -17,7 +21,7 @@ class Environment:
     - Simulation step logic
     """
     
-    def __init__(self, grid_size=10, num_agents=100, food_units=50):
+    def __init__(self, grid_size=10, num_agents=POPULATION, food_units=FOOD_RESUPPLY):
         """
         Initialize the simulation environment.
         
@@ -154,6 +158,9 @@ class Environment:
         4. Remove dead agents
         """
         self.step_count += 1
+
+        # Replenish food
+        self.redist_food(FOOD_RESUPPLY)
         
         # Update all agents and collect offspring
         new_agents = []
@@ -186,8 +193,6 @@ class Environment:
         # Remove dead agents
         self.agents = [agent for agent in self.agents if agent.is_alive()]
 
-        # Replenish food
-        self.redist_food(3)
     
     def get_stats(self):
         """
@@ -254,10 +259,8 @@ class Environment:
 
 
 if __name__ == "__main__":
-    # Create simulation environment with severe scarcity
-    # 100 agents need ~10 energy/tick total (0.1 base metabolism each)
-    # With only 10 food units, agents will starve quickly
-    env = Environment(grid_size=10, num_agents=100, food_units=10)
+    # Create simulation environment
+    env = Environment(grid_size=10, num_agents=POPULATION, food_units=10)
     
     # Print initial state
     print("Initial Environment State:")
