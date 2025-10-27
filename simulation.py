@@ -7,8 +7,9 @@ from controllers.agent import Agent
 
 
 # Global variables
-POPULATION = 50
-FOOD_RESUPPLY = 15
+POPULATION = 250
+FOOD_RESUPPLY = 2
+TICKS = 1000
 
 class Environment:
     """
@@ -21,7 +22,7 @@ class Environment:
     - Simulation step logic
     """
     
-    def __init__(self, grid_size=10, num_agents=POPULATION, food_units=FOOD_RESUPPLY):
+    def __init__(self, grid_size=12, num_agents=POPULATION, food_units=FOOD_RESUPPLY):
         """
         Initialize the simulation environment.
         
@@ -273,7 +274,7 @@ if __name__ == "__main__":
     
     # Run a few simulation steps
     print("\nRunning simulation...")
-    for i in range(500):
+    for i in range(TICKS):
         env.step()
         stats = env.get_stats()
         print(f"Step {stats['step']}: Population={stats['population']}, Food={stats['total_food']}")
