@@ -13,6 +13,9 @@ ACTION_TURN = 1      # Turn 90 degrees clockwise
 ACTION_EAT = 2       # Attempt to eat food at current position
 ACTION_REPRODUCE = 3 # Attempt to reproduce (costs 25% of current energy)
 
+# Directional headings - where the agent can point
+headings = [0, 1, 2, 3]
+
 
 class Agent:
     """
@@ -40,7 +43,7 @@ class Agent:
         self.position = position
         self.energy = 100.0
         self.age = 0
-        self.heading = 0  # 0=North, 1=East, 2=South, 3=West
+        self.heading = r.choice(headings)  # 0=North, 1=East, 2=South, 3=West
         
         # Create and configure brain
         brain_config_path = Path(__file__).resolve().parent.parent / "brains" / "brain.json"

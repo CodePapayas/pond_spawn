@@ -15,3 +15,14 @@ I tossed out the old readme (it was an ai stand-in made by Copilot) and decided 
 </ul>
 
 With the above fixed I added a GIF to the README and am going to bed.
+
+# October 28th, 2025
+I noticed that in each run the agents, now known as "Callums", were congregating on the very top of the grid. Literally row 0, all the lil guys just huddled up there. I adjusted the starting heading to be randomized instead of always facing North. The result was that the Callums now congregate on the entire perimeter of the grid, not just the top. They seem to particularly favor the corners. Example below. Apologies for the color scheme, I have a terrible eye for design.
+<img src="assets/10-28-grid.png">
+I also made the sim take a snapshot of the initial randomized grid and the final grid for comparison.
+TODO:
+<ul>
+    <li>Add 4 more outputs to the brains output layer. This will allow us to make the Callums decisions more nuanced</li>
+    <li>Expand the genome to have two new features: attack and defense</li>
+    <li>Adjust the decision making function. Callums should probably decide to leave if the tile is too crowded or they're seeing aggression/food competition</li>
+</ul>
