@@ -16,6 +16,8 @@ TODO
     <li>Add logging to decisions and snapshots of state per tick so I can understan why the Callums do what they do</li>
 </ul>
 
+We also added a GitHub Action requiring Ruff linting before merge.
+
 # October 28th, 2025
 I noticed that in each run the agents, now known as "Callums", were congregating on the very top of the grid. Literally row 0, all the lil guys just huddled up there. I adjusted the starting heading to be randomized instead of always facing North. The result was that the Callums now congregate on the entire perimeter of the grid, not just the top. They seem to particularly favor the corners. Example below. Apologies for the color scheme, I have a terrible eye for design.
 <img src="assets/10-28-grid.png">
