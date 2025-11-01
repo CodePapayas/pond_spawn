@@ -4,6 +4,22 @@
 
 Tossing out the old AI README and writing my own. This will serve double-duty as a devlog of sorts as I stumble my way through this.
 
+## Running the Simulation
+
+```bash
+# Basic usage
+python -m cli.cli_sim_starter
+
+# Custom parameters
+python -m cli.cli_sim_starter --population 100 --steps 500 --grid-size 20
+
+# Fast run without visuals
+python -m cli.cli_sim_starter --no-visual --steps 5000
+
+# Get help
+python -m cli.cli_sim_starter --help
+```
+
 # OVERVIEW
 <h2>This is my attempt to understand a: neural networks, and b: artificial life simulations.</h2>
 
