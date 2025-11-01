@@ -1,10 +1,9 @@
 import random as r
 import time
 
-from controllers.landscape import Biome
-from controllers.genome import Genome
 from controllers.agent import Agent
-
+from controllers.genome import Genome
+from controllers.landscape import Biome
 
 # Global variables
 POPULATION = 500
@@ -182,9 +181,7 @@ class Environment:
 
         # Process eating in speed-priority order
         # Sort agents by speed (highest first)
-        agents_wanting_to_eat.sort(
-            key=lambda a: a.get_trait("speed") or 1.0, reverse=True
-        )
+        agents_wanting_to_eat.sort(key=lambda a: a.get_trait("speed") or 1.0, reverse=True)
 
         agents_in_line = 0
 
@@ -252,10 +249,10 @@ class Environment:
             label (str): Optional label to print before grid
         """
         # ANSI color codes
-        RED = "\033[91m"
-        YELLOW = "\033[93m"
-        GREEN = "\033[92m"
-        RESET = "\033[0m"
+        red = "\033[91m"
+        yellow = "\033[93m"
+        green = "\033[92m"
+        reset = "\033[0m"
 
         if label:
             print(f"\n=== {label} ===")
@@ -265,23 +262,21 @@ class Environment:
             for agents_here, food in row:
                 # Color code agents: 0=red, 1=yellow, 2+=green
                 if agents_here == 0:
-                    agent_color = RED
+                    agent_color = red
                 elif agents_here == 1:
-                    agent_color = YELLOW
+                    agent_color = yellow
                 else:
-                    agent_color = GREEN
+                    agent_color = green
 
                 # Color code food: 0=red, 1=yellow, 2+=green
                 if food == 0:
-                    food_color = RED
+                    food_color = red
                 elif food == 1:
-                    food_color = YELLOW
+                    food_color = yellow
                 else:
-                    food_color = GREEN
+                    food_color = green
 
-                cell = (
-                    f"{agent_color}A:{agents_here}{RESET} {food_color}F:{food}{RESET}"
-                )
+                cell = f"{agent_color}A:{agents_here}{reset} {food_color}F:{food}{reset}"
                 cells.append(cell)
             print(" | ".join(cells))
         print()
@@ -295,10 +290,10 @@ class Environment:
         - Food: 0 = red, 1 = yellow, 2+ = green (inverse priority)
         """
         # ANSI color codes
-        RED = "\033[91m"
-        YELLOW = "\033[93m"
-        GREEN = "\033[92m"
-        RESET = "\033[0m"
+        red = "\033[91m"
+        yellow = "\033[93m"
+        green = "\033[92m"
+        reset = "\033[0m"
 
         print(f"\n=== Step {self.step_count} ===")
         for y in range(self.grid_size):
@@ -309,23 +304,21 @@ class Environment:
 
                 # Color code agents: 0=red, 1=yellow, 2+=green
                 if agents_here == 0:
-                    agent_color = RED
+                    agent_color = red
                 elif agents_here == 1:
-                    agent_color = YELLOW
+                    agent_color = yellow
                 else:
-                    agent_color = GREEN
+                    agent_color = green
 
                 # Color code food: 0=red, 1=yellow, 2+=green
                 if food == 0:
-                    food_color = RED
+                    food_color = red
                 elif food == 1:
-                    food_color = YELLOW
+                    food_color = yellow
                 else:
-                    food_color = GREEN
+                    food_color = green
 
-                cell = (
-                    f"{agent_color}A:{agents_here}{RESET} {food_color}F:{food}{RESET}"
-                )
+                cell = f"{agent_color}A:{agents_here}{reset} {food_color}F:{food}{reset}"
                 row.append(cell)
             print(" | ".join(row))
         print()
@@ -352,9 +345,7 @@ if __name__ == "__main__":
         env.step()
         stats = env.get_stats()
         print(f"Original population: {POPULATION}")
-        print(
-            f"Step {stats['step']}, Food={stats['total_food']}"
-        )
+        print(f"Step {stats['step']}, Food={stats['total_food']}")
         print("Current simulation stats: ")
         for key, value in stats.items():
             print(f"  {key}: {value}")

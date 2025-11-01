@@ -1,13 +1,14 @@
-import pytest
-import json
 import copy
-from pathlib import Path
+import json
 import sys
+from pathlib import Path
+
+import pytest
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from controllers.genome import Genome, generate_genome_id, clamp
+from controllers.genome import Genome, clamp, generate_genome_id
 
 
 class TestHelperFunctions:
@@ -303,9 +304,7 @@ class TestGenomeIntegration:
 
         # All should have same structure
         assert (
-            len(parent.brain_weights)
-            == len(child.brain_weights)
-            == len(grandchild.brain_weights)
+            len(parent.brain_weights) == len(child.brain_weights) == len(grandchild.brain_weights)
         )
 
     def test_genome_compatible_with_brain(self):
@@ -320,9 +319,7 @@ class TestGenomeIntegration:
         assert isinstance(genome_dict["brain_weights"], list)
 
         # Should have correct number of weights
-        brain_config_path = (
-            Path(__file__).resolve().parent.parent / "brains" / "brain.json"
-        )
+        brain_config_path = Path(__file__).resolve().parent.parent / "brains" / "brain.json"
         brain = Brain(str(brain_config_path))
         expected_count = brain.count_weights()
         assert len(genome_dict["brain_weights"]) == expected_count
