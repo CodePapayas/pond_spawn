@@ -106,7 +106,7 @@ class Genome:
         1. A new unique ID
         2. Traits that may be mutated based on the parent's mutation_rate trait
         3. Brain weights that may be mutated based on the parent's mutation_rate trait
-        
+
         The mutation_rate trait determines:
         - The probability of mutation (e.g., 0.1 = 10% chance)
         - The magnitude of mutation (scales the mutation factor range)
@@ -129,7 +129,9 @@ class Genome:
                 # Mutation factor scales with mutation_rate
                 # Higher mutation_rate = larger potential changes
                 mutation_magnitude = mutation_rate * 0.5  # Scale factor
-                mutation_factor = r.uniform(1.0 - mutation_magnitude, 1.0 + mutation_magnitude)
+                mutation_factor = r.uniform(
+                    1.0 - mutation_magnitude, 1.0 + mutation_magnitude
+                )
                 mutated_value = info["value"] * mutation_factor
 
                 if "min" in info and "max" in info:
@@ -142,8 +144,12 @@ class Genome:
             # Each weight has a chance equal to mutation_rate to mutate
             if r.random() < mutation_rate:
                 mutation_magnitude = mutation_rate * 0.5
-                mutation_factor = r.uniform(1.0 - mutation_magnitude, 1.0 + mutation_magnitude)
-                new_genome.brain_weights[i] = new_genome.brain_weights[i] * mutation_factor
+                mutation_factor = r.uniform(
+                    1.0 - mutation_magnitude, 1.0 + mutation_magnitude
+                )
+                new_genome.brain_weights[i] = (
+                    new_genome.brain_weights[i] * mutation_factor
+                )
 
         return new_genome
 
