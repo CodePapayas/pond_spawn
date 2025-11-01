@@ -1,6 +1,6 @@
 # pond_spawn
 
-![Simulation GIF](assets/gifs/sim_gif.gif)
+![Simulation GIF](assets/gifs/sim_gif_looped.gif)
 
 Tossing out the old AI README and writing my own. This will serve double-duty as a devlog of sorts as I stumble my way through this.
 
