@@ -1,5 +1,4 @@
 import random as r
-import time
 
 from controllers.agent import Agent
 from controllers.genome import Genome
