@@ -325,36 +325,7 @@ class Environment:
 
 
 if __name__ == "__main__":
-    # Create simulation environment
-    env = Environment(grid_size=10, num_agents=POPULATION, food_units=10)
+    # For backwards compatibility, run with default settings
+    from cli.cli_sim_starter import main
 
-    # Capture initial state
-    initial_grid = env.capture_grid_state()
-
-    # Print initial state
-    print("Initial Environment State:")
-    stats = env.get_stats()
-    for key, value in stats.items():
-        print(f"  {key}: {value}")
-
-    env.print_grid_state(initial_grid, "Initial Grid")
-
-    # Run a few simulation steps
-    print("\nRunning simulation...")
-    for i in range(TICKS):
-        env.step()
-        stats = env.get_stats()
-        print(f"Original population: {POPULATION}")
-        print(f"Step {stats['step']}, Food={stats['total_food']}")
-        print("Current simulation stats: ")
-        for key, value in stats.items():
-            print(f"  {key}: {value}")
-        print("Current grid: ")
-        env.print_grid()
-        time.sleep(0.001)
-
-    # Print comparison
-    print("\n" + "=" * 50)
-    env.print_grid_state(initial_grid, "Initial Grid")
-    final_grid = env.capture_grid_state()
-    env.print_grid_state(final_grid, "Final Grid")
+    main()
