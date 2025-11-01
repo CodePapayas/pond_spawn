@@ -36,7 +36,7 @@ class Brain(nn.Module):
                 ]
             }
         """
-        super(Brain)
+        super().__init__()
         with open(config_path) as f:
             config = json.load(f)
         self.layers = nn.ModuleList()
