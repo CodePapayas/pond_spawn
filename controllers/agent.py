@@ -1,10 +1,10 @@
-import torch as t
 import random as r
 from pathlib import Path
+
 import numpy as np
+import torch as t
 
 from controllers.brain import Brain
-
 
 # Action constants - brain output with highest value determines action
 ACTION_MOVE = 0  # Move in the direction of the agent's heading
@@ -49,9 +49,7 @@ class Agent:
         self.heading = r.choice(headings)  # 0=North, 1=East, 2=South, 3=West
 
         # Create and configure brain
-        brain_config_path = (
-            Path(__file__).resolve().parent.parent / "brains" / "brain.json"
-        )
+        brain_config_path = Path(__file__).resolve().parent.parent / "brains" / "brain.json"
         self.brain = Brain(str(brain_config_path))
         self.brain.load_from_genome(genome.to_dict())
 
@@ -85,9 +83,7 @@ class Agent:
 
         # Determine how good the agents vision is
         agent_vision = (
-            nearby_agents / (visibility * visual_range)
-            if (visibility * visual_range) > 0
-            else 0
+            nearby_agents / (visibility * visual_range) if (visibility * visual_range) > 0 else 0
         )
 
         # Determine how well the agent moves on the terrain
@@ -282,8 +278,7 @@ class Agent:
         valid_positions = [
             pos
             for pos in possible_positions
-            if 0 <= pos[0] < environment.grid_size
-            and 0 <= pos[1] < environment.grid_size
+            if 0 <= pos[0] < environment.grid_size and 0 <= pos[1] < environment.grid_size
         ]
 
         if not valid_positions:

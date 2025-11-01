@@ -1,6 +1,6 @@
+import copy as c
 import json as j
 import random as r
-import copy as c
 from pathlib import Path
 
 try:
@@ -44,7 +44,7 @@ class Genome:
     def _load_base_data(cls):
         """Load base genome template and calculate brain weight count (done once)."""
         if cls._base_genome is None:
-            with open(GENOME_PATH, "r") as file:
+            with open(GENOME_PATH) as file:
                 cls._base_genome = j.load(file)
             brain_instance = Brain(str(BRAIN_CONFIG_PATH))
             cls._brain_weight_count = brain_instance.count_weights()
@@ -86,9 +86,7 @@ class Genome:
         self.id = generate_genome_id()
 
         # Initialize brain weights with random values
-        self.brain_weights = [
-            r.uniform(-0.5, 0.5) for _ in range(self._brain_weight_count)
-        ]
+        self.brain_weights = [r.uniform(-0.5, 0.5) for _ in range(self._brain_weight_count)]
 
         # Initialize traits
         self.traits = genome_data["traits"]
@@ -129,9 +127,7 @@ class Genome:
                 # Mutation factor scales with mutation_rate
                 # Higher mutation_rate = larger potential changes
                 mutation_magnitude = mutation_rate * 0.5  # Scale factor
-                mutation_factor = r.uniform(
-                    1.0 - mutation_magnitude, 1.0 + mutation_magnitude
-                )
+                mutation_factor = r.uniform(1.0 - mutation_magnitude, 1.0 + mutation_magnitude)
                 mutated_value = info["value"] * mutation_factor
 
                 if "min" in info and "max" in info:
@@ -144,12 +140,8 @@ class Genome:
             # Each weight has a chance equal to mutation_rate to mutate
             if r.random() < mutation_rate:
                 mutation_magnitude = mutation_rate * 0.5
-                mutation_factor = r.uniform(
-                    1.0 - mutation_magnitude, 1.0 + mutation_magnitude
-                )
-                new_genome.brain_weights[i] = (
-                    new_genome.brain_weights[i] * mutation_factor
-                )
+                mutation_factor = r.uniform(1.0 - mutation_magnitude, 1.0 + mutation_magnitude)
+                new_genome.brain_weights[i] = new_genome.brain_weights[i] * mutation_factor
 
         return new_genome
 

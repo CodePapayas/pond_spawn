@@ -1,6 +1,7 @@
+import json
+
 import torch as t
 import torch.nn as nn
-import json
 
 
 class Brain(nn.Module):
@@ -35,8 +36,8 @@ class Brain(nn.Module):
                 ]
             }
         """
-        super(Brain, self).__init__()
-        with open(config_path, "r") as f:
+        super(Brain)
+        with open(config_path) as f:
             config = json.load(f)
         self.layers = nn.ModuleList()
         self._build_network(config["layers"])
@@ -70,9 +71,7 @@ class Brain(nn.Module):
             layer_type = layer_config["type"]
 
             if layer_type == "linear":
-                layer = nn.Linear(
-                    layer_config["input_size"], layer_config["output_size"]
-                )
+                layer = nn.Linear(layer_config["input_size"], layer_config["output_size"])
                 self.layers.append(layer)
             elif layer_type == "activation":
                 activation_func = layer_config["function"]
@@ -203,18 +202,14 @@ class Brain(nn.Module):
                 # Load weights
                 weight_size = layer.weight.numel()
                 weight_values = brain_weights[idx : idx + weight_size]
-                layer.weight.data = t.tensor(weight_values, dtype=t.float32).view_as(
-                    layer.weight
-                )
+                layer.weight.data = t.tensor(weight_values, dtype=t.float32).view_as(layer.weight)
                 idx += weight_size
 
                 # Load biases
                 if layer.bias is not None:
                     bias_size = layer.bias.numel()
                     bias_values = brain_weights[idx : idx + bias_size]
-                    layer.bias.data = t.tensor(bias_values, dtype=t.float32).view_as(
-                        layer.bias
-                    )
+                    layer.bias.data = t.tensor(bias_values, dtype=t.float32).view_as(layer.bias)
                     idx += bias_size
 
 

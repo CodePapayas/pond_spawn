@@ -1,6 +1,6 @@
+import copy as c
 import json
 import random as r
-import copy as c
 from pathlib import Path
 
 TERRAIN_RANGE = 10
@@ -39,7 +39,7 @@ class Biome:
     def _load_base_data(cls):
         """Load base biome template (done once)."""
         if cls._base_biome is None:
-            with open(BIOME_PATH, "r") as file:
+            with open(BIOME_PATH) as file:
                 cls._base_biome = json.load(file)
 
     def __init__(self, biome_dict=None):
@@ -79,11 +79,7 @@ class Biome:
 
         # Randomize features with min/max ranges
         for feature_name, feature_info in self.features.items():
-            if (
-                isinstance(feature_info, dict)
-                and "min" in feature_info
-                and "max" in feature_info
-            ):
+            if isinstance(feature_info, dict) and "min" in feature_info and "max" in feature_info:
                 self.features[feature_name]["value"] = r.uniform(
                     feature_info["min"], feature_info["max"]
                 )
