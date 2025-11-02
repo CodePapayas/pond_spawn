@@ -23,13 +23,30 @@ python -m cli.cli_sim_starter --help
 # OVERVIEW
 <h2>This is my attempt to understand a: neural networks, and b: artificial life simulations.</h2>
 
+*************************
+******************************
+*************************
+
+# OBSERVATIONS
+<ul>
+    <li>The Callums demonstrate interesting behavior with the current genomic and environmental settings. A genome that favors conserving energy at the expense of procreation predictably results a population collapse; A genome that favors reproduction tends to have about 33% of their total energy level on average across the population.</li>
+    <li>The Callums are still clustering at the edges of the map, so I'm wondering if I should add the ability to loop around if you hit the edges. It also may be that the Callums are just stupid and need more options to choose from.</li>
+    <li>Longer sims with more steps and larger populations make my pc cry.</li>
+</ul>
+
+# DEV LOG
+
+*************************
+******************************
+*************************
+
 # November 1st, 2025
 The Callums are making decisions that seem to support a stable, if small, population. I am now satisfied with this rough simulation and it's parameters. Snapshot: <img src="assets/11-1-grid.png">
 TODO
 <ul>
     <li>Add 4 more outputs to the brains output layer. This will allow us to make the Callums decisions more nuanced</li>
     <li>Expand the genome to have two new features: attack and defense</li>
-    <li>Add logging to decisions and snapshots of state per tick so I can understan why the Callums do what they do</li>
+    <li>Add logging to decisions and <s>snapshots of state per tick</s> so I can understan why the Callums do what they do</li>
 </ul>
 
 We also added a GitHub Action requiring Ruff linting before merge.
