@@ -7,8 +7,74 @@ Usage:
 
 import argparse
 import time
+from datetime import datetime
+
+import matplotlib.pyplot as plt
 
 from simulation import Environment
+
+
+def plot_simulation_stats(logged_stats, initial_population):
+    """
+    Create line graphs for simulation statistics over time.
+
+    Args:
+        logged_stats (dict): Dictionary mapping step -> stats dict
+        initial_population (int): Initial agent population
+    """
+    if not logged_stats:
+        print("No stats to plot.")
+        return
+
+    # Extract data
+    steps = sorted(logged_stats.keys())
+    alive_agents = [logged_stats[s]["alive_agents"] for s in steps]
+    total_food = [logged_stats[s]["total_food"] for s in steps]
+    avg_energy = [logged_stats[s]["avg_energy"] for s in steps]
+
+    # Create figure with 3 subplots
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12))
+    fig.suptitle("Pond Spawn Simulation Statistics", fontsize=16, fontweight="bold")
+
+    # Plot 1: Agent Population
+    ax1.plot(steps, alive_agents, "b-", linewidth=2, label="Alive Agents")
+    ax1.axhline(
+        y=initial_population,
+        color="r",
+        linestyle="--",
+        linewidth=1,
+        label=f"Initial Pop ({initial_population})",
+    )
+    ax1.set_xlabel("Step", fontsize=12)
+    ax1.set_ylabel("Agent Count", fontsize=12)
+    ax1.set_title("Agent Population Over Time", fontsize=14, fontweight="bold")
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+
+    # Plot 2: Food Supply
+    ax2.plot(steps, total_food, "g-", linewidth=2, label="Total Food")
+    ax2.set_xlabel("Step", fontsize=12)
+    ax2.set_ylabel("Food Units", fontsize=12)
+    ax2.set_title("Food Supply Over Time", fontsize=14, fontweight="bold")
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+
+    # Plot 3: Average Energy
+    ax3.plot(steps, avg_energy, "orange", linewidth=2, label="Avg Energy")
+    ax3.set_xlabel("Step", fontsize=12)
+    ax3.set_ylabel("Energy", fontsize=12)
+    ax3.set_title("Average Agent Energy Over Time", fontsize=14, fontweight="bold")
+    ax3.legend()
+    ax3.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    # Generate filename with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"simulation_stats_{timestamp}.png"
+
+    plt.savefig(filename, dpi=600, bbox_inches="tight")
+    print(f"\nGraph saved as '{filename}'")
 
 
 def parse_args():
@@ -28,7 +94,7 @@ def parse_args():
     parser.add_argument(
         "--population",
         type=int,
-        default=500,
+        default=50,
         help="Initial number of agents",
     )
 
@@ -49,14 +115,14 @@ def parse_args():
     parser.add_argument(
         "--steps",
         type=int,
-        default=10000,
+        default=1000,
         help="Number of simulation steps to run",
     )
 
     parser.add_argument(
         "--delay",
         type=float,
-        default=0.001,
+        default=0.0001,
         help="Delay between steps in seconds",
     )
 
@@ -93,6 +159,7 @@ def run_simulation(args):
     env = Environment(
         grid_size=args.grid_size, num_agents=args.population, food_units=args.food_init
     )
+    logged_stats = {}
 
     # Capture and show initial state if requested
     if args.show_initial:
@@ -117,6 +184,9 @@ def run_simulation(args):
 
         # Get stats
         stats = env.get_stats()
+
+        # Log stats for graphing
+        logged_stats = env.log_stats(stats, logged_stats)
 
         # Print stats
         if not args.no_visual or args.stats_only:
@@ -158,6 +228,9 @@ def run_simulation(args):
         env.print_grid_state(final_grid, "Final Grid")
 
     print("=" * 50)
+
+    # Generate graphs from logged stats
+    plot_simulation_stats(logged_stats, args.population)
 
 
 def main():

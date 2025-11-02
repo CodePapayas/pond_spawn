@@ -222,6 +222,25 @@ class Environment:
             else 0,
         }
 
+    def log_stats(self, stats, state_dict):
+        """
+        Log statistics to a state dictionary for graphing.
+
+        Args:
+            stats (dict): Statistics dictionary with keys: step, alive_agents, total_food, avg_energy
+            state_dict (dict): Dictionary to accumulate stats over time
+
+        Returns:
+            dict: Updated state dictionary
+        """
+        step = stats["step"]
+        state_dict[step] = {
+            "alive_agents": stats["alive_agents"],
+            "total_food": stats["total_food"],
+            "avg_energy": stats["avg_energy"],
+        }
+        return state_dict
+
     def capture_grid_state(self):
         """
         Capture current grid state as data structure.
