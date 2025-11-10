@@ -8,6 +8,7 @@ Usage:
 import argparse
 import time
 from datetime import datetime
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 
@@ -72,8 +73,11 @@ def plot_simulation_stats(logged_stats, initial_population):
     # Generate filename with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"simulation_stats_{timestamp}.png"
+    chart_dir = Path(__file__).resolve().parent.parent / "charts"
+    chart_dir.mkdir(exist_ok=True)
+    save_path = chart_dir / filename
 
-    plt.savefig(filename, dpi=600, bbox_inches="tight")
+    plt.savefig(save_path, dpi=600, bbox_inches="tight")
     print(f"\nGraph saved as '{filename}'")
 
 

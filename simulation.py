@@ -1,4 +1,5 @@
 import random as r
+import copy
 
 from controllers.agent import Agent
 from controllers.genome import Genome
@@ -32,6 +33,7 @@ class Environment:
         """
         self.grid_size = grid_size
         self.grid = [[None for _ in range(grid_size)] for _ in range(grid_size)]
+        self.food_layout = []
         self.agents = []
         self.step_count = 0
 
@@ -57,13 +59,19 @@ class Environment:
             x = r.randint(0, self.grid_size - 1)
             y = r.randint(0, self.grid_size - 1)
             biome = self.grid[x][y]
+            self.food_layout.append((x,y))
 
             # Get current food units
             current_food = biome.get_food_units()
-            if isinstance(current_food, int):
-                biome.features["food_units"] = current_food + 1
-            else:
-                biome.features["food_units"] = 1
+            biome.features["food_units"] = (current_food or 0) + 1
+
+        self.initial_food_dist = copy.deepcopy(biome)
+
+    def _redistribute_food(self):
+        amount_range = [0, 1, 2]
+        for x, y in self.food_layout:
+            biome = self.grid[x][y]
+            biome.features["food_units"] = r.choice(amount_range)
 
     def _spawn_agents(self, num_agents):
         """

@@ -42,11 +42,17 @@ class Agent:
             genome (Genome): The genetic blueprint for this agent
             position (tuple): Starting (x, y) coordinates
         """
+        
+        # Initialize the agent
         self.genome = genome
         self.position = position
         self.energy = 100.0
         self.age = 0
         self.heading = r.choice(headings)  # 0=North, 1=East, 2=South, 3=West
+
+        # Log agents stats
+        self.total_food_eaten = 0
+        self.total_eating_attempts = 0
 
         # Create and configure brain
         brain_config_path = Path(__file__).resolve().parent.parent / "brains" / "brain.json"
@@ -90,8 +96,11 @@ class Agent:
         speed_stat = self.get_trait("speed") or 1.0
         movement_speed = terrain_speed * speed_stat
 
+        # Determine the agents energy capacity
+        max_energy = 100.0 * self.get_trait("energy_capacity")
+
         # Normalize inputs for processing (all values clipped to [0.0, 1.0])
-        normalized_energy = np.clip(self.energy / 100.0, 0.0, 1.0)
+        normalized_energy = np.clip(self.energy / max_energy, 0.0, 1.0)
         normalized_food = np.clip(food_available / 3.0, 0.0, 1.0)  # Food ranges 0-3
         normalized_agent_count = np.clip(nearby_agents / 10.0, 0.0, 1.0)
         normalized_visibility = np.clip(agent_vision, 0.0, 1.0)
@@ -126,14 +135,6 @@ class Agent:
             int: Action index (0=MOVE, 1=TURN, 2=EAT, 3=REPRODUCE)
         """
         energy, food, agents, visibility, movement = perception[0]
-
-        # Critical: Low energy and no food available -> must move to find food
-        if energy < 0.25 and food == 0:
-            return ACTION_MOVE
-
-        # Too much competition for available food -> move to find better location
-        if food > 0 and agents > (food * 2 + 1):
-            return ACTION_MOVE
 
         # Otherwise, let the brain decide using winner-takes-all
         self.brain.eval()  # Set to evaluation mode
@@ -181,6 +182,7 @@ class Agent:
             metabolism = self.get_trait("metabolism") or 1.0
             movement_cost = terrain_speed * speed * metabolism
             self.consume_energy(movement_cost)
+
 
     def turn(self):
         """
@@ -231,8 +233,11 @@ class Agent:
 
             self.add_energy(energy_gained)
             biome.features["food_units"] = food_available - 1
+            self.total_food_eaten += 1
+            self.total_eating_attempts += 1
             return True
 
+        self.total_eating_attempts += 1
         return False
 
     def reproduce(self, environment):
@@ -256,6 +261,9 @@ class Agent:
 
         # Need minimum energy to reproduce
         if self.energy < 50:
+            return None
+        
+        if self.age < 25:
             return None
 
         # Can't reproduce on empty food tiles (not sustainable)
@@ -290,7 +298,8 @@ class Agent:
 
         # Create offspring with starting energy from parent
         offspring = Agent(offspring_genome, offspring_position)
-        offspring.energy = reproduction_cost  # Offspring gets the energy parent spent
+        offspring_max_energy = offspring.get_trait("clone_energy_threshold")
+        offspring.energy = reproduction_cost * offspring_max_energy  # Offspring gets the energy parent spent
 
         return offspring
 
@@ -318,6 +327,9 @@ class Agent:
         # Base metabolic cost (just for staying alive)
         metabolism = self.get_trait("metabolism") or 1.0
         self.consume_energy(0.1 * metabolism)
+
+        if self.age >= 125:
+            self.kill_agent()
 
         if not self.is_alive():
             return None
@@ -423,6 +435,15 @@ class Agent:
             bool: True if agent is alive
         """
         return self.energy > 0
+    
+    def kill_agent(self):
+        """
+        Kill an agent.
+
+        - An agent cannot exceed their max age
+        - Sets agent energy to 0
+        """
+        self.energy == 0
 
     def get_trait(self, trait_name):
         """
