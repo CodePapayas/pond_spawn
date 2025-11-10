@@ -42,7 +42,7 @@ class Agent:
             genome (Genome): The genetic blueprint for this agent
             position (tuple): Starting (x, y) coordinates
         """
-        
+
         # Initialize the agent
         self.genome = genome
         self.position = position
@@ -135,13 +135,13 @@ class Agent:
             int: Action index (0=MOVE, 1=TURN, 2=EAT, 3=REPRODUCE)
         """
         energy, food, agents, visibility, movement = perception[0]
-        
-        if energy < .5:
+
+        if energy < 0.5:
             return ACTION_EAT
-        
+
         if food == 0 and energy < 0.5:
             return ACTION_MOVE
-    
+
         # Otherwise, let the brain decide using winner-takes-all
         self.brain.eval()  # Set to evaluation mode
         with t.no_grad():
@@ -188,7 +188,6 @@ class Agent:
             metabolism = self.get_trait("metabolism") or 1.0
             movement_cost = terrain_speed * speed * metabolism
             self.consume_energy(movement_cost)
-
 
     def turn(self):
         """
@@ -268,7 +267,7 @@ class Agent:
         # Need minimum energy to reproduce
         if self.energy < 50:
             return None
-        
+
         if self.age < 25:
             return None
 
@@ -277,7 +276,7 @@ class Agent:
             return None
 
         # Calculate reproduction cost (40% of current energy)
-        reproduction_cost = self.energy * 0.35
+        reproduction_cost = self.energy * 0.40
 
         # Deduct reproduction cost from parent
         self.consume_energy(reproduction_cost)
@@ -305,7 +304,9 @@ class Agent:
         # Create offspring with starting energy from parent
         offspring = Agent(offspring_genome, offspring_position)
         offspring_max_energy = offspring.get_trait("clone_energy_threshold")
-        offspring.energy = reproduction_cost * offspring_max_energy  # Offspring gets the energy parent spent
+        offspring.energy = (
+            reproduction_cost * offspring_max_energy
+        )  # Offspring gets the energy parent spent
 
         return offspring
 
@@ -377,9 +378,9 @@ class Agent:
 
         # Base metabolic cost (just for staying alive)
         metabolism = self.get_trait("metabolism") or 1.0
-        self.consume_energy(0.15 * metabolism)
+        self.consume_energy(0.18 * metabolism)
 
-        if self.age >= 125:
+        if self.age >= 50:
             self.kill_agent()
 
         if not self.is_alive():
@@ -444,7 +445,7 @@ class Agent:
             bool: True if agent is alive
         """
         return self.energy > 0
-    
+
     def kill_agent(self):
         """
         Kill an agent.
@@ -452,7 +453,7 @@ class Agent:
         - An agent cannot exceed their max age
         - Sets agent energy to 0
         """
-        self.energy == 0
+        self.energy = 0
 
     def get_trait(self, trait_name):
         """

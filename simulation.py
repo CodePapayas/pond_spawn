@@ -58,11 +58,11 @@ class Environment:
         for x, y, biome in self.iter_biomes():
             # Get fertility modifier (0.0 to 1.0)
             fertility = biome.get_fertility()
-            
+
             # Add food based on fertility - more fertile biomes get more food
             # Use total_food as the max per tile, scaled by fertility
             food_to_add = int(total_food * fertility) % 100
-            
+
             current_food = biome.get_food_units()
             biome.features["food_units"] = (current_food or 0) + food_to_add
 
@@ -105,10 +105,10 @@ class Environment:
     def iter_biomes(self):
         """
         Iterate over all biomes in the grid with their coordinates.
-        
+
         Yields:
             tuple: (x, y, biome) for each position in the grid
-            
+
         Example:
             for x, y, biome in env.iter_biomes():
                 print(f"Biome at ({x}, {y}) has {biome.get_food_units()} food")
@@ -116,11 +116,11 @@ class Environment:
         for x in range(self.grid_size):
             for y in range(self.grid_size):
                 yield x, y, self.grid[x][y]
-    
+
     def get_all_biomes(self):
         """
         Get a list of all biomes with their coordinates.
-        
+
         Returns:
             list: List of tuples (x, y, biome) for all positions
         """
@@ -185,7 +185,7 @@ class Environment:
         self.step_count += 1
 
         # Replenish food
-        if current_food == 0 :
+        if current_food < len(self.agents) / 50:
             self.redist_food()
 
         # Update all agents and collect offspring
@@ -232,7 +232,9 @@ class Environment:
             "step": self.step_count,
             "alive_agents": len([a for a in self.agents if a.is_alive()]),
             "total_food": total_food,
-            "avg_energy": sum(a.energy for a in self.agents) / len(self.agents) if self.agents else 0,
+            "avg_energy": sum(a.energy for a in self.agents) / len(self.agents)
+            if self.agents
+            else 0,
             "avg_lifespan": sum(a.age for a in self.agents) / len(self.agents)
             if self.agents
             else 0,
@@ -254,7 +256,7 @@ class Environment:
             "alive_agents": stats["alive_agents"],
             "total_food": stats["total_food"],
             "avg_energy": stats["avg_energy"],
-            "avg_lifespan": stats["avg_lifespan"]
+            "avg_lifespan": stats["avg_lifespan"],
         }
         return state_dict
 

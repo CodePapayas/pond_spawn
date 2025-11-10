@@ -30,13 +30,28 @@ python -m cli.cli_sim_starter --help
 # OBSERVATIONS
 *************************
 <ul>
-    <li>The Callums demonstrate interesting behavior with the current genomic and environmental settings. A genome that favors conserving energy at the expense of procreation predictably results a population collapse; A genome that favors reproduction tends to have about 33% of their total energy level on average across the population.</li>
+    <s><li>The Callums demonstrate interesting behavior with the current genomic and environmental settings. A genome that favors conserving energy at the expense of procreation predictably results a population collapse; A genome that favors reproduction tends to have about 33% of their total energy level on average across the population.</li>
     <li>The Callums are still clustering at the edges of the map, so I'm wondering if I should add the ability to loop around if you hit the edges. It also may be that the Callums are just stupid and need more options to choose from.</li>
-    <li>Longer sims with more steps and larger populations make my pc cry.</li>
+    <li>Longer sims with more steps and larger populations make my pc cry.</li></s>
 </ul>
 
 # DEV LOG
 *************************
+<h1>November 10th, 2025</h1>
+Today was an adventure in futility. I second-guessed myself and rewrote the food resupply logic. I thought that I would make only the first supply of food be random and then just copy/paste resources when they get down to zero and also with a regular cadence. My thinking was that plants generally grow in the same place and around the same time, so maybe I could do that. What happened was the environment would get flooded with food but somehow the Calllums would still starve. As it turns out, I just didn't know what I was doing and my first attempt was good. Switched it back to random regen with some tweaks and we're semi-functional again.
+
+More helpful changes are listed in the commit messages but the one I'm happiest with is the enhanced logic around reproduction and lifespan. I need to add a tracker for dead agents to make sure they're actually dying of old age, but it's a step in the right direction. I realize I was getting ahead of myself by wanting to add more outputs before I refined the 4 I have now. Currently this simulation is a little more complex, but the population keeps collapsing around 200 steps in so gotta figure that one out. No TODO today. Will update that later.
+
+TODO
+<ul>
+    <s><li>Add 4 more outputs to the brains output layer. This will allow us to make the Callums decisions more nuanced</li>
+    <li>Expand the genome to have two new features: attack and defense</li>
+    <li>Add logging to decisions and snapshots of state per tick so I can understan why the Callums do what they do</li></s>
+</ul>
+
+
+*************************
+
 <h1>November 1st, 2025</h1>
 The Callums are making decisions that seem to support a stable, if small, population. I am now satisfied with this rough simulation and it's parameters. Snapshot: <img src="assets/11-1-grid.png">
 TODO
