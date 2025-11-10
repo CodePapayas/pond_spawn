@@ -34,8 +34,8 @@ def plot_simulation_stats(logged_stats, initial_population):
     avg_energy = [logged_stats[s]["avg_energy"] for s in steps]
     avg_lifespan = [logged_stats[s]["avg_lifespan"] for s in steps]
 
-    # Create figure with 3 subplots
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12))
+    # Create figure with 4 subplots
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(10, 12))
     fig.suptitle("Pond Spawn Simulation Statistics", fontsize=16, fontweight="bold")
 
     # Plot 1: Agent Population
@@ -70,12 +70,12 @@ def plot_simulation_stats(logged_stats, initial_population):
     ax3.grid(True, alpha=0.3)
 
     # Plot 4: Average Lifespan
-    ax3.plot(steps, avg_lifespan, "orange", linewidth=2, label="Avg Lifespan")
-    ax3.set_xlabel("Step", fontsize=12)
-    ax3.set_ylabel("Age", fontsize=12)
-    ax3.set_title("Average Agent Lifespan Over Time", fontsize=14, fontweight="bold")
-    ax3.legend()
-    ax3.grid(True, alpha=0.3)
+    ax4.plot(steps, avg_lifespan, "orange", linewidth=2, label="Avg Lifespan")
+    ax4.set_xlabel("Step", fontsize=12)
+    ax4.set_ylabel("Age", fontsize=12)
+    ax4.set_title("Average Agent Lifespan Over Time", fontsize=14, fontweight="bold")
+    ax4.legend()
+    ax4.grid(True, alpha=0.3)
 
     plt.tight_layout()
 
@@ -112,17 +112,10 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--food-init",
-        type=int,
-        default=10,
-        help="Initial food units to distribute",
-    )
-
-    parser.add_argument(
         "--food-resupply",
         type=int,
         default=3,
-        help="Food units to add each step",
+        help="Food units to add per resupply cycle (scaled by biome fertility)",
     )
 
     parser.add_argument(
@@ -170,7 +163,7 @@ def run_simulation(args):
     # Create simulation environment
     print(f"Initializing simulation with {args.population} agents...")
     env = Environment(
-        grid_size=args.grid_size, num_agents=args.population, food_units=args.food_init
+        grid_size=args.grid_size, num_agents=args.population, food_units=args.food_resupply
     )
     logged_stats = {}
 
@@ -185,13 +178,11 @@ def run_simulation(args):
 
     # Run simulation
     print(f"\nRunning simulation for {args.steps} steps...")
-    print(f"Food resupply: {args.food_resupply} units per step")
+    print(f"Food resupply: {args.food_resupply} units per resupply (scaled by biome fertility)")
+    print(f"Food resupplies only when total food reaches 0")
     print("-" * 50)
 
     for i in range(args.steps):
-        # Update food resupply in environment
-        env.FOOD_RESUPPLY = args.food_resupply
-
         # Run step
         env.step()
 

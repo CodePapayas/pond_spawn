@@ -135,7 +135,13 @@ class Agent:
             int: Action index (0=MOVE, 1=TURN, 2=EAT, 3=REPRODUCE)
         """
         energy, food, agents, visibility, movement = perception[0]
-
+        
+        if energy < .5:
+            return ACTION_EAT
+        
+        if food == 0 and energy < 0.5:
+            return ACTION_MOVE
+    
         # Otherwise, let the brain decide using winner-takes-all
         self.brain.eval()  # Set to evaluation mode
         with t.no_grad():
@@ -194,7 +200,7 @@ class Agent:
         self.heading = (self.heading + 1) % 4
         # Energy cost for turning (affected by metabolism)
         metabolism = self.get_trait("metabolism") or 1.0
-        self.consume_energy(0.1 * metabolism)
+        self.consume_energy(0.01 * metabolism)
 
     def eat(self, environment):
         """
@@ -271,7 +277,7 @@ class Agent:
             return None
 
         # Calculate reproduction cost (40% of current energy)
-        reproduction_cost = self.energy * 0.40
+        reproduction_cost = self.energy * 0.35
 
         # Deduct reproduction cost from parent
         self.consume_energy(reproduction_cost)
