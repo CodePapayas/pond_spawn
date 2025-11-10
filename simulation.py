@@ -1,5 +1,4 @@
 import random as r
-import copy
 
 from controllers.agent import Agent
 from controllers.genome import Genome
@@ -8,7 +7,8 @@ from controllers.landscape import Biome
 # Global variables
 POPULATION = 500
 FOOD_RESUPPLY = 3
-TICKS = 10000
+MAX_FOOD_PER_TILE = 3
+TICKS = 1000
 
 
 class Environment:
@@ -29,16 +29,16 @@ class Environment:
         Args:
             grid_size (int): Size of the square grid (grid_size x grid_size)
             num_agents (int): Number of agents to spawn initially
-            food_units (int): Total amount of food to distribute across the grid
+            food_units (int): Food units to add per resupply cycle
         """
         self.grid_size = grid_size
         self.grid = [[None for _ in range(grid_size)] for _ in range(grid_size)]
-        self.food_layout = []
+        self.food_resupply_amount = food_units  # Store for resupply
         self.agents = []
         self.step_count = 0
 
         self._initialize_biomes()
-        self._distribute_food(food_units)
+        # Biomes already have 0-3 food from generation, don't add more initially
         self._spawn_agents(num_agents)
 
     def _initialize_biomes(self):
@@ -48,30 +48,23 @@ class Environment:
                 biome = Biome().generate()
                 self.grid[x][y] = biome
 
-    def _distribute_food(self, total_food):
+    def _add_food(self, total_food):
         """
-        Distribute food units randomly across the grid.
+        Add food units across the grid based on biome fertility (doesn't replace existing food).
 
         Args:
-            total_food (int): Total food units to distribute
+            total_food (int): Base food units to distribute (modified by fertility)
         """
-        for _ in range(total_food):
-            x = r.randint(0, self.grid_size - 1)
-            y = r.randint(0, self.grid_size - 1)
-            biome = self.grid[x][y]
-            self.food_layout.append((x,y))
-
-            # Get current food units
+        for x, y, biome in self.iter_biomes():
+            # Get fertility modifier (0.0 to 1.0)
+            fertility = biome.get_fertility()
+            
+            # Add food based on fertility - more fertile biomes get more food
+            # Use total_food as the max per tile, scaled by fertility
+            food_to_add = int(total_food * fertility) % 100
+            
             current_food = biome.get_food_units()
-            biome.features["food_units"] = (current_food or 0) + 1
-
-        self.initial_food_dist = copy.deepcopy(biome)
-
-    def _redistribute_food(self):
-        amount_range = [0, 1, 2]
-        for x, y in self.food_layout:
-            biome = self.grid[x][y]
-            biome.features["food_units"] = r.choice(amount_range)
+            biome.features["food_units"] = (current_food or 0) + food_to_add
 
     def _spawn_agents(self, num_agents):
         """
@@ -108,6 +101,30 @@ class Environment:
         if 0 <= x < self.grid_size and 0 <= y < self.grid_size:
             return self.grid[x][y]
         return None
+
+    def iter_biomes(self):
+        """
+        Iterate over all biomes in the grid with their coordinates.
+        
+        Yields:
+            tuple: (x, y, biome) for each position in the grid
+            
+        Example:
+            for x, y, biome in env.iter_biomes():
+                print(f"Biome at ({x}, {y}) has {biome.get_food_units()} food")
+        """
+        for x in range(self.grid_size):
+            for y in range(self.grid_size):
+                yield x, y, self.grid[x][y]
+    
+    def get_all_biomes(self):
+        """
+        Get a list of all biomes with their coordinates.
+        
+        Returns:
+            list: List of tuples (x, y, biome) for all positions
+        """
+        return list(self.iter_biomes())
 
     def get_agents_at(self, x, y):
         """
@@ -149,11 +166,9 @@ class Environment:
 
         return count
 
-    def redist_food(self, amount):
-        if amount < 0 or type(amount) is not int:
-            print("INVALID FOOD QUANTITY: SIMULATION TERMINATED")
-
-        self._distribute_food(amount)
+    def redist_food(self):
+        """Add food to the grid based on resupply amount."""
+        self._add_food(self.food_resupply_amount)
 
     def step(self):
         """
@@ -165,10 +180,13 @@ class Environment:
         3. Add offspring from reproduction
         4. Remove dead agents
         """
+        current_food = sum(biome.get_food_units() for _, _, biome in self.iter_biomes())
+
         self.step_count += 1
 
         # Replenish food
-        self.redist_food(FOOD_RESUPPLY)
+        if current_food == 0 :
+            self.redist_food()
 
         # Update all agents and collect offspring
         new_agents = []
@@ -215,17 +233,14 @@ class Environment:
         Returns:
             dict: Statistics about the current state
         """
-        total_food = sum(
-            self.grid[x][y].get_food_units()
-            for x in range(self.grid_size)
-            for y in range(self.grid_size)
-        )
+        total_food = sum(biome.get_food_units() for _, _, biome in self.iter_biomes())
 
         return {
             "step": self.step_count,
             "alive_agents": len([a for a in self.agents if a.is_alive()]),
             "total_food": total_food,
-            "avg_energy": sum(a.energy for a in self.agents) / len(self.agents)
+            "avg_energy": sum(a.energy for a in self.agents) / len(self.agents),
+            "avg_lifespan": sum(a.age for a in self.agents) / len(self.agents)
             if self.agents
             else 0,
         }
@@ -246,6 +261,7 @@ class Environment:
             "alive_agents": stats["alive_agents"],
             "total_food": stats["total_food"],
             "avg_energy": stats["avg_energy"],
+            "avg_lifespan": stats["avg_lifespan"]
         }
         return state_dict
 

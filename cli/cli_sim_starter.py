@@ -32,6 +32,7 @@ def plot_simulation_stats(logged_stats, initial_population):
     alive_agents = [logged_stats[s]["alive_agents"] for s in steps]
     total_food = [logged_stats[s]["total_food"] for s in steps]
     avg_energy = [logged_stats[s]["avg_energy"] for s in steps]
+    avg_lifespan = [logged_stats[s]["avg_lifespan"] for s in steps]
 
     # Create figure with 3 subplots
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 12))
@@ -65,6 +66,14 @@ def plot_simulation_stats(logged_stats, initial_population):
     ax3.set_xlabel("Step", fontsize=12)
     ax3.set_ylabel("Energy", fontsize=12)
     ax3.set_title("Average Agent Energy Over Time", fontsize=14, fontweight="bold")
+    ax3.legend()
+    ax3.grid(True, alpha=0.3)
+
+    # Plot 4: Average Lifespan
+    ax3.plot(steps, avg_lifespan, "orange", linewidth=2, label="Avg Lifespan")
+    ax3.set_xlabel("Step", fontsize=12)
+    ax3.set_ylabel("Age", fontsize=12)
+    ax3.set_title("Average Agent Lifespan Over Time", fontsize=14, fontweight="bold")
     ax3.legend()
     ax3.grid(True, alpha=0.3)
 

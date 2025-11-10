@@ -216,7 +216,7 @@ class Agent:
         biome = environment.get_biome(x, y)
         food_available = biome.get_food_units()
 
-        if food_available <= 0:
+        if food_available <= 0.0:
             return False
 
         # Calculate energy capacity
@@ -303,54 +303,54 @@ class Agent:
 
         return offspring
 
-    def update(self, environment):
-        """
-        Main update method called each simulation step.
+    # def update(self, environment):
+    #     """
+    #     Main update method called each simulation step.
 
-        Process:
-        1. Age the agent
-        2. Consume base metabolic energy (affected by metabolism trait)
-        3. Get perception from environment
-        4. Use brain to decide action (winner-takes-all)
-        5. Execute the chosen action (all actions cost energy, scaled by metabolism)
-        6. Return offspring if reproduction occurred
+    #     Process:
+    #     1. Age the agent
+    #     2. Consume base metabolic energy (affected by metabolism trait)
+    #     3. Get perception from environment
+    #     4. Use brain to decide action (winner-takes-all)
+    #     5. Execute the chosen action (all actions cost energy, scaled by metabolism)
+    #     6. Return offspring if reproduction occurred
 
-        Args:
-            environment: The simulation environment
+    #     Args:
+    #         environment: The simulation environment
 
-        Returns:
-            Agent or None: New offspring if reproduction occurred
-        """
-        # Increment age
-        self.age += 1
+    #     Returns:
+    #         Agent or None: New offspring if reproduction occurred
+    #     """
+    #     # Increment age
+    #     self.age += 1
 
-        # Base metabolic cost (just for staying alive)
-        metabolism = self.get_trait("metabolism") or 1.0
-        self.consume_energy(0.1 * metabolism)
+    #     # Base metabolic cost (just for staying alive)
+    #     metabolism = self.get_trait("metabolism") or 1.0
+    #     self.consume_energy(0.1 * metabolism)
 
-        if self.age >= 125:
-            self.kill_agent()
+    #     if self.age >= 125:
+    #         self.kill_agent()
 
-        if not self.is_alive():
-            return None
+    #     if not self.is_alive():
+    #         return None
 
-        # Get perception and make decision
-        perception = self.perceive(environment)
-        action = self.decide(perception)
+    #     # Get perception and make decision
+    #     perception = self.perceive(environment)
+    #     action = self.decide(perception)
 
-        # Execute action based on winner-takes-all decision
-        offspring = None
+    #     # Execute action based on winner-takes-all decision
+    #     offspring = None
 
-        if action == ACTION_MOVE:
-            self.move(environment)
-        elif action == ACTION_TURN:
-            self.turn()
-        elif action == ACTION_EAT:
-            self.eat(environment)
-        elif action == ACTION_REPRODUCE:
-            offspring = self.reproduce(environment)
+    #     if action == ACTION_MOVE:
+    #         self.move(environment)
+    #     elif action == ACTION_TURN:
+    #         self.turn()
+    #     elif action == ACTION_EAT:
+    #         self.eat(environment)
+    #     elif action == ACTION_REPRODUCE:
+    #         offspring = self.reproduce(environment)
 
-        return offspring
+    #     return offspring
 
     def update_without_eating(self, environment):
         """
@@ -372,6 +372,9 @@ class Agent:
         # Base metabolic cost (just for staying alive)
         metabolism = self.get_trait("metabolism") or 1.0
         self.consume_energy(0.15 * metabolism)
+
+        if self.age >= 125:
+            self.kill_agent()
 
         if not self.is_alive():
             return (None, None)
