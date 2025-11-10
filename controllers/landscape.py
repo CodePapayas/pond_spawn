@@ -125,6 +125,17 @@ class Biome:
             return self.features["movement_speed"].get("value")
         return self.features.get("movement_speed")
 
+    def get_fertility(self):
+        """
+        Get the movement speed modifier for this biome.
+
+        Returns:
+            float: Movement speed value, or None if not set
+        """
+        if isinstance(self.features.get("fertility"), dict):
+            return self.features["fertility"].get("value")
+        return self.features.get("fertility")
+
     def get_visibility(self):
         """
         Get the visibility value for this biome.

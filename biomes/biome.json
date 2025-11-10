@@ -3,6 +3,7 @@
     "features": {
         "movement_speed": {"min": 0.8, "max": 1.05},
         "visibility": {"min": 0.25, "max": 1},
-        "food_units": [0, 1, 2, 3]
+        "food_units": [0, 1, 2, 3],
+        "fertility": {"min": 0.01, "max": 1.6}
     }
 }
