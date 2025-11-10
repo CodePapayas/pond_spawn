@@ -208,13 +208,6 @@ class Environment:
         # Sort agents by speed (highest first)
         agents_wanting_to_eat.sort(key=lambda a: a.get_trait("speed") or 1.0, reverse=True)
 
-        agents_in_line = 0
-
-        for agent in agents_wanting_to_eat:
-            agents_in_line += 1
-
-        print("# of agents in line to eat: ", {agents_in_line})
-
         # Let agents eat in order of speed
         for agent in agents_wanting_to_eat:
             if agent.is_alive():  # Only if still alive after metabolism
@@ -239,7 +232,7 @@ class Environment:
             "step": self.step_count,
             "alive_agents": len([a for a in self.agents if a.is_alive()]),
             "total_food": total_food,
-            "avg_energy": sum(a.energy for a in self.agents) / len(self.agents),
+            "avg_energy": sum(a.energy for a in self.agents) / len(self.agents) if self.agents else 0,
             "avg_lifespan": sum(a.age for a in self.agents) / len(self.agents)
             if self.agents
             else 0,
