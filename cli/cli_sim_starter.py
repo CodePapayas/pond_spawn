@@ -179,7 +179,7 @@ def run_simulation(args):
     # Run simulation
     print(f"\nRunning simulation for {args.steps} steps...")
     print(f"Food resupply: {args.food_resupply} units per resupply (scaled by biome fertility)")
-    print(f"Food resupplies only when total food reaches 0")
+    print("Food resupplies only when total food reaches 0")
     print("-" * 50)
 
     for i in range(args.steps):
