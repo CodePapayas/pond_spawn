@@ -361,10 +361,14 @@ class Agent:
         Returns:
             tuple: (action_index, offspring or None)
         """
+
+
+        die_time = create_death_range()
+
         # Increment age
         self.age += 1
 
-        if self.age > 25:
+        if self.age == r.choice(die_time) :
             self.kill_agent()
 
         # Base metabolic cost (just for staying alive)
@@ -438,7 +442,7 @@ class Agent:
         """
         Kills da agent
         """
-        self.energy == 0
+        self.energy = 0
 
     def get_trait(self, trait_name):
         """
@@ -458,6 +462,30 @@ class Agent:
         Get da heading
         """
         return self.heading
+    
+def create_death_range(size=100, early_death_chance=0.1, late_death_start=80):
+    """
+    Create death probability range with mostly zeros.
+    - early_death_chance: probability of early death values
+    - late_death_start: when death becomes certain
+    """
+    death_range = []
+    
+    for i in range(size):
+        if i < 5 and r.random() < early_death_chance:
+            # Small chance of very early death
+            death_range.append(r.randint(10, 50))
+        elif i >= late_death_start:
+            # Certain death after threshold
+            death_range.append(100 + (i - late_death_start))
+        elif i > 15 and i < 20 and r.random() < 0.05:
+            # Tiny chance in middle age
+            death_range.append(r.randint(1, 10))
+        else:
+            # Most positions are zero
+            death_range.append(0)
+    
+    return death_range
 
 if __name__ == "__main__":
     pass
