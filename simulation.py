@@ -139,32 +139,74 @@ class Environment:
         """
         return [agent for agent in self.agents if agent.position == (x, y)]
 
-    def count_agents_in_range(self, position, radius):
+    def count_agents_in_range(self, position, vision):
         """
-        Count the number of agents within a given radius of a position.
-
-        Uses Manhattan distance (grid-based distance).
+        Count agents in the 180-degree field in front of the agent at `position`.
 
         Args:
-            position (tuple): Center position (x, y)
-            radius (float): Search radius
+            position (tuple): (x, y) position of the focal agent.
 
         Returns:
-            int: Number of agents within radius (excluding self at exact position)
+            int: Number of agents in forward field of view.
         """
         x, y = position
-        count = 0
 
+        # Find the agent at this position
+        target_agent = None
         for agent in self.agents:
-            ax, ay = agent.position
-            # Calculate Manhattan distance
-            distance = abs(ax - x) + abs(ay - y)
+            if agent.position == position:
+                target_agent = agent
+                break
 
-            # Count agents within radius (but not at exact same position)
-            if distance > 0 and distance <= radius:
-                count += 1
+        if target_agent is None:
+            return 0
 
-        return count
+        heading = target_agent.get_heading()  # 0 = N, 1 = E, 2 = S, 3 = W
+
+        # Forward tiles for each heading (no wrap; petri dish world)
+        if heading == 0:  # north
+            positions = [
+                (x,     y + 1),
+                (x - 1, y),
+                (x + 1, y),
+                (x - 1, y + 1),
+                (x + 1, y + 1),
+            ]
+        elif heading == 1:  # east
+            positions = [
+                (x + 1, y),
+                (x,     y - 1),
+                (x,     y + 1),
+                (x + 1, y - 1),
+                (x + 1, y + 1),
+            ]
+        elif heading == 2:  # south
+            positions = [
+                (x,     y - 1),
+                (x - 1, y),
+                (x + 1, y),
+                (x - 1, y - 1),
+                (x + 1, y - 1),
+            ]
+        elif heading == 3:  # west
+            positions = [
+                (x - 1, y),
+                (x,     y - 1),
+                (x,     y + 1),
+                (x - 1, y - 1),
+                (x - 1, y + 1),
+            ]
+        else:
+            positions = []
+
+        count = 0
+        for px, py in positions:
+            if 0 <= px < self.grid_size and 0 <= py < self.grid_size:
+                agents_here = self.get_agents_at(px, py)
+                count += len(agents_here)
+
+        return count * vision
+
 
     def redist_food(self):
         """Add food to the grid based on resupply amount."""
