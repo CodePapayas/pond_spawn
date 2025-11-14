@@ -7,11 +7,11 @@ import torch as t
 from controllers.brain import Brain
 
 # Action constants - brain output with highest value determines action
-ACTION_MOVE = 0       # Move in the direction of the agent's heading
-ACTION_TURN = 1       # Turn 90 degrees clockwise
-ACTION_EAT = 2        # Attempt to eat food at current position
+ACTION_MOVE = 0  # Move in the direction of the agent's heading
+ACTION_TURN = 1  # Turn 90 degrees clockwise
+ACTION_EAT = 2  # Attempt to eat food at current position
 ACTION_REPRODUCE = 3  # Attempt to reproduce (costs 25% of current energy)
-ACTION_SLEEP = 4      # Rest; Burns energy, but less than anything else
+ACTION_SLEEP = 4  # Rest; Burns energy, but less than anything else
 # Action 5
 # Action 6
 # Action 7
@@ -293,12 +293,12 @@ class Agent:
         offspring.energy = reproduction_cost  # Offspring gets the energy parent spent
 
         return offspring
-    
+
     def sleep(self):
         """
         Make da lil guys sleep
         """
-        new_energy = self.energy *  0.93
+        new_energy = self.energy * 0.93
         self.energy = new_energy
 
     def update(self, environment):
@@ -362,13 +362,12 @@ class Agent:
             tuple: (action_index, offspring or None)
         """
 
-
         die_time = create_death_range()
 
         # Increment age
         self.age += 1
 
-        if self.age == r.choice(die_time) :
+        if self.age == r.choice(die_time):
             self.kill_agent()
 
         # Base metabolic cost (just for staying alive)
@@ -437,7 +436,7 @@ class Agent:
             bool: True if agent is alive
         """
         return self.energy > 0
-    
+
     def kill_agent(self):
         """
         Kills da agent
@@ -456,13 +455,14 @@ class Agent:
         """
         trait_info = self.genome.traits.get(trait_name, {})
         return trait_info.get("value")
-    
+
     def get_heading(self):
         """
         Get da heading
         """
         return self.heading
-    
+
+
 def create_death_range(size=100, early_death_chance=0.1, late_death_start=80):
     """
     Create death probability range with mostly zeros.
@@ -470,7 +470,7 @@ def create_death_range(size=100, early_death_chance=0.1, late_death_start=80):
     - late_death_start: when death becomes certain
     """
     death_range = []
-    
+
     for i in range(size):
         if i < 5 and r.random() < early_death_chance:
             # Small chance of very early death
@@ -484,8 +484,9 @@ def create_death_range(size=100, early_death_chance=0.1, late_death_start=80):
         else:
             # Most positions are zero
             death_range.append(0)
-    
+
     return death_range
+
 
 if __name__ == "__main__":
     pass
