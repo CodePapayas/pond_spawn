@@ -7,11 +7,11 @@ import torch as t
 from controllers.brain import Brain
 
 # Action constants - brain output with highest value determines action
-ACTION_MOVE = 0  # Move in the direction of the agent's heading
-ACTION_TURN = 1  # Turn 90 degrees clockwise
-ACTION_EAT = 2  # Attempt to eat food at current position
+ACTION_MOVE = 0       # Move in the direction of the agent's heading
+ACTION_TURN = 1       # Turn 90 degrees clockwise
+ACTION_EAT = 2        # Attempt to eat food at current position
 ACTION_REPRODUCE = 3  # Attempt to reproduce (costs 25% of current energy)
-# Action 4
+ACTION_SLEEP = 4      # Rest; Burns energy, but less than anything else
 # Action 5
 # Action 6
 # Action 7
@@ -42,17 +42,11 @@ class Agent:
             genome (Genome): The genetic blueprint for this agent
             position (tuple): Starting (x, y) coordinates
         """
-
-        # Initialize the agent
         self.genome = genome
         self.position = position
         self.energy = 100.0
         self.age = 0
         self.heading = r.choice(headings)  # 0=North, 1=East, 2=South, 3=West
-
-        # Log agents stats
-        self.total_food_eaten = 0
-        self.total_eating_attempts = 0
 
         # Create and configure brain
         brain_config_path = Path(__file__).resolve().parent.parent / "brains" / "brain.json"
@@ -96,11 +90,8 @@ class Agent:
         speed_stat = self.get_trait("speed") or 1.0
         movement_speed = terrain_speed * speed_stat
 
-        # Determine the agents energy capacity
-        max_energy = 100.0 * self.get_trait("energy_capacity")
-
         # Normalize inputs for processing (all values clipped to [0.0, 1.0])
-        normalized_energy = np.clip(self.energy / max_energy, 0.0, 1.0)
+        normalized_energy = np.clip(self.energy / 100.0, 0.0, 1.0)
         normalized_food = np.clip(food_available / 3.0, 0.0, 1.0)  # Food ranges 0-3
         normalized_agent_count = np.clip(nearby_agents / 10.0, 0.0, 1.0)
         normalized_visibility = np.clip(agent_vision, 0.0, 1.0)
@@ -136,10 +127,12 @@ class Agent:
         """
         energy, food, agents, visibility, movement = perception[0]
 
-        if energy < 0.5:
-            return ACTION_EAT
+        # Critical: Low energy and no food available -> must move to find food
+        if energy < 0.25 and food == 0:
+            return ACTION_MOVE
 
-        if food == 0 and energy < 0.5:
+        # Too much competition for available food -> move to find better location
+        if food > 0 and agents > (food * 2 + 1):
             return ACTION_MOVE
 
         # Otherwise, let the brain decide using winner-takes-all
@@ -199,7 +192,7 @@ class Agent:
         self.heading = (self.heading + 1) % 4
         # Energy cost for turning (affected by metabolism)
         metabolism = self.get_trait("metabolism") or 1.0
-        self.consume_energy(0.01 * metabolism)
+        self.consume_energy(0.1 * metabolism)
 
     def eat(self, environment):
         """
@@ -221,7 +214,7 @@ class Agent:
         biome = environment.get_biome(x, y)
         food_available = biome.get_food_units()
 
-        if food_available <= 0.0:
+        if food_available <= 0:
             return False
 
         # Calculate energy capacity
@@ -238,11 +231,8 @@ class Agent:
 
             self.add_energy(energy_gained)
             biome.features["food_units"] = food_available - 1
-            self.total_food_eaten += 1
-            self.total_eating_attempts += 1
             return True
 
-        self.total_eating_attempts += 1
         return False
 
     def reproduce(self, environment):
@@ -266,9 +256,6 @@ class Agent:
 
         # Need minimum energy to reproduce
         if self.energy < 50:
-            return None
-
-        if self.age < 25:
             return None
 
         # Can't reproduce on empty food tiles (not sustainable)
@@ -303,61 +290,62 @@ class Agent:
 
         # Create offspring with starting energy from parent
         offspring = Agent(offspring_genome, offspring_position)
-        offspring_max_energy = offspring.get_trait("clone_energy_threshold")
-        offspring.energy = (
-            reproduction_cost * offspring_max_energy
-        )  # Offspring gets the energy parent spent
+        offspring.energy = reproduction_cost  # Offspring gets the energy parent spent
 
         return offspring
+    
+    def sleep(self):
+        """
+        Make da lil guys sleep
+        """
+        new_energy = self.energy *  0.93
+        self.energy = new_energy
 
-    # def update(self, environment):
-    #     """
-    #     Main update method called each simulation step.
+    def update(self, environment):
+        """
+        Main update method called each simulation step.
 
-    #     Process:
-    #     1. Age the agent
-    #     2. Consume base metabolic energy (affected by metabolism trait)
-    #     3. Get perception from environment
-    #     4. Use brain to decide action (winner-takes-all)
-    #     5. Execute the chosen action (all actions cost energy, scaled by metabolism)
-    #     6. Return offspring if reproduction occurred
+        Process:
+        1. Age the agent
+        2. Consume base metabolic energy (affected by metabolism trait)
+        3. Get perception from environment
+        4. Use brain to decide action (winner-takes-all)
+        5. Execute the chosen action (all actions cost energy, scaled by metabolism)
+        6. Return offspring if reproduction occurred
 
-    #     Args:
-    #         environment: The simulation environment
+        Args:
+            environment: The simulation environment
 
-    #     Returns:
-    #         Agent or None: New offspring if reproduction occurred
-    #     """
-    #     # Increment age
-    #     self.age += 1
+        Returns:
+            Agent or None: New offspring if reproduction occurred
+        """
+        # Increment age
+        self.age += 1
 
-    #     # Base metabolic cost (just for staying alive)
-    #     metabolism = self.get_trait("metabolism") or 1.0
-    #     self.consume_energy(0.1 * metabolism)
+        # Base metabolic cost (just for staying alive)
+        metabolism = self.get_trait("metabolism") or 1.0
+        self.consume_energy(0.1 * metabolism)
 
-    #     if self.age >= 125:
-    #         self.kill_agent()
+        if not self.is_alive():
+            return None
 
-    #     if not self.is_alive():
-    #         return None
+        # Get perception and make decision
+        perception = self.perceive(environment)
+        action = self.decide(perception)
 
-    #     # Get perception and make decision
-    #     perception = self.perceive(environment)
-    #     action = self.decide(perception)
+        # Execute action based on winner-takes-all decision
+        offspring = None
 
-    #     # Execute action based on winner-takes-all decision
-    #     offspring = None
+        if action == ACTION_MOVE:
+            self.move(environment)
+        elif action == ACTION_TURN:
+            self.turn()
+        elif action == ACTION_EAT:
+            self.eat(environment)
+        elif action == ACTION_REPRODUCE:
+            offspring = self.reproduce(environment)
 
-    #     if action == ACTION_MOVE:
-    #         self.move(environment)
-    #     elif action == ACTION_TURN:
-    #         self.turn()
-    #     elif action == ACTION_EAT:
-    #         self.eat(environment)
-    #     elif action == ACTION_REPRODUCE:
-    #         offspring = self.reproduce(environment)
-
-    #     return offspring
+        return offspring
 
     def update_without_eating(self, environment):
         """
@@ -376,12 +364,12 @@ class Agent:
         # Increment age
         self.age += 1
 
+        if self.age > 25:
+            self.kill_agent()
+
         # Base metabolic cost (just for staying alive)
         metabolism = self.get_trait("metabolism") or 1.0
-        self.consume_energy(0.18 * metabolism)
-
-        if self.age >= 50:
-            self.kill_agent()
+        self.consume_energy(0.15 * metabolism)
 
         if not self.is_alive():
             return (None, None)
@@ -445,15 +433,12 @@ class Agent:
             bool: True if agent is alive
         """
         return self.energy > 0
-
+    
     def kill_agent(self):
         """
-        Kill an agent.
-
-        - An agent cannot exceed their max age
-        - Sets agent energy to 0
+        Kills da agent
         """
-        self.energy = 0
+        self.energy == 0
 
     def get_trait(self, trait_name):
         """
@@ -467,7 +452,12 @@ class Agent:
         """
         trait_info = self.genome.traits.get(trait_name, {})
         return trait_info.get("value")
-
+    
+    def get_heading(self):
+        """
+        Get da heading
+        """
+        return self.heading
 
 if __name__ == "__main__":
     pass
