@@ -166,7 +166,7 @@ class Environment:
         # Forward tiles for each heading (no wrap; petri dish world)
         if heading == 0:  # north
             positions = [
-                (x,     y + 1),
+                (x, y + 1),
                 (x - 1, y),
                 (x + 1, y),
                 (x - 1, y + 1),
@@ -175,14 +175,14 @@ class Environment:
         elif heading == 1:  # east
             positions = [
                 (x + 1, y),
-                (x,     y - 1),
-                (x,     y + 1),
+                (x, y - 1),
+                (x, y + 1),
                 (x + 1, y - 1),
                 (x + 1, y + 1),
             ]
         elif heading == 2:  # south
             positions = [
-                (x,     y - 1),
+                (x, y - 1),
                 (x - 1, y),
                 (x + 1, y),
                 (x - 1, y - 1),
@@ -191,8 +191,8 @@ class Environment:
         elif heading == 3:  # west
             positions = [
                 (x - 1, y),
-                (x,     y - 1),
-                (x,     y + 1),
+                (x, y - 1),
+                (x, y + 1),
                 (x - 1, y - 1),
                 (x - 1, y + 1),
             ]
@@ -206,7 +206,6 @@ class Environment:
                 count += len(agents_here)
 
         return count * vision
-
 
     def redist_food(self):
         """Add food to the grid based on resupply amount."""
