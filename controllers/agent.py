@@ -7,12 +7,12 @@ import torch as t
 from controllers.brain import Brain
 
 # Action constants - brain output with highest value determines action
-ACTION_MOVE = 0         # Move in the direction of the agent's heading
-ACTION_TURN = 1         # Turn 90 degrees clockwise
-ACTION_EAT = 2          # Attempt to eat food at current position
-ACTION_REPRODUCE = 3    # Attempt to reproduce (costs 25% of current energy)
-ACTION_SLEEP = 4        # Rest; Burns energy, but less than anything else
-ACTION_NOTHING = 5      # Agent can choose to do nothing. This burns the standard rate of metabolism it costs to be alive and nothing more
+ACTION_MOVE = 0  # Move in the direction of the agent's heading
+ACTION_TURN = 1  # Turn 90 degrees clockwise
+ACTION_EAT = 2  # Attempt to eat food at current position
+ACTION_REPRODUCE = 3  # Attempt to reproduce (costs 25% of current energy)
+ACTION_SLEEP = 4  # Rest; Burns energy, but less than anything else
+ACTION_NOTHING = 5  # Agent can choose to do nothing. This burns the standard rate of metabolism it costs to be alive and nothing more
 # Action 6
 # Action 7
 
@@ -448,7 +448,7 @@ class Agent:
         if self.energy <= 0:
             self.alive = False
             return False
-        
+
         return True
 
     def kill_agent(self):
@@ -475,7 +475,7 @@ class Agent:
         Get da heading
         """
         return self.heading
-    
+
     def loaf_around(self):
         """
         Allow da bois to take a vacation day
