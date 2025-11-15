@@ -234,6 +234,8 @@ class Environment:
         agents_wanting_to_eat = []  # Track agents that chose to eat
 
         for agent in self.agents:
+            if not agent.is_alive():
+                return
             # Agent updates but doesn't eat yet
             action, offspring = agent.update_without_eating(self)
 
@@ -258,7 +260,8 @@ class Environment:
         self.agents.extend(new_agents)
 
         # Remove dead agents
-        self.agents = [agent for agent in self.agents if agent.is_alive()]
+        if self.step_count % 25 == 0:
+            self.agents = [agent for agent in self.agents if agent.is_alive()]
 
     def get_stats(self):
         """

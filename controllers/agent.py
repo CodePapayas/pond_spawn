@@ -7,12 +7,12 @@ import torch as t
 from controllers.brain import Brain
 
 # Action constants - brain output with highest value determines action
-ACTION_MOVE = 0  # Move in the direction of the agent's heading
-ACTION_TURN = 1  # Turn 90 degrees clockwise
-ACTION_EAT = 2  # Attempt to eat food at current position
-ACTION_REPRODUCE = 3  # Attempt to reproduce (costs 25% of current energy)
-ACTION_SLEEP = 4  # Rest; Burns energy, but less than anything else
-# Action 5
+ACTION_MOVE = 0         # Move in the direction of the agent's heading
+ACTION_TURN = 1         # Turn 90 degrees clockwise
+ACTION_EAT = 2          # Attempt to eat food at current position
+ACTION_REPRODUCE = 3    # Attempt to reproduce (costs 25% of current energy)
+ACTION_SLEEP = 4        # Rest; Burns energy, but less than anything else
+ACTION_NOTHING = 5      # Agent can choose to do nothing. This burns the standard rate of metabolism it costs to be alive and nothing more
 # Action 6
 # Action 7
 
@@ -47,6 +47,7 @@ class Agent:
         self.energy = 100.0
         self.age = 0
         self.heading = r.choice(headings)  # 0=North, 1=East, 2=South, 3=West
+        self.alive = True
 
         # Create and configure brain
         brain_config_path = Path(__file__).resolve().parent.parent / "brains" / "brain.json"
@@ -226,7 +227,7 @@ class Agent:
 
         if energy_needed > 0:
             # Consume 1 food unit (provides energy)
-            food_energy_value = 25.0  # Each food unit provides 25 energy
+            food_energy_value = 33.0  # Each food unit provides 25 energy
             energy_gained = min(food_energy_value, energy_needed)
 
             self.add_energy(energy_gained)
@@ -252,6 +253,7 @@ class Agent:
             Agent or None: New offspring agent if reproduction successful
         """
         x, y = self.position
+        procreation_modifier = self.get_trait("reproduction_cost")
         biome_locale = environment.get_biome(x, y)
 
         # Need minimum energy to reproduce
@@ -262,8 +264,8 @@ class Agent:
         if biome_locale.get_food_units() == 0:
             return None
 
-        # Calculate reproduction cost (40% of current energy)
-        reproduction_cost = self.energy * 0.40
+        # Calculate reproduction cost
+        reproduction_cost = self.energy * (0.40 * procreation_modifier)
 
         # Deduct reproduction cost from parent
         self.consume_energy(reproduction_cost)
@@ -294,12 +296,12 @@ class Agent:
 
         return offspring
 
-    def sleep(self):
+    def sleep(self, metabolism):
         """
         Make da lil guys sleep
         """
-        new_energy = self.energy * 0.93
-        self.energy = new_energy
+        energy_gain = 15 * metabolism
+        self.add_energy(energy_gain)
 
     def update(self, environment):
         """
@@ -369,12 +371,14 @@ class Agent:
 
         if self.age == r.choice(die_time):
             self.kill_agent()
+            return (None, None)
 
         # Base metabolic cost (just for staying alive)
         metabolism = self.get_trait("metabolism") or 1.0
-        self.consume_energy(0.15 * metabolism)
+        self.consume_energy(0.05 * metabolism)
 
         if not self.is_alive():
+            self.alive = False
             return (None, None)
 
         # Get perception and make decision
@@ -394,6 +398,10 @@ class Agent:
         elif action == ACTION_REPRODUCE:
             offspring = self.reproduce(environment)
             self.consume_energy(0.1 * metabolism)
+        elif action == ACTION_SLEEP:
+            self.sleep(metabolism)
+        elif action == ACTION_NOTHING:
+            self.loaf_around()
         elif action == ACTION_EAT:
             # Check if eating is possible before returning the action
             x, y = self.position
@@ -422,7 +430,9 @@ class Agent:
         Args:
             amount (float): Energy to add
         """
-        self.energy += amount
+        energy_capacity_trait = self.get_trait("energy_capacity") or 1.0
+        max_energy = 100.0 * energy_capacity_trait
+        self.energy = min(self.energy + amount, max_energy)
 
     def is_alive(self):
         """
@@ -435,13 +445,17 @@ class Agent:
         Returns:
             bool: True if agent is alive
         """
-        return self.energy > 0
+        if self.energy <= 0:
+            self.alive = False
+            return False
+        
+        return True
 
     def kill_agent(self):
         """
         Kills da agent
         """
-        self.energy = 0
+        self.alive = False
 
     def get_trait(self, trait_name):
         """
@@ -461,6 +475,12 @@ class Agent:
         Get da heading
         """
         return self.heading
+    
+    def loaf_around(self):
+        """
+        Allow da bois to take a vacation day
+        """
+        self.consume_energy(0.005 * self.get_trait("metabolism"))
 
 
 def create_death_range(size=100, early_death_chance=0.1, late_death_start=80):
