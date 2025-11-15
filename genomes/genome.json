@@ -35,6 +35,11 @@
             "min": 0.5,
             "max": 1.05,
             "mutable": true
+        },
+        "reproduction_cost": {
+            "min": 0.25,
+            "max": 1.05,
+            "mutable": true
         }
     }
 }
