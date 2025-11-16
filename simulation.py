@@ -1,5 +1,8 @@
 import random as r
 
+import numpy as np
+import torch as t
+
 from controllers.agent import Agent
 from controllers.genome import Genome
 from controllers.landscape import Biome
@@ -34,8 +37,15 @@ class Environment:
         self.grid_size = grid_size
         self.grid = [[None for _ in range(grid_size)] for _ in range(grid_size)]
         self.food_resupply_amount = food_units  # Store for resupply
+        self.position_map = {}
+        self.agents_by_id = {}
         self.agents = []
         self.step_count = 0
+        self.lifespans = []  # Track all lifespans for median/min/max
+
+        # GPU setup for batched brain inference
+        self.device = t.device("cuda" if t.cuda.is_available() else "cpu")
+        print(f"Using device: {self.device}")
 
         self._initialize_biomes()
         # Biomes already have 0-3 food from generation, don't add more initially
@@ -85,7 +95,14 @@ class Environment:
 
             # Create agent
             agent = Agent(genome, position)
+            agent_id = agent.get_id()
+
             self.agents.append(agent)
+            self.agents_by_id[agent_id] = agent
+
+            if position not in self.position_map:
+                self.position_map[position] = set()
+            self.position_map[position].add(agent_id)
 
     def get_biome(self, x, y):
         """
@@ -128,7 +145,7 @@ class Environment:
 
     def get_agents_at(self, x, y):
         """
-        Get all agents at the specified position.
+        Get all agents at the specified position using position map.
 
         Args:
             x (int): X coordinate
@@ -137,7 +154,14 @@ class Environment:
         Returns:
             list: List of agents at this position
         """
-        return [agent for agent in self.agents if agent.position == (x, y)]
+        position = (x, y)
+        if position not in self.position_map:
+            return []
+
+        agent_ids = self.position_map[position]
+        return [
+            self.agents_by_id[agent_id] for agent_id in agent_ids if agent_id in self.agents_by_id
+        ]
 
     def count_agents_in_range(self, position, vision):
         """
@@ -151,12 +175,17 @@ class Environment:
         """
         x, y = position
 
-        # Find the agent at this position
-        target_agent = None
-        for agent in self.agents:
-            if agent.position == position:
-                target_agent = agent
-                break
+        # Find the agent at this position using position map
+        if position not in self.position_map:
+            return 0
+
+        agent_ids_at_pos = self.position_map[position]
+        if not agent_ids_at_pos:
+            return 0
+
+        # Get first agent at this position
+        target_agent_id = next(iter(agent_ids_at_pos))
+        target_agent = self.agents_by_id.get(target_agent_id)
 
         if target_agent is None:
             return 0
@@ -202,14 +231,92 @@ class Environment:
         count = 0
         for px, py in positions:
             if 0 <= px < self.grid_size and 0 <= py < self.grid_size:
-                agents_here = self.get_agents_at(px, py)
-                count += len(agents_here)
+                # Use position_map for O(1) lookup
+                pos_key = (px, py)
+                if pos_key in self.position_map:
+                    count += len(self.position_map[pos_key])
 
         return count * vision
 
     def redist_food(self):
         """Add food to the grid based on resupply amount."""
         self._add_food(self.food_resupply_amount)
+
+    def update_agent_position(self, agent_id, old_position, new_position):
+        """
+        Update the position map when an agent moves.
+
+        Args:
+            agent_id: ID of the agent that moved
+            old_position (tuple): Previous (x, y) position
+            new_position (tuple): New (x, y) position
+        """
+        # Remove from old position
+        if old_position in self.position_map:
+            self.position_map[old_position].discard(agent_id)
+            if not self.position_map[old_position]:
+                del self.position_map[old_position]
+
+        # Add to new position
+        if new_position not in self.position_map:
+            self.position_map[new_position] = set()
+        self.position_map[new_position].add(agent_id)
+
+    def _batch_decide(self, agents, batch_perceptions):
+        """
+        Run batched decision-making for all agents on GPU.
+
+        Args:
+            agents (list): List of Agent objects
+            batch_perceptions (torch.Tensor): Batched perception tensor [N, 5]
+
+        Returns:
+            list: List of action indices for each agent
+        """
+        # Check for critical survival rules per agent
+        actions = []
+        batch_indices_for_brain = []
+
+        for i, agent in enumerate(agents):
+            perception = batch_perceptions[i]
+            energy, food, agents_nearby, visibility, movement = perception
+
+            # Critical: Low energy and no food available -> must move to find food
+            if energy < 0.25 and food == 0:
+                actions.append(0)  # ACTION_MOVE
+                continue
+
+            # Too much competition for available food -> move to find better location
+            if food > 0 and agents_nearby > (food * 2 + 1):
+                actions.append(0)  # ACTION_MOVE
+                continue
+
+            # This agent needs brain decision
+            actions.append(None)
+            batch_indices_for_brain.append(i)
+
+        # If we have agents that need brain decisions, batch them
+        if batch_indices_for_brain:
+            # Run forward pass for all agents needing brain decisions
+            batch_outputs = []
+            for idx in batch_indices_for_brain:
+                agent = agents[idx]
+                perception = batch_perceptions[idx : idx + 1].to(self.device)
+                agent.brain.eval()
+                with t.no_grad():
+                    output = agent.brain(perception)
+                batch_outputs.append(output)
+
+            # Stack and get argmax for all
+            if batch_outputs:
+                stacked_outputs = t.cat(batch_outputs, dim=0)
+                brain_actions = t.argmax(stacked_outputs, dim=1).cpu().tolist()
+
+                # Fill in the brain decisions
+                for i, idx in enumerate(batch_indices_for_brain):
+                    actions[idx] = brain_actions[i]
+
+        return actions
 
     def step(self):
         """
@@ -229,15 +336,60 @@ class Environment:
         if current_food < len(self.agents) / 50:
             self.redist_food()
 
+        # Filter alive agents and do basic updates (age, metabolism, death checks)
+        alive_agents = []
+        for agent in self.agents:
+            if not agent.is_alive():
+                continue
+
+            # Age and metabolism check before perception
+            from controllers.agent import create_death_range
+
+            die_time = create_death_range()
+            agent.age += 1
+
+            if agent.age == np.random.choice(die_time):
+                agent.kill_agent()
+                continue
+
+            metabolism = agent.get_trait("metabolism") or 1.0
+            agent.consume_energy(0.05 * metabolism)
+
+            if not agent.is_alive():
+                self.lifespans.append(agent.age)
+                continue
+
+            alive_agents.append(agent)
+
+        if not alive_agents:
+            return
+
+        # BATCH PERCEPTION: Gather all perceptions at once
+        perceptions = []
+        for agent in alive_agents:
+            perception = agent.perceive(self)
+            perceptions.append(perception)
+
+        # Stack into batch tensor
+        batch_perceptions = t.cat(perceptions, dim=0)
+
+        # BATCH DECISION: Run all brains together on GPU
+        batch_actions = self._batch_decide(alive_agents, batch_perceptions)
+
         # Update all agents and collect offspring
         new_agents = []
         agents_wanting_to_eat = []  # Track agents that chose to eat
 
-        for agent in self.agents:
-            if not agent.is_alive():
-                return
-            # Agent updates but doesn't eat yet
-            action, offspring = agent.update_without_eating(self)
+        for i, agent in enumerate(alive_agents):
+            old_position = agent.position
+            action = batch_actions[i]
+
+            # Execute the action (but defer eating)
+            offspring = agent.execute_action(action, self)
+
+            # Update position map if agent moved
+            if agent.position != old_position:
+                self.update_agent_position(agent.get_id(), old_position, agent.position)
 
             # Track if agent wants to eat
             if action == 2:  # ACTION_EAT
@@ -262,9 +414,32 @@ class Environment:
                 agent.eat(self)
 
         # Add new offspring to population
-        self.agents.extend(new_agents)
+        for offspring in new_agents:
+            self.agents.append(offspring)
+            offspring_id = offspring.get_id()
+            self.agents_by_id[offspring_id] = offspring
+            offspring_pos = offspring.position
+            if offspring_pos not in self.position_map:
+                self.position_map[offspring_pos] = set()
+            self.position_map[offspring_pos].add(offspring_id)
 
         # Remove dead agents
+        dead_agents = [agent for agent in self.agents if not agent.is_alive()]
+        for agent in dead_agents:
+            agent_id = agent.get_id()
+            position = agent.position
+
+            # Remove from position map
+            if position in self.position_map:
+                self.position_map[position].discard(agent_id)
+                if not self.position_map[position]:
+                    del self.position_map[position]
+
+            # Remove from agents_by_id
+            if agent_id in self.agents_by_id:
+                del self.agents_by_id[agent_id]
+
+        # Remove from agents list
         self.agents = [agent for agent in self.agents if agent.is_alive()]
 
     def get_stats(self):
@@ -276,24 +451,66 @@ class Environment:
         """
         total_food = sum(biome.get_food_units() for _, _, biome in self.iter_biomes())
 
+        # Count alive agents from agents_by_id for O(1) per agent
+        alive_count = sum(1 for agent in self.agents_by_id.values() if agent.is_alive())
+        total_energy = sum(agent.energy for agent in self.agents_by_id.values() if agent.is_alive())
+
+        # Calculate lifespan statistics
+        median_lifespan = 0
+        min_age = 0
+        max_age = 0
+        if self.lifespans:
+            sorted_lifespans = sorted(self.lifespans)
+            n = len(sorted_lifespans)
+            median_lifespan = (
+                sorted_lifespans[n // 2]
+                if n % 2 == 1
+                else (sorted_lifespans[n // 2 - 1] + sorted_lifespans[n // 2]) / 2
+            )
+            min_age = sorted_lifespans[0]
+            max_age = sorted_lifespans[-1]
+
         return {
             "step": self.step_count,
-            "alive_agents": len([a for a in self.agents if a.is_alive()]),
+            "alive_agents": alive_count,
             "total_food": total_food,
-            "avg_energy": sum(a.energy for a in self.agents) / len(self.agents)
-            if self.agents
-            else 0,
-            "avg_lifespan": sum(a.age for a in self.agents) / len(self.agents)
-            if self.agents
-            else 0,
+            "avg_energy": total_energy / alive_count if alive_count > 0 else 0,
+            "median_lifespan": median_lifespan,
+            "min_age": min_age,
+            "max_age": max_age,
         }
+
+    def get_average_genome_traits(self):
+        """
+        Calculate average values for all genome traits across living population.
+
+        Returns:
+            dict: Dictionary mapping trait names to their average values
+        """
+        if not self.agents_by_id:
+            return {}
+
+        alive_agents = [agent for agent in self.agents_by_id.values() if agent.is_alive()]
+        if not alive_agents:
+            return {}
+
+        # Get all trait names from first agent
+        trait_names = list(alive_agents[0].genome.traits.keys())
+
+        # Calculate averages
+        avg_traits = {}
+        for trait_name in trait_names:
+            values = [agent.get_trait(trait_name) or 0.0 for agent in alive_agents]
+            avg_traits[trait_name] = sum(values) / len(values) if values else 0.0
+
+        return avg_traits
 
     def log_stats(self, stats, state_dict):
         """
         Log statistics to a state dictionary for graphing.
 
         Args:
-            stats (dict): Statistics dictionary with keys: step, alive_agents, total_food, avg_energy
+            stats (dict): Statistics dictionary with keys: step, alive_agents, total_food, avg_energy, median_lifespan, min_age, max_age
             state_dict (dict): Dictionary to accumulate stats over time
 
         Returns:
@@ -304,7 +521,9 @@ class Environment:
             "alive_agents": stats["alive_agents"],
             "total_food": stats["total_food"],
             "avg_energy": stats["avg_energy"],
-            "avg_lifespan": stats["avg_lifespan"],
+            "median_lifespan": stats["median_lifespan"],
+            "min_age": stats["min_age"],
+            "max_age": stats["max_age"],
         }
         return state_dict
 
@@ -319,7 +538,9 @@ class Environment:
         for y in range(self.grid_size):
             row = []
             for x in range(self.grid_size):
-                agents_here = len(self.get_agents_at(x, y))
+                # Use position_map for O(1) lookup
+                position = (x, y)
+                agents_here = len(self.position_map.get(position, set()))
                 food = self.grid[x][y].get_food_units()
                 row.append((agents_here, food))
             state.append(row)
@@ -384,7 +605,9 @@ class Environment:
         for y in range(self.grid_size):
             row = []
             for x in range(self.grid_size):
-                agents_here = len(self.get_agents_at(x, y))
+                # Use position_map for O(1) lookup
+                position = (x, y)
+                agents_here = len(self.position_map.get(position, set()))
                 food = self.grid[x][y].get_food_units()
 
                 # Color code agents: 0=red, 1=yellow, 2+=green

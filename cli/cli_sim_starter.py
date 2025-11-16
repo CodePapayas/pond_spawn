@@ -15,13 +15,14 @@ import matplotlib.pyplot as plt
 from simulation import Environment
 
 
-def plot_simulation_stats(logged_stats, initial_population):
+def plot_simulation_stats(logged_stats, initial_population, avg_traits=None):
     """
     Create line graphs for simulation statistics over time.
 
     Args:
         logged_stats (dict): Dictionary mapping step -> stats dict
         initial_population (int): Initial agent population
+        avg_traits (dict): Average genome traits of final population
     """
     if not logged_stats:
         print("No stats to plot.")
@@ -32,10 +33,12 @@ def plot_simulation_stats(logged_stats, initial_population):
     alive_agents = [logged_stats[s]["alive_agents"] for s in steps]
     total_food = [logged_stats[s]["total_food"] for s in steps]
     avg_energy = [logged_stats[s]["avg_energy"] for s in steps]
-    avg_lifespan = [logged_stats[s]["avg_lifespan"] for s in steps]
+    median_lifespan = [logged_stats[s]["median_lifespan"] for s in steps]
+    min_age = [logged_stats[s]["min_age"] for s in steps]
+    max_age = [logged_stats[s]["max_age"] for s in steps]
 
     # Create figure with 4 subplots
-    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(10, 12))
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(10, 14))
     fig.suptitle("Pond Spawn Simulation Statistics", fontsize=16, fontweight="bold")
 
     # Plot 1: Agent Population
@@ -69,15 +72,32 @@ def plot_simulation_stats(logged_stats, initial_population):
     ax3.legend()
     ax3.grid(True, alpha=0.3)
 
-    # Plot 4: Average Lifespan
-    ax4.plot(steps, avg_lifespan, "orange", linewidth=2, label="Avg Lifespan")
+    # Plot 4: Lifespan Statistics (Median with Min/Max Range)
+    ax4.plot(steps, median_lifespan, "purple", linewidth=2, label="Median Lifespan")
+    ax4.fill_between(steps, min_age, max_age, color="purple", alpha=0.2, label="Min-Max Range")
     ax4.set_xlabel("Step", fontsize=12)
     ax4.set_ylabel("Age", fontsize=12)
-    ax4.set_title("Average Agent Lifespan Over Time", fontsize=14, fontweight="bold")
+    ax4.set_title("Agent Lifespan Over Time", fontsize=14, fontweight="bold")
     ax4.legend()
     ax4.grid(True, alpha=0.3)
 
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0.12, 1, 0.97])
+
+    # Add genome trait averages as text annotation at the bottom if provided
+    if avg_traits:
+        trait_text = "Final Population Avg Traits:  "
+        trait_text += "  |  ".join(f"{name}: {value:.3f}" for name, value in avg_traits.items())
+
+        # Place text centered at the bottom of the figure
+        fig.text(
+            0.5,
+            0.02,
+            trait_text,
+            ha="center",
+            va="center",
+            fontsize=8,
+            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+        )
 
     # Generate filename with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -225,6 +245,13 @@ def run_simulation(args):
     for key, value in final_stats.items():
         print(f"  {key}: {value}")
 
+    # Show average genome traits
+    avg_traits = env.get_average_genome_traits()
+    if avg_traits:
+        print("\nAverage Genome Traits (Living Population):")
+        for trait_name, avg_value in avg_traits.items():
+            print(f"  {trait_name}: {avg_value:.4f}")
+
     if args.show_initial:
         print("\nComparison:")
         env.print_grid_state(initial_grid, "Initial Grid")
@@ -234,7 +261,7 @@ def run_simulation(args):
     print("=" * 50)
 
     # Generate graphs from logged stats
-    plot_simulation_stats(logged_stats, args.population)
+    plot_simulation_stats(logged_stats, args.population, avg_traits)
 
 
 def main():
