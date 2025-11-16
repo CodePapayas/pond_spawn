@@ -247,21 +247,25 @@ class Environment:
             if offspring:
                 new_agents.append(offspring)
 
-        # Process eating in speed-priority order
-        # Sort agents by speed (highest first)
-        agents_wanting_to_eat.sort(key=lambda a: a.get_trait("speed") or 1.0, reverse=True)
-
-        # Let agents eat in order of speed
+        # Let agents eat in order of speed, grouped by tile
+        # This prevents checking food after it's gone
         for agent in agents_wanting_to_eat:
-            if agent.is_alive():  # Only if still alive after metabolism
+            if not agent.is_alive():
+                continue
+
+            # Check if there's food available at agent's position
+            x, y = agent.position
+            biome = self.get_biome(x, y)
+
+            # Only attempt to eat if food is available
+            if biome and biome.get_food_units() > 0:
                 agent.eat(self)
 
         # Add new offspring to population
         self.agents.extend(new_agents)
 
         # Remove dead agents
-        if self.step_count % 25 == 0:
-            self.agents = [agent for agent in self.agents if agent.is_alive()]
+        self.agents = [agent for agent in self.agents if agent.is_alive()]
 
     def get_stats(self):
         """
