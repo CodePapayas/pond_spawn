@@ -14,7 +14,7 @@ class Brain(nn.Module):
     genome structure and count the total number of parameters.
     """
 
-    def __init__(self, config_path):
+    def __init__(self, config_path, device=None):
         """
         Initialize the Brain neural network from a JSON configuration file.
 
@@ -37,6 +37,11 @@ class Brain(nn.Module):
             }
         """
         super().__init__()
+
+        if device is None:
+            device = t.device("cuda" if t.cuda.is_available() else "cpu")
+        self.device = device
+
         with open(config_path) as f:
             config = json.load(f)
         self.layers = nn.ModuleList()
@@ -112,6 +117,8 @@ class Brain(nn.Module):
             >>> output.shape
             torch.Size([1, 4])
         """
+        x = x.to(self.device)
+
         for layer in self.layers:
             x = layer(x)
         return x
@@ -202,14 +209,18 @@ class Brain(nn.Module):
                 # Load weights
                 weight_size = layer.weight.numel()
                 weight_values = brain_weights[idx : idx + weight_size]
-                layer.weight.data = t.tensor(weight_values, dtype=t.float32).view_as(layer.weight)
+                layer.weight.data = t.tensor(
+                    weight_values, dtype=t.float32, device=self.device
+                ).view_as(layer.weight)
                 idx += weight_size
 
                 # Load biases
                 if layer.bias is not None:
                     bias_size = layer.bias.numel()
                     bias_values = brain_weights[idx : idx + bias_size]
-                    layer.bias.data = t.tensor(bias_values, dtype=t.float32).view_as(layer.bias)
+                    layer.bias.data = t.tensor(
+                        bias_values, dtype=t.float32, device=self.device
+                    ).view_as(layer.bias)
                     idx += bias_size
 
 

@@ -3,7 +3,7 @@
     {"type": "linear", "input_size": 5, "output_size": 8},
     {"type": "activation", "function": "relu"},
     {"type": "linear", "input_size": 8, "output_size": 8},
-    {"type": "activation", "function": "tanh"},
+    {"type": "activation", "function": "relu"},
     {"type": "linear", "input_size": 8, "output_size": 8},
     {"type": "activation", "function": "sigmoid"},
     {"type": "linear", "input_size": 8, "output_size": 6}
