@@ -60,10 +60,12 @@ class TestBrainInitialization:
     def test_brain_layers_are_correct_types(self, brain):
         """Test that layers are of correct types."""
         assert isinstance(brain.layers[0], t.nn.Linear)
-        assert isinstance(brain.layers[1], t.nn.Tanh)
+        assert isinstance(brain.layers[1], t.nn.ReLU)
         assert isinstance(brain.layers[2], t.nn.Linear)
         assert isinstance(brain.layers[3], t.nn.ReLU)
         assert isinstance(brain.layers[4], t.nn.Linear)
+        assert isinstance(brain.layers[5], t.nn.Sigmoid)
+        assert isinstance(brain.layers[6], t.nn.Linear)
 
     def test_brain_linear_layers_have_correct_dimensions(self, brain):
         """Test that linear layers have correct input/output dimensions."""
@@ -72,7 +74,9 @@ class TestBrainInitialization:
         assert brain.layers[2].in_features == 8
         assert brain.layers[2].out_features == 8
         assert brain.layers[4].in_features == 8
-        assert brain.layers[4].out_features == 4
+        assert brain.layers[4].out_features == 8
+        assert brain.layers[6].in_features == 8
+        assert brain.layers[6].out_features == 6
 
     def test_brain_with_nonexistent_file_raises_error(self):
         """Test that initializing with a nonexistent file raises FileNotFoundError."""
@@ -117,14 +121,14 @@ class TestBrainForwardPass:
         """Test forward pass with correct input dimensions."""
         input_tensor = t.randn(1, 5)  # batch_size=1, features=5
         output = brain(input_tensor)
-        assert output.shape == (1, 4)  # batch_size=1, output_features=4
+        assert output.shape == (1, 6)  # batch_size=1, output_features=6
 
     def test_forward_pass_with_batch(self, brain):
         """Test forward pass with multiple samples in batch."""
         batch_size = 10
         input_tensor = t.randn(batch_size, 5)
         output = brain(input_tensor)
-        assert output.shape == (batch_size, 4)
+        assert output.shape == (batch_size, 6)
 
     def test_forward_pass_output_is_tensor(self, brain):
         """Test that forward pass returns a tensor."""
@@ -164,7 +168,7 @@ class TestBrainWeightCounting:
         # Layer 2: 8*8 + 8 = 72
         # Layer 4: 8*4 + 4 = 36
         # Total: 156
-        expected_count = 156
+        expected_count = 174
         assert brain.count_weights() == expected_count
 
     def test_count_weights_with_simple_network(self):

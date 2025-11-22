@@ -12,6 +12,7 @@ POPULATION = 500
 FOOD_RESUPPLY = 3
 MAX_FOOD_PER_TILE = 3
 TICKS = 1000
+MAX_AGENTS_PER_TILE = 3
 
 
 class Environment:
@@ -42,6 +43,7 @@ class Environment:
         self.agents = []
         self.step_count = 0
         self.lifespans = []  # Track all lifespans for median/min/max
+        self.logged_lifespans = set()  # Prevent duplicate lifespan logging
 
         # GPU setup for batched brain inference
         self.device = t.device("cuda" if t.cuda.is_available() else "cpu")
@@ -49,6 +51,13 @@ class Environment:
 
         self._initialize_biomes()
         # Biomes already have 0-3 food from generation, don't add more initially
+        
+        # Cap population at 3 * grid_size * grid_size (max capacity)
+        max_capacity = MAX_AGENTS_PER_TILE * grid_size * grid_size
+        if num_agents > max_capacity:
+            print(f"Warning: Requested population {num_agents} exceeds max capacity {max_capacity}. Capping at {max_capacity}.")
+            num_agents = max_capacity
+            
         self._spawn_agents(num_agents)
 
     def _initialize_biomes(self):
@@ -76,6 +85,14 @@ class Environment:
             current_food = biome.get_food_units()
             biome.features["food_units"] = (current_food or 0) + food_to_add
 
+    def _record_lifespan(self, agent):
+        """Store a single lifespan entry per agent to avoid double counting."""
+        agent_id = agent.get_id()
+        if agent_id in self.logged_lifespans:
+            return
+        self.lifespans.append(agent.age)
+        self.logged_lifespans.add(agent_id)
+
     def _spawn_agents(self, num_agents):
         """
         Create and place agents randomly in the environment.
@@ -83,15 +100,22 @@ class Environment:
         Args:
             num_agents (int): Number of agents to spawn
         """
-        for _ in range(num_agents):
+        # Create a list of all possible positions, repeated MAX_AGENTS_PER_TILE times
+        all_positions = []
+        for x in range(self.grid_size):
+            for y in range(self.grid_size):
+                for _ in range(MAX_AGENTS_PER_TILE):
+                    all_positions.append((x, y))
+        
+        # Shuffle to randomize placement
+        r.shuffle(all_positions)
+        
+        # Take only as many positions as we need
+        spawn_positions = all_positions[:num_agents]
+        
+        for position in spawn_positions:
             # Generate random genome for agent
             genome = Genome().generate()
-
-            # Random starting position
-            position = (
-                r.randint(0, self.grid_size - 1),
-                r.randint(0, self.grid_size - 1),
-            )
 
             # Create agent
             agent = Agent(genome, position)
@@ -342,21 +366,18 @@ class Environment:
             if not agent.is_alive():
                 continue
 
-            # Age and metabolism check before perception
-            from controllers.agent import create_death_range
-
-            die_time = create_death_range()
+            # Natural aging and random lifespan limit
             agent.age += 1
-
-            if agent.age == np.random.choice(die_time):
+            if agent.reached_natural_death():
                 agent.kill_agent()
+                self._record_lifespan(agent)
                 continue
 
+            # Metabolism drains energy; death here also counts toward lifespan stats
             metabolism = agent.get_trait("metabolism") or 1.0
-            agent.consume_energy(0.05 * metabolism)
-
+            agent.consume_energy(0.2 * metabolism)
             if not agent.is_alive():
-                self.lifespans.append(agent.age)
+                self._record_lifespan(agent)
                 continue
 
             alive_agents.append(agent)
@@ -426,6 +447,7 @@ class Environment:
         # Remove dead agents
         dead_agents = [agent for agent in self.agents if not agent.is_alive()]
         for agent in dead_agents:
+            self._record_lifespan(agent)
             agent_id = agent.get_id()
             position = agent.position
 
@@ -630,6 +652,21 @@ class Environment:
                 row.append(cell)
             print(" | ".join(row))
         print()
+
+    def is_tile_full(self, x, y):
+        """
+        Check if a tile has reached maximum agent capacity.
+        
+        Args:
+            x (int): X coordinate
+            y (int): Y coordinate
+            
+        Returns:
+            bool: True if tile is full, False otherwise
+        """
+        position = (x, y)
+        agents_here = len(self.position_map.get(position, set()))
+        return agents_here >= MAX_AGENTS_PER_TILE
 
 
 if __name__ == "__main__":
