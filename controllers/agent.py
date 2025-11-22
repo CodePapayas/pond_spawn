@@ -49,6 +49,7 @@ class Agent:
         self.heading = r.choice(headings)  # 0=North, 1=East, 2=South, 3=West
         self.alive = True
         self.id = genome.id
+        self.death_age = self._assign_death_age()
 
         # Create and configure brain (will be moved to GPU by environment for batching)
         brain_config_path = Path(__file__).resolve().parent.parent / "brains" / "brain.json"
@@ -176,12 +177,14 @@ class Agent:
 
         # Check if new position is within bounds
         if 0 <= new_x < environment.grid_size and 0 <= new_y < environment.grid_size:
-            self.position = (new_x, new_y)
+            # Check if tile is full
+            if not environment.is_tile_full(new_x, new_y):
+                self.position = (new_x, new_y)
 
             # Energy cost for movement (affected by speed and metabolism)
             speed = self.get_trait("speed") or 1.0
             metabolism = self.get_trait("metabolism") or 1.0
-            movement_cost = terrain_speed * speed * metabolism
+            movement_cost = terrain_speed * speed * metabolism * 0.2
             self.consume_energy(movement_cost)
 
     def turn(self):
@@ -228,7 +231,7 @@ class Agent:
 
         if energy_needed > 0:
             # Consume 1 food unit (provides energy)
-            food_energy_value = 33.0  # Each food unit provides 25 energy
+            food_energy_value = 25.0  # Each food unit provides 25 energy
             energy_gained = min(food_energy_value, energy_needed)
 
             self.add_energy(energy_gained)
@@ -258,7 +261,7 @@ class Agent:
         biome_locale = environment.get_biome(x, y)
 
         # Need minimum energy to reproduce
-        if self.energy < 50:
+        if self.energy < 40:
             return None
 
         # Can't reproduce on empty food tiles (not sustainable)
@@ -277,11 +280,13 @@ class Agent:
         # Try to find a nearby valid position for offspring
         possible_positions = [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
 
-        # Filter valid positions (within bounds)
+        # Filter valid positions (within bounds and not full)
         valid_positions = [
             pos
             for pos in possible_positions
-            if 0 <= pos[0] < environment.grid_size and 0 <= pos[1] < environment.grid_size
+            if 0 <= pos[0] < environment.grid_size 
+            and 0 <= pos[1] < environment.grid_size
+            and not environment.is_tile_full(pos[0], pos[1])
         ]
 
         if not valid_positions:
@@ -325,6 +330,10 @@ class Agent:
         # Increment age
         self.age += 1
 
+        if self.reached_natural_death():
+            self.kill_agent()
+            return None
+
         # Base metabolic cost (just for staying alive)
         metabolism = self.get_trait("metabolism") or 1.0
         self.consume_energy(0.1 * metabolism)
@@ -365,12 +374,10 @@ class Agent:
             tuple: (action_index, offspring or None)
         """
 
-        die_time = create_death_range()
-
         # Increment age
         self.age += 1
 
-        if self.age == r.choice(die_time):
+        if self.reached_natural_death():
             self.kill_agent()
             return (None, None)
 
@@ -452,7 +459,7 @@ class Agent:
 
         return True
 
-    def kill_agent(self):
+    def kill_agent(self): 
         """
         Kills da agent
         """
@@ -506,7 +513,7 @@ class Agent:
 
         if action == ACTION_MOVE:
             self.move(environment)
-            self.consume_energy(0.08 * metabolism)
+            self.consume_energy(0.05 * metabolism)
         elif action == ACTION_TURN:
             self.turn()
             self.consume_energy(0.04 * metabolism)
@@ -527,6 +534,17 @@ class Agent:
                 self.consume_energy(0.08 * metabolism)
 
         return offspring
+
+    def reached_natural_death(self):
+        """Check if the agent reached its assigned death age."""
+        return self.death_age is not None and self.age >= self.death_age
+
+    def _assign_death_age(self):
+        """Assign a single death age using the configured distribution."""
+        candidates = [value for value in create_death_range() if value > 0]
+        if not candidates:
+            return None
+        return r.choice(candidates)
 
 
 def create_death_range(size=100, early_death_chance=0.1, late_death_start=80):
