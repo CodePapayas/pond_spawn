@@ -1,6 +1,5 @@
 import random as r
 
-import numpy as np
 import torch as t
 
 from controllers.agent import Agent
@@ -51,13 +50,15 @@ class Environment:
 
         self._initialize_biomes()
         # Biomes already have 0-3 food from generation, don't add more initially
-        
+
         # Cap population at 3 * grid_size * grid_size (max capacity)
         max_capacity = MAX_AGENTS_PER_TILE * grid_size * grid_size
         if num_agents > max_capacity:
-            print(f"Warning: Requested population {num_agents} exceeds max capacity {max_capacity}. Capping at {max_capacity}.")
+            print(
+                f"Warning: Requested population {num_agents} exceeds max capacity {max_capacity}. Capping at {max_capacity}."
+            )
             num_agents = max_capacity
-            
+
         self._spawn_agents(num_agents)
 
     def _initialize_biomes(self):
@@ -106,13 +107,13 @@ class Environment:
             for y in range(self.grid_size):
                 for _ in range(MAX_AGENTS_PER_TILE):
                     all_positions.append((x, y))
-        
+
         # Shuffle to randomize placement
         r.shuffle(all_positions)
-        
+
         # Take only as many positions as we need
         spawn_positions = all_positions[:num_agents]
-        
+
         for position in spawn_positions:
             # Generate random genome for agent
             genome = Genome().generate()
@@ -656,11 +657,11 @@ class Environment:
     def is_tile_full(self, x, y):
         """
         Check if a tile has reached maximum agent capacity.
-        
+
         Args:
             x (int): X coordinate
             y (int): Y coordinate
-            
+
         Returns:
             bool: True if tile is full, False otherwise
         """

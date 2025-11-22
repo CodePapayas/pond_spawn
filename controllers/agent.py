@@ -284,7 +284,7 @@ class Agent:
         valid_positions = [
             pos
             for pos in possible_positions
-            if 0 <= pos[0] < environment.grid_size 
+            if 0 <= pos[0] < environment.grid_size
             and 0 <= pos[1] < environment.grid_size
             and not environment.is_tile_full(pos[0], pos[1])
         ]
@@ -459,7 +459,7 @@ class Agent:
 
         return True
 
-    def kill_agent(self): 
+    def kill_agent(self):
         """
         Kills da agent
         """
