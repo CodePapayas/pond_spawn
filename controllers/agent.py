@@ -178,8 +178,8 @@ class Agent:
         # Check if new position is within bounds
         if 0 <= new_x < environment.grid_size and 0 <= new_y < environment.grid_size:
             self.position = (new_x, new_y)
-                
-                # Energy cost for movement (affected by speed and metabolism)
+
+            # Energy cost for movement (affected by speed and metabolism)
             speed = self.get_trait("speed") or 1.0
             metabolism = self.get_trait("metabolism") or 1.0
             movement_cost = terrain_speed * speed * metabolism * 0.15
@@ -282,8 +282,7 @@ class Agent:
         valid_positions = [
             pos
             for pos in possible_positions
-            if 0 <= pos[0] < environment.grid_size
-            and 0 <= pos[1] < environment.grid_size
+            if 0 <= pos[0] < environment.grid_size and 0 <= pos[1] < environment.grid_size
             # and not environment.is_tile_full(pos[0], pos[1])
         ]
 
