@@ -7,11 +7,11 @@ from controllers.genome import Genome
 from controllers.landscape import Biome
 
 # Global variables
-POPULATION = 500
+POPULATION = 300
 FOOD_RESUPPLY = 3
 MAX_FOOD_PER_TILE = 3
-TICKS = 1000
-MAX_AGENTS_PER_TILE = 3
+TICKS = 10000
+# MAX_AGENTS_PER_TILE = 5
 
 
 class Environment:
@@ -25,7 +25,7 @@ class Environment:
     - Simulation step logic
     """
 
-    def __init__(self, grid_size=10, num_agents=POPULATION, food_units=FOOD_RESUPPLY):
+    def __init__(self, grid_size=12, num_agents=POPULATION, food_units=FOOD_RESUPPLY):
         """
         Initialize the simulation environment.
 
@@ -52,12 +52,12 @@ class Environment:
         # Biomes already have 0-3 food from generation, don't add more initially
 
         # Cap population at 3 * grid_size * grid_size (max capacity)
-        max_capacity = MAX_AGENTS_PER_TILE * grid_size * grid_size
-        if num_agents > max_capacity:
-            print(
-                f"Warning: Requested population {num_agents} exceeds max capacity {max_capacity}. Capping at {max_capacity}."
-            )
-            num_agents = max_capacity
+        # max_capacity = MAX_AGENTS_PER_TILE * grid_size * grid_size
+        # if num_agents > max_capacity:
+        #     print(
+        #         f"Warning: Requested population {num_agents} exceeds max capacity {max_capacity}. Capping at {max_capacity}."
+        #     )
+        #     num_agents = max_capacity
 
         self._spawn_agents(num_agents)
 
@@ -105,8 +105,7 @@ class Environment:
         all_positions = []
         for x in range(self.grid_size):
             for y in range(self.grid_size):
-                for _ in range(MAX_AGENTS_PER_TILE):
-                    all_positions.append((x, y))
+                all_positions.append((x, y))
 
         # Shuffle to randomize placement
         r.shuffle(all_positions)
@@ -376,7 +375,7 @@ class Environment:
 
             # Metabolism drains energy; death here also counts toward lifespan stats
             metabolism = agent.get_trait("metabolism") or 1.0
-            agent.consume_energy(0.2 * metabolism)
+            agent.consume_energy(0.1 * metabolism)
             if not agent.is_alive():
                 self._record_lifespan(agent)
                 continue
@@ -654,20 +653,20 @@ class Environment:
             print(" | ".join(row))
         print()
 
-    def is_tile_full(self, x, y):
-        """
-        Check if a tile has reached maximum agent capacity.
+    # def is_tile_full(self, x, y):
+    #     """
+    #     Check if a tile has reached maximum agent capacity.
 
-        Args:
-            x (int): X coordinate
-            y (int): Y coordinate
+    #     Args:
+    #         x (int): X coordinate
+    #         y (int): Y coordinate
 
-        Returns:
-            bool: True if tile is full, False otherwise
-        """
-        position = (x, y)
-        agents_here = len(self.position_map.get(position, set()))
-        return agents_here >= MAX_AGENTS_PER_TILE
+    #     Returns:
+    #         bool: True if tile is full, False otherwise
+    #     """
+    #     position = (x, y)
+    #     agents_here = len(self.position_map.get(position, set()))
+    #     return agents_here >= MAX_AGENTS_PER_TILE
 
 
 if __name__ == "__main__":

@@ -95,7 +95,7 @@ class Agent:
 
         # Normalize inputs for processing (all values clipped to [0.0, 1.0])
         normalized_energy = np.clip(self.energy / 100.0, 0.0, 1.0)
-        normalized_food = np.clip(food_available / 3.0, 0.0, 1.0)  # Food ranges 0-3
+        normalized_food = np.clip(food_available / 5.0, 0.0, 1.0)  # Food ranges 0-5
         normalized_agent_count = np.clip(nearby_agents / 10.0, 0.0, 1.0)
         normalized_visibility = np.clip(agent_vision, 0.0, 1.0)
         normalized_movement = np.clip(movement_speed, 0.0, 1.0)
@@ -177,14 +177,12 @@ class Agent:
 
         # Check if new position is within bounds
         if 0 <= new_x < environment.grid_size and 0 <= new_y < environment.grid_size:
-            # Check if tile is full
-            if not environment.is_tile_full(new_x, new_y):
-                self.position = (new_x, new_y)
-
-            # Energy cost for movement (affected by speed and metabolism)
+            self.position = (new_x, new_y)
+                
+                # Energy cost for movement (affected by speed and metabolism)
             speed = self.get_trait("speed") or 1.0
             metabolism = self.get_trait("metabolism") or 1.0
-            movement_cost = terrain_speed * speed * metabolism * 0.2
+            movement_cost = terrain_speed * speed * metabolism * 0.15
             self.consume_energy(movement_cost)
 
     def turn(self):
@@ -231,7 +229,7 @@ class Agent:
 
         if energy_needed > 0:
             # Consume 1 food unit (provides energy)
-            food_energy_value = 25.0  # Each food unit provides 25 energy
+            food_energy_value = 40.0  # Each food unit provides 40 energy
             energy_gained = min(food_energy_value, energy_needed)
 
             self.add_energy(energy_gained)
@@ -286,7 +284,7 @@ class Agent:
             for pos in possible_positions
             if 0 <= pos[0] < environment.grid_size
             and 0 <= pos[1] < environment.grid_size
-            and not environment.is_tile_full(pos[0], pos[1])
+            # and not environment.is_tile_full(pos[0], pos[1])
         ]
 
         if not valid_positions:
@@ -306,7 +304,7 @@ class Agent:
         """
         Make da lil guys sleep
         """
-        energy_gain = 15 * metabolism
+        energy_gain = 20 * metabolism
         self.add_energy(energy_gain)
 
     def update(self, environment):
@@ -463,6 +461,7 @@ class Agent:
         """
         Kills da agent
         """
+        self.energy = 0
         self.alive = False
 
     def get_trait(self, trait_name):
@@ -513,7 +512,6 @@ class Agent:
 
         if action == ACTION_MOVE:
             self.move(environment)
-            self.consume_energy(0.05 * metabolism)
         elif action == ACTION_TURN:
             self.turn()
             self.consume_energy(0.04 * metabolism)
@@ -558,13 +556,13 @@ def create_death_range(size=100, early_death_chance=0.1, late_death_start=80):
     for i in range(size):
         if i < 5 and r.random() < early_death_chance:
             # Small chance of very early death
-            death_range.append(r.randint(10, 50))
+            death_range.append(r.randint(50, 150))
         elif i >= late_death_start:
-            # Certain death after threshold
-            death_range.append(100 + (i - late_death_start))
+            # Certain death after threshold - scaled much higher
+            death_range.append(500 + (i - late_death_start) * 20)
         elif i > 15 and i < 20 and r.random() < 0.05:
             # Tiny chance in middle age
-            death_range.append(r.randint(1, 10))
+            death_range.append(r.randint(200, 400))
         else:
             # Most positions are zero
             death_range.append(0)
