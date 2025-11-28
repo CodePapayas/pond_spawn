@@ -6,7 +6,6 @@ Usage:
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 import pygame
@@ -51,26 +50,26 @@ def get_agent_color(agent):
 def load_agent_sprites(sprite_size):
     """
     Load and prepare agent sprites for all 4 headings.
-    
+
     Returns a dict mapping heading (0-3) to rotated sprite,
     or None if sprite file not found.
     """
     sprite_path = Path(__file__).parent.parent / "assets" / "sprites" / "callumV1.png"
-    
+
     if not sprite_path.exists():
         return None
-    
+
     try:
         original = pygame.image.load(str(sprite_path)).convert_alpha()
         scaled = pygame.transform.scale(original, (sprite_size, sprite_size))
-        
+
         # Create rotated versions for each heading
         # Assuming original sprite faces North (heading 0)
         sprites = {
-            0: scaled,                                    # North - no rotation
-            1: pygame.transform.rotate(scaled, -90),     # East - 90° clockwise
-            2: pygame.transform.rotate(scaled, 180),     # South - 180°
-            3: pygame.transform.rotate(scaled, 90),      # West - 90° counter-clockwise
+            0: scaled,  # North - no rotation
+            1: pygame.transform.rotate(scaled, -90),  # East - 90° clockwise
+            2: pygame.transform.rotate(scaled, 180),  # South - 180°
+            3: pygame.transform.rotate(scaled, 90),  # West - 90° counter-clockwise
         }
         return sprites
     except pygame.error:
@@ -92,13 +91,29 @@ def draw_heading_indicator(screen, x, y, heading, cell_size):
     size = cell_size // 4
 
     if heading == 0:  # North
-        points = [(center_x, center_y - size), (center_x - size // 2, center_y), (center_x + size // 2, center_y)]
+        points = [
+            (center_x, center_y - size),
+            (center_x - size // 2, center_y),
+            (center_x + size // 2, center_y),
+        ]
     elif heading == 1:  # East
-        points = [(center_x + size, center_y), (center_x, center_y - size // 2), (center_x, center_y + size // 2)]
+        points = [
+            (center_x + size, center_y),
+            (center_x, center_y - size // 2),
+            (center_x, center_y + size // 2),
+        ]
     elif heading == 2:  # South
-        points = [(center_x, center_y + size), (center_x - size // 2, center_y), (center_x + size // 2, center_y)]
+        points = [
+            (center_x, center_y + size),
+            (center_x - size // 2, center_y),
+            (center_x + size // 2, center_y),
+        ]
     else:  # West
-        points = [(center_x - size, center_y), (center_x, center_y - size // 2), (center_x, center_y + size // 2)]
+        points = [
+            (center_x - size, center_y),
+            (center_x, center_y - size // 2),
+            (center_x, center_y + size // 2),
+        ]
 
     pygame.draw.polygon(screen, WHITE, points)
 
@@ -120,7 +135,7 @@ def run_visualization(grid_size=12, population=100, cell_size=40, fps=10):
     sprite_size = int(cell_size * 0.8)
     agent_sprites = load_agent_sprites(sprite_size)
     if agent_sprites:
-        print(f"Loaded agent sprites from assets/sprites/callumV1.png")
+        print("Loaded agent sprites from assets/sprites/callumV1.png")
     else:
         print("No sprite found, using circle fallback")
 
@@ -166,7 +181,9 @@ def run_visualization(grid_size=12, population=100, cell_size=40, fps=10):
 
                 if agent_sprites:
                     # Draw sprite
-                    draw_agent_sprite(screen, agent_sprites, agent, pixel_x, pixel_y, cell_size, sprite_size)
+                    draw_agent_sprite(
+                        screen, agent_sprites, agent, pixel_x, pixel_y, cell_size, sprite_size
+                    )
                 else:
                     # Fallback to circle
                     agent_color = get_agent_color(agent)
@@ -178,8 +195,12 @@ def run_visualization(grid_size=12, population=100, cell_size=40, fps=10):
 
         # Draw grid lines
         for i in range(grid_size + 1):
-            pygame.draw.line(screen, GRAY, (i * cell_size, 0), (i * cell_size, grid_size * cell_size))
-            pygame.draw.line(screen, GRAY, (0, i * cell_size), (grid_size * cell_size, i * cell_size))
+            pygame.draw.line(
+                screen, GRAY, (i * cell_size, 0), (i * cell_size, grid_size * cell_size)
+            )
+            pygame.draw.line(
+                screen, GRAY, (0, i * cell_size), (grid_size * cell_size, i * cell_size)
+            )
 
         # Draw stats
         stats = env.get_stats()
@@ -196,7 +217,9 @@ def run_visualization(grid_size=12, population=100, cell_size=40, fps=10):
         screen.blit(food_text, (280, stats_y))
         screen.blit(energy_text, (380, stats_y))
 
-        paused_text = font.render("PAUSED (Space to resume)" if paused else "Space=Pause  Esc=Quit", True, GRAY)
+        paused_text = font.render(
+            "PAUSED (Space to resume)" if paused else "Space=Pause  Esc=Quit", True, GRAY
+        )
         screen.blit(paused_text, (10, stats_y + 25))
 
         pygame.display.flip()
@@ -208,7 +231,9 @@ def run_visualization(grid_size=12, population=100, cell_size=40, fps=10):
             waiting = True
             while waiting:
                 for event in pygame.event.get():
-                    if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+                    if event.type == pygame.QUIT or (
+                        event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE
+                    ):
                         waiting = False
                         running = False
 

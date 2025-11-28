@@ -497,7 +497,7 @@ class Agent:
         """
         Check if agent should skip this turn.
         Resets the flag after checking so agent acts on the following turn.
-        
+
         Returns:
             bool: True if agent should skip this turn
         """
