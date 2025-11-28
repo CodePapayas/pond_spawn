@@ -5,7 +5,7 @@
     {"type": "linear", "input_size": 8, "output_size": 8},
     {"type": "activation", "function": "relu"},
     {"type": "linear", "input_size": 8, "output_size": 8},
-    {"type": "activation", "function": "sigmoid"},
+    {"type": "activation", "function": "relu"},
     {"type": "linear", "input_size": 8, "output_size": 6}
   ]
 }

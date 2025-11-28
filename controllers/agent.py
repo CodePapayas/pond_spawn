@@ -50,6 +50,7 @@ class Agent:
         self.alive = True
         self.id = genome.id
         self.death_age = self._assign_death_age()
+        self.skip_turn = False  # Flag to skip next turn after doing nothing
 
         # Create and configure brain (will be moved to GPU by environment for batching)
         brain_config_path = Path(__file__).resolve().parent.parent / "brains" / "brain.json"
@@ -155,7 +156,7 @@ class Agent:
         Movement is affected by:
         - Current heading (0=North, 1=East, 2=South, 3=West)
         - Biome movement speed modifier
-        - Grid boundaries
+        - Wrapping edges (toroidal map)
         - Energy cost based on speed trait and metabolism
 
         Args:
@@ -175,15 +176,16 @@ class Agent:
         else:  # West (heading == 3)
             new_x, new_y = x - 1, y
 
-        # Check if new position is within bounds
-        if 0 <= new_x < environment.grid_size and 0 <= new_y < environment.grid_size:
-            self.position = (new_x, new_y)
+        # Wrap around edges (toroidal map)
+        new_x = new_x % environment.grid_size
+        new_y = new_y % environment.grid_size
+        self.position = (new_x, new_y)
 
-            # Energy cost for movement (affected by speed and metabolism)
-            speed = self.get_trait("speed") or 1.0
-            metabolism = self.get_trait("metabolism") or 1.0
-            movement_cost = terrain_speed * speed * metabolism * 0.15
-            self.consume_energy(movement_cost)
+        # Energy cost for movement (affected by speed and metabolism)
+        speed = self.get_trait("speed") or 1.0
+        metabolism = self.get_trait("metabolism") or 1.0
+        movement_cost = terrain_speed * speed * metabolism * 0.15
+        self.consume_energy(movement_cost)
 
     def turn(self):
         """
@@ -275,27 +277,22 @@ class Agent:
         # Create mutated genome from parent
         offspring_genome = self.genome.mutate()
 
-        # Try to find a nearby valid position for offspring
-        possible_positions = [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
-
-        # Filter valid positions (within bounds and not full)
-        valid_positions = [
-            pos
-            for pos in possible_positions
-            if 0 <= pos[0] < environment.grid_size and 0 <= pos[1] < environment.grid_size
-            # and not environment.is_tile_full(pos[0], pos[1])
+        # Try to find a nearby valid position for offspring (with wrapping)
+        grid_size = environment.grid_size
+        possible_positions = [
+            ((x + 1) % grid_size, y),
+            ((x - 1) % grid_size, y),
+            (x, (y + 1) % grid_size),
+            (x, (y - 1) % grid_size),
         ]
 
-        if not valid_positions:
-            # No valid position, reproduction fails but energy already spent
-            return None
-
-        # Choose random valid position
-        offspring_position = r.choice(valid_positions)
+        # All positions are valid with wrapping
+        offspring_position = r.choice(possible_positions)
 
         # Create offspring with starting energy from parent
         offspring = Agent(offspring_genome, offspring_position)
         offspring.energy = reproduction_cost  # Offspring gets the energy parent spent
+        self.kill_agent()
 
         return offspring
 
@@ -490,9 +487,24 @@ class Agent:
 
     def loaf_around(self):
         """
-        Allow da bois to take a vacation day
+        Allow da bois to take a vacation day.
+        Sets skip_turn flag so agent skips the next tick.
         """
         self.consume_energy(0.005 * self.get_trait("metabolism"))
+        self.skip_turn = True  # Skip next turn after doing nothing
+
+    def should_skip(self):
+        """
+        Check if agent should skip this turn.
+        Resets the flag after checking so agent acts on the following turn.
+        
+        Returns:
+            bool: True if agent should skip this turn
+        """
+        if self.skip_turn:
+            self.skip_turn = False
+            return True
+        return False
 
     def execute_action(self, action, environment):
         """

@@ -252,13 +252,13 @@ class Environment:
         else:
             positions = []
 
+        # Wrap positions for toroidal map
+        wrapped_positions = [(px % self.grid_size, py % self.grid_size) for px, py in positions]
+
         count = 0
-        for px, py in positions:
-            if 0 <= px < self.grid_size and 0 <= py < self.grid_size:
-                # Use position_map for O(1) lookup
-                pos_key = (px, py)
-                if pos_key in self.position_map:
-                    count += len(self.position_map[pos_key])
+        for pos_key in wrapped_positions:
+            if pos_key in self.position_map:
+                count += len(self.position_map[pos_key])
 
         return count * vision
 
@@ -385,23 +385,35 @@ class Environment:
         if not alive_agents:
             return
 
-        # BATCH PERCEPTION: Gather all perceptions at once
-        perceptions = []
+        # Separate agents into those who act this turn vs those skipping
+        acting_agents = []
+        skipping_agents = []
         for agent in alive_agents:
+            if agent.should_skip():
+                skipping_agents.append(agent)
+            else:
+                acting_agents.append(agent)
+
+        # BATCH PERCEPTION: Gather perceptions only for acting agents
+        perceptions = []
+        for agent in acting_agents:
             perception = agent.perceive(self)
             perceptions.append(perception)
 
-        # Stack into batch tensor
-        batch_perceptions = t.cat(perceptions, dim=0)
+        # Stack into batch tensor (only if we have acting agents)
+        if acting_agents:
+            batch_perceptions = t.cat(perceptions, dim=0)
 
-        # BATCH DECISION: Run all brains together on GPU
-        batch_actions = self._batch_decide(alive_agents, batch_perceptions)
+            # BATCH DECISION: Run all brains together on GPU
+            batch_actions = self._batch_decide(acting_agents, batch_perceptions)
+        else:
+            batch_actions = []
 
         # Update all agents and collect offspring
         new_agents = []
         agents_wanting_to_eat = []  # Track agents that chose to eat
 
-        for i, agent in enumerate(alive_agents):
+        for i, agent in enumerate(acting_agents):
             old_position = agent.position
             action = batch_actions[i]
 

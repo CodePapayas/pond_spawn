@@ -214,3 +214,6 @@ __marimo__/
 
 # Test chart data
 charts/
+
+# Random file types
+*.aseprite
