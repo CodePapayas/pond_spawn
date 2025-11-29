@@ -18,10 +18,12 @@ def sample_config():
     return {
         "layers": [
             {"type": "linear", "input_size": 5, "output_size": 8},
-            {"type": "activation", "function": "tanh"},
+            {"type": "activation", "function": "relu"},
             {"type": "linear", "input_size": 8, "output_size": 8},
             {"type": "activation", "function": "relu"},
-            {"type": "linear", "input_size": 8, "output_size": 4},
+            {"type": "linear", "input_size": 8, "output_size": 8},
+            {"type": "activation", "function": "relu"},
+            {"type": "linear", "input_size": 8, "output_size": 6},
         ]
     }
 
@@ -54,8 +56,7 @@ class TestBrainInitialization:
 
     def test_brain_has_correct_number_of_layers(self, brain):
         """Test that Brain builds the correct number of layers."""
-        # 3 linear + 2 activation = 5 layers
-        assert len(brain.layers) == 5
+        assert len(brain.layers) == 7
 
     def test_brain_layers_are_correct_types(self, brain):
         """Test that layers are of correct types."""
@@ -64,7 +65,7 @@ class TestBrainInitialization:
         assert isinstance(brain.layers[2], t.nn.Linear)
         assert isinstance(brain.layers[3], t.nn.ReLU)
         assert isinstance(brain.layers[4], t.nn.Linear)
-        assert isinstance(brain.layers[5], t.nn.Sigmoid)
+        assert isinstance(brain.layers[5], t.nn.ReLU)
         assert isinstance(brain.layers[6], t.nn.Linear)
 
     def test_brain_linear_layers_have_correct_dimensions(self, brain):

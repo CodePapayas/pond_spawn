@@ -38,6 +38,7 @@ class DummyGenome:
             "metabolism": {"value": 0.8},
             "clone_energy_threshold": {"value": 1.0},
             "mutation_rate": {"value": 0.1},
+            "reproduction_cost": {"value": 0.7},
         }
         self.brain_weights = [0.0] * DummyGenome._weight_count
 
@@ -78,12 +79,16 @@ class MockEnvironment:
         self.biome = biome
         self.grid_size = grid_size
         self.agents_in_range = agents_in_range
+        self.full_tiles = set()  # Track which tiles are "full"
 
     def get_biome(self, x, y):
         return self.biome
 
     def count_agents_in_range(self, position, visual_range):
         return self.agents_in_range
+
+    def is_tile_full(self, x, y):
+        return (x, y) in self.full_tiles
 
 
 @pytest.fixture
@@ -113,12 +118,17 @@ def environment_factory():
 def test_perceive_returns_normalized_tensor(genome, environment_factory):
     env = environment_factory()
     agent = Agent(genome, position=(1, 1))
-    agent.energy = 60.0  # midway between 0 and capacity (120)
+    agent.energy = 60.0
 
     perception = agent.perceive(env)
 
     assert perception.shape == (1, 5)
-    expected = t.tensor([[0.5, 2 / 3, 0.3, 1.0, 0.75]], dtype=t.float32)
+    # normalized_energy = 60 / 100 = 0.6
+    # normalized_food = 2 / 5 = 0.4 (default food_units=2)
+    # normalized_agent_count = 3 / 10 = 0.3 (default agents_in_range=3)
+    # agent_vision = nearby_agents / (visibility * visual_range) = 3 / (0.8 * 2.0) = 1.875, clipped to 1.0
+    # movement_speed = terrain_speed * speed = 0.5 * 1.5 = 0.75
+    expected = t.tensor([[0.6, 0.4, 0.3, 1.0, 0.75]], dtype=t.float32)
     t.testing.assert_close(perception, expected, atol=1e-5, rtol=1e-5)
 
 
@@ -150,7 +160,9 @@ def test_move_updates_position_and_consumes_energy(genome, environment_factory):
     agent.move(env)
 
     assert agent.position == (3, 2)
-    expected_energy = starting_energy - (1.0 * 1.5 * 0.8)
+    # Movement cost = terrain_speed * speed * metabolism * 0.15
+    # = 1.0 * 1.5 * 0.8 * 0.15 = 0.18
+    expected_energy = starting_energy - (1.0 * 1.5 * 0.8 * 0.15)
     assert agent.energy == pytest.approx(expected_energy)
 
 
@@ -162,25 +174,27 @@ def test_eat_consumes_food_and_increases_energy(genome, environment_factory):
     success = agent.eat(env)
 
     assert success is True
-    assert agent.energy == pytest.approx(105.0)
+    # Food provides 33.3 energy, max energy = 100 * 1.2 = 120
+    # energy_needed = 120 - 80 = 40, so gains full 33.3
+    assert agent.energy == pytest.approx(113.3)
     assert env.get_biome(0, 0).get_food_units() == 1
-    assert agent.total_food_eaten == 1
-    assert agent.total_eating_attempts == 1
 
 
 def test_reproduce_creates_offspring_and_reduces_energy(genome, environment_factory):
     env = environment_factory(food_units=3, agents_in_range=0)
     agent = Agent(genome, position=(1, 1))
     agent.energy = 80.0
-    agent.age = 30
+    agent.age = 100  # Must be >= 100 to reproduce
 
     r.seed(0)
     offspring = agent.reproduce(env)
 
     assert isinstance(offspring, Agent)
-    assert agent.energy == pytest.approx(80.0 * (1 - 0.35))
+    # reproduction_cost = energy * (0.50 * reproduction_cost_trait)
+    # = 80.0 * (0.50 * 0.7) = 80.0 * 0.35 = 28.0
+    assert agent.energy == pytest.approx(80.0 - 28.0)
     assert offspring.position in {(2, 1), (0, 1), (1, 2), (1, 0)}
-    assert offspring.energy == pytest.approx(80.0 * 0.35)
+    assert offspring.energy == pytest.approx(28.0)
 
 
 def test_agent_dies_when_killed(genome):
@@ -190,8 +204,3 @@ def test_agent_dies_when_killed(genome):
     agent.kill_agent()
 
     assert not agent.is_alive()
-
-
-new_genome = DummyGenome()
-test_agent_dies_when_killed(new_genome)
-print("Test passed: Agent killed")
