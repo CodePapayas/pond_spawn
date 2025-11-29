@@ -1,7 +1,10 @@
 # pond_spawn
 *************************
 
+![Simulation Visualization GIF](assets/gifs/visual_sim.gif)
 ![Simulation GIF](assets/gifs/sim_gif_looped.gif)
+
+*************************
 
 Tossing out the old AI README and writing my own. This will serve double-duty as a devlog of sorts as I stumble my way through this.
 
@@ -22,6 +25,21 @@ python -m cli.cli_sim_starter --no-visual --steps 5000
 python -m cli.cli_sim_starter --help
 ```
 
+### Pygame Visualizer
+```bash
+# Basic usage
+python -m cli.pygame_visualizer
+
+# Custom parameters
+python -m cli.pygame_visualizer --grid-size 20 --population 200 --cell-size 30 --fps 15
+
+# Controls:
+#   Space - Pause/Resume
+#   Escape - Quit (generates stats graph on exit)
+```
+
+Place your agent sprite at `assets/sprites/callumV1.png`. The visualizer will automatically load it and rotate based on heading. Falls back to colored circles if no sprite is found.
+
 # OVERVIEW
 *************************
 <h2>This is my attempt to understand a: neural networks, and b: artificial life simulations.</h2>
@@ -33,6 +51,9 @@ python -m cli.cli_sim_starter --help
     <s><li>The Callums demonstrate interesting behavior with the current genomic and environmental settings. A genome that favors conserving energy at the expense of procreation predictably results a population collapse; A genome that favors reproduction tends to have about 33% of their total energy level on average across the population.</li>
     <li>The Callums are still clustering at the edges of the map, so I'm wondering if I should add the ability to loop around if you hit the edges. It also may be that the Callums are just stupid and need more options to choose from.</li>
     <li>Longer sims with more steps and larger populations make my pc cry.</li></s>
+    <li>It turns out the feedforward nn is actually fairly efficient given it's size and lack of backpropagation. The problem, it seems, is my horribly inefficient sim loop logic.</li>
+    <li>Drawing is much harder than I initially thought.</li>
+    <li>These Callum's don't procreate enough, and I think it's due to environmental pressures being non-existant. Maybe seasons?</li>
 </ul>
 
 # DEV LOG
