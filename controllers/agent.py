@@ -136,8 +136,9 @@ class Agent:
             return ACTION_MOVE
 
         # Too much competition for available food -> move to find better location
-        if food > 0 and agents > (food * 2 + 1):
-            return ACTION_MOVE
+        # Deprecated ---> 1 agent per tile makes this logic null
+        # if food > 0 and agents > (food * 2 + 1):
+        #     return ACTION_MOVE
 
         # Otherwise, let the brain decide using winner-takes-all
         self.brain.eval()  # Set to evaluation mode
@@ -231,7 +232,7 @@ class Agent:
 
         if energy_needed > 0:
             # Consume 1 food unit (provides energy)
-            food_energy_value = 40.0  # Each food unit provides 40 energy
+            food_energy_value = 33.3  # Each food unit provides 40 energy
             energy_gained = min(food_energy_value, energy_needed)
 
             self.add_energy(energy_gained)
@@ -256,20 +257,21 @@ class Agent:
         Returns:
             Agent or None: New offspring agent if reproduction successful
         """
+
+        if self.age < 100:
+            return None
         x, y = self.position
         procreation_modifier = self.get_trait("reproduction_cost")
-        biome_locale = environment.get_biome(x, y)
+        # biome_locale = environment.get_biome(x, y)
 
         # Need minimum energy to reproduce
-        if self.energy < 40:
-            return None
 
         # Can't reproduce on empty food tiles (not sustainable)
-        if biome_locale.get_food_units() == 0:
-            return None
+        # if biome_locale.get_food_units() == 0:
+        #     return None
 
         # Calculate reproduction cost
-        reproduction_cost = self.energy * (0.40 * procreation_modifier)
+        reproduction_cost = self.energy * (0.50 * procreation_modifier)
 
         # Deduct reproduction cost from parent
         self.consume_energy(reproduction_cost)
@@ -286,13 +288,21 @@ class Agent:
             (x, (y - 1) % grid_size),
         ]
 
-        # All positions are valid with wrapping
-        offspring_position = r.choice(possible_positions)
+        # Filter out full tiles
+        valid_positions = [
+            pos for pos in possible_positions if not environment.is_tile_full(pos[0], pos[1])
+        ]
+
+        if not valid_positions:
+            # No valid position, reproduction fails but energy already spent
+            return None
+
+        offspring_position = r.choice(valid_positions)
 
         # Create offspring with starting energy from parent
         offspring = Agent(offspring_genome, offspring_position)
         offspring.energy = reproduction_cost  # Offspring gets the energy parent spent
-        self.kill_agent()
+        # self.kill_agent()
 
         return offspring
 
@@ -303,118 +313,109 @@ class Agent:
         energy_gain = 20 * metabolism
         self.add_energy(energy_gain)
 
-    def update(self, environment):
-        """
-        Main update method called each simulation step.
+    # def update(self, environment):
+    #     """
+    #     Main update method called each simulation step.
 
-        Process:
-        1. Age the agent
-        2. Consume base metabolic energy (affected by metabolism trait)
-        3. Get perception from environment
-        4. Use brain to decide action (winner-takes-all)
-        5. Execute the chosen action (all actions cost energy, scaled by metabolism)
-        6. Return offspring if reproduction occurred
+    #     Process:
+    #     1. Age the agent
+    #     2. Consume base metabolic energy (affected by metabolism trait)
+    #     3. Get perception from environment
+    #     4. Use brain to decide action (winner-takes-all)
+    #     5. Execute the chosen action (all actions cost energy, scaled by metabolism)
+    #     6. Return offspring if reproduction occurred
 
-        Args:
-            environment: The simulation environment
+    #     Args:
+    #         environment: The simulation environment
 
-        Returns:
-            Agent or None: New offspring if reproduction occurred
-        """
-        # Increment age
-        self.age += 1
+    #     Returns:
+    #         Agent or None: New offspring if reproduction occurred
+    #     """
+    #     # Increment age
+    #     self.age += 1
 
-        if self.reached_natural_death():
-            self.kill_agent()
-            return None
+    #     if self.reached_natural_death():
+    #         self.kill_agent()
+    #         return None
 
-        # Base metabolic cost (just for staying alive)
-        metabolism = self.get_trait("metabolism") or 1.0
-        self.consume_energy(0.1 * metabolism)
+    #     # Base metabolic cost (just for staying alive)
+    #     metabolism = self.get_trait("metabolism") or 1.0
+    #     self.consume_energy(0.1 * metabolism)
 
-        if not self.is_alive():
-            return None
+    #     if not self.is_alive():
+    #         return None
 
-        # Get perception and make decision
-        perception = self.perceive(environment)
-        action = self.decide(perception)
+    #     # Get perception and make decision
+    #     perception = self.perceive(environment)
+    #     action = self.decide(perception)
 
-        # Execute action based on winner-takes-all decision
-        offspring = None
+    #     # Execute action based on winner-takes-all decision
+    #     offspring = None
 
-        if action == ACTION_MOVE:
-            self.move(environment)
-        elif action == ACTION_TURN:
-            self.turn()
-        elif action == ACTION_EAT:
-            self.eat(environment)
-        elif action == ACTION_REPRODUCE:
-            offspring = self.reproduce(environment)
+    #     if action == ACTION_MOVE:
+    #         self.move(environment)
+    #     elif action == ACTION_TURN:
+    #         self.turn()
+    #     elif action == ACTION_EAT:
+    #         self.eat(environment)
+    #     elif action == ACTION_REPRODUCE:
+    #         offspring = self.reproduce(environment)
 
-        return offspring
+    #     return offspring
 
-    def update_without_eating(self, environment):
-        """
-        Update method that defers eating to allow speed-based priority.
+    # def update_without_eating(self, environment):
+    #     """
+    #     Update method that defers eating to allow speed-based priority.
 
-        This version returns the action so the environment can process
-        eating in speed-priority order. If eating fails (no food), agent
-        will move instead.
+    #     This version returns the action so the environment can process
+    #     eating in speed-priority order. If eating fails (no food), agent
+    #     will move instead.
 
-        Args:
-            environment: The simulation environment
+    #     Args:
+    #         environment: The simulation environment
 
-        Returns:
-            tuple: (action_index, offspring or None)
-        """
+    #     Returns:
+    #         tuple: (action_index, offspring or None)
+    #     """
 
-        # Increment age
-        self.age += 1
+    #     # Increment age
+    #     self.age += 1
 
-        if self.reached_natural_death():
-            self.kill_agent()
-            return (None, None)
+    #     if self.reached_natural_death():
+    #         self.kill_agent()
+    #         return (None, None)
 
-        # Base metabolic cost (just for staying alive)
-        metabolism = self.get_trait("metabolism") or 1.0
-        self.consume_energy(0.05 * metabolism)
+    #     # Base metabolic cost (just for staying alive)
+    #     metabolism = self.get_trait("metabolism") or 1.0
+    #     self.consume_energy(0.05 * metabolism)
 
-        if not self.is_alive():
-            self.alive = False
-            return (None, None)
+    #     if not self.is_alive():
+    #         self.alive = False
+    #         return (None, None)
 
-        # Get perception and make decision
-        perception = self.perceive(environment)
-        action = self.decide(perception)
+    #     # Get perception and make decision
+    #     perception = self.perceive(environment)
+    #     action = self.decide(perception)
 
-        # Execute action based on winner-takes-all decision
-        # NOTE: Eating is deferred to allow speed-based priority
-        offspring = None
+    #     # Execute action based on winner-takes-all decision
+    #     offspring = None
 
-        if action == ACTION_MOVE:
-            self.move(environment)
-            self.consume_energy(0.08 * metabolism)
-        elif action == ACTION_TURN:
-            self.turn()
-            self.consume_energy(0.04 * metabolism)
-        elif action == ACTION_REPRODUCE:
-            offspring = self.reproduce(environment)
-            self.consume_energy(0.1 * metabolism)
-        elif action == ACTION_SLEEP:
-            self.sleep(metabolism)
-        elif action == ACTION_NOTHING:
-            self.loaf_around()
-        elif action == ACTION_EAT:
-            # Check if eating is possible before returning the action
-            x, y = self.position
-            biome = environment.get_biome(x, y)
-            if biome.get_food_units() <= 0:
-                # No food available - move instead
-                action = ACTION_MOVE
-                self.move(environment)
-                self.consume_energy(0.08 * metabolism)
+    #     if action == ACTION_MOVE:
+    #         self.move(environment)
+    #         self.consume_energy(0.08 * metabolism)
+    #     elif action == ACTION_TURN:
+    #         self.turn()
+    #         self.consume_energy(0.04 * metabolism)
+    #     elif action == ACTION_REPRODUCE:
+    #         offspring = self.reproduce(environment)
+    #     elif action == ACTION_SLEEP:
+    #         self.sleep(metabolism)
+    #     elif action == ACTION_NOTHING:
+    #         self.loaf_around()
+    #     elif action == ACTION_EAT:
+    #         self.eat(environment)
 
-        return (action, offspring)
+    #     return (action, offspring)
 
     def consume_energy(self, amount):
         """
@@ -485,31 +486,9 @@ class Agent:
         """
         return self.id
 
-    def loaf_around(self):
-        """
-        Allow da bois to take a vacation day.
-        Sets skip_turn flag so agent skips the next tick.
-        """
-        self.consume_energy(0.005 * self.get_trait("metabolism"))
-        self.skip_turn = True  # Skip next turn after doing nothing
-
-    def should_skip(self):
-        """
-        Check if agent should skip this turn.
-        Resets the flag after checking so agent acts on the following turn.
-
-        Returns:
-            bool: True if agent should skip this turn
-        """
-        if self.skip_turn:
-            self.skip_turn = False
-            return True
-        return False
-
     def execute_action(self, action, environment):
         """
         Execute a pre-determined action (from batched decision-making).
-        This version defers eating to allow speed-based priority.
 
         Args:
             action (int): The action to execute
@@ -534,15 +513,30 @@ class Agent:
         elif action == ACTION_NOTHING:
             self.loaf_around()
         elif action == ACTION_EAT:
-            # Check if eating is possible before returning the action
-            x, y = self.position
-            biome = environment.get_biome(x, y)
-            if biome.get_food_units() <= 0:
-                # No food available - move instead
-                self.move(environment)
-                self.consume_energy(0.08 * metabolism)
+            self.eat(environment)
 
         return offspring
+
+    def loaf_around(self):
+        """
+        Allow da bois to take a vacation day.
+        Sets skip_turn flag so agent skips the next tick.
+        """
+        self.consume_energy(0.005 * self.get_trait("metabolism"))
+        self.skip_turn = True  # Skip next turn after doing nothing
+
+    def should_skip(self):
+        """
+        Check if agent should skip this turn.
+        Resets the flag after checking so agent acts on the following turn.
+
+        Returns:
+            bool: True if agent should skip this turn
+        """
+        if self.skip_turn:
+            self.skip_turn = False
+            return True
+        return False
 
     def reached_natural_death(self):
         """Check if the agent reached its assigned death age."""
@@ -556,7 +550,7 @@ class Agent:
         return r.choice(candidates)
 
 
-def create_death_range(size=100, early_death_chance=0.1, late_death_start=80):
+def create_death_range(size=100, early_death_chance=0.1, late_death_start=200):
     """
     Create death probability range with mostly zeros.
     - early_death_chance: probability of early death values

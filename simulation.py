@@ -11,7 +11,7 @@ POPULATION = 300
 FOOD_RESUPPLY = 3
 MAX_FOOD_PER_TILE = 3
 TICKS = 10000
-# MAX_AGENTS_PER_TILE = 5
+MAX_AGENTS_PER_TILE = 1
 
 
 class Environment:
@@ -52,12 +52,12 @@ class Environment:
         # Biomes already have 0-3 food from generation, don't add more initially
 
         # Cap population at 3 * grid_size * grid_size (max capacity)
-        # max_capacity = MAX_AGENTS_PER_TILE * grid_size * grid_size
-        # if num_agents > max_capacity:
-        #     print(
-        #         f"Warning: Requested population {num_agents} exceeds max capacity {max_capacity}. Capping at {max_capacity}."
-        #     )
-        #     num_agents = max_capacity
+        max_capacity = MAX_AGENTS_PER_TILE * grid_size * grid_size
+        if num_agents > max_capacity:
+            print(
+                f"Warning: Requested population {num_agents} exceeds max capacity {max_capacity}. Capping at {max_capacity}."
+            )
+            num_agents = max_capacity
 
         self._spawn_agents(num_agents)
 
@@ -191,13 +191,23 @@ class Environment:
         """
         Count agents in the 180-degree field in front of the agent at `position`.
 
+        Vision determines range:
+        - vision > 1.0: Can see 2 tiles ahead (wide field)
+        - vision 0.5-1.0: Can see 1 tile ahead (normal field)
+        - vision < 0.5: Blind - returns random guess (0-3)
+
         Args:
             position (tuple): (x, y) position of the focal agent.
+            vision (float): Agent's vision trait value.
 
         Returns:
-            int: Number of agents in forward field of view.
+            int: Number of agents in forward field of view (or random if blind).
         """
         x, y = position
+
+        # Blind agents just guess
+        if vision < 0.5:
+            return r.randint(0, 3)
 
         # Find the agent at this position using position map
         if position not in self.position_map:
@@ -216,51 +226,106 @@ class Environment:
 
         heading = target_agent.get_heading()  # 0 = N, 1 = E, 2 = S, 3 = W
 
-        # Forward tiles for each heading (no wrap; petri dish world)
-        if heading == 0:  # north
-            positions = [
-                (x, y + 1),
-                (x - 1, y),
-                (x + 1, y),
-                (x - 1, y + 1),
-                (x + 1, y + 1),
-            ]
-        elif heading == 1:  # east
-            positions = [
-                (x + 1, y),
-                (x, y - 1),
-                (x, y + 1),
-                (x + 1, y - 1),
-                (x + 1, y + 1),
-            ]
-        elif heading == 2:  # south
-            positions = [
-                (x, y - 1),
-                (x - 1, y),
-                (x + 1, y),
-                (x - 1, y - 1),
-                (x + 1, y - 1),
-            ]
-        elif heading == 3:  # west
-            positions = [
-                (x - 1, y),
-                (x, y - 1),
-                (x, y + 1),
-                (x - 1, y - 1),
-                (x - 1, y + 1),
-            ]
-        else:
-            positions = []
+        # Determine vision range: 2 tiles if vision > 1.0, else 1 tile
+        can_see_far = vision > 1.0
+
+        # Build positions based on heading and vision range
+        # Near positions (1 tile): 180-degree arc in front
+        # Far positions (2 tiles): extended 180-degree arc
+        positions = []
+
+        if heading == 0:  # North (y decreases)
+            # Near: front + sides
+            positions.extend(
+                [
+                    (x, y - 1),  # directly ahead
+                    (x - 1, y),  # left
+                    (x + 1, y),  # right
+                    (x - 1, y - 1),  # front-left
+                    (x + 1, y - 1),  # front-right
+                ]
+            )
+            if can_see_far:
+                positions.extend(
+                    [
+                        (x, y - 2),  # far ahead
+                        (x - 1, y - 2),  # far front-left
+                        (x + 1, y - 2),  # far front-right
+                        (x - 2, y - 1),  # wide left
+                        (x + 2, y - 1),  # wide right
+                    ]
+                )
+        elif heading == 1:  # East (x increases)
+            positions.extend(
+                [
+                    (x + 1, y),  # directly ahead
+                    (x, y - 1),  # left (up)
+                    (x, y + 1),  # right (down)
+                    (x + 1, y - 1),  # front-left
+                    (x + 1, y + 1),  # front-right
+                ]
+            )
+            if can_see_far:
+                positions.extend(
+                    [
+                        (x + 2, y),  # far ahead
+                        (x + 2, y - 1),  # far front-left
+                        (x + 2, y + 1),  # far front-right
+                        (x + 1, y - 2),  # wide left
+                        (x + 1, y + 2),  # wide right
+                    ]
+                )
+        elif heading == 2:  # South (y increases)
+            positions.extend(
+                [
+                    (x, y + 1),  # directly ahead
+                    (x + 1, y),  # left
+                    (x - 1, y),  # right
+                    (x + 1, y + 1),  # front-left
+                    (x - 1, y + 1),  # front-right
+                ]
+            )
+            if can_see_far:
+                positions.extend(
+                    [
+                        (x, y + 2),  # far ahead
+                        (x + 1, y + 2),  # far front-left
+                        (x - 1, y + 2),  # far front-right
+                        (x + 2, y + 1),  # wide left
+                        (x - 2, y + 1),  # wide right
+                    ]
+                )
+        elif heading == 3:  # West (x decreases)
+            positions.extend(
+                [
+                    (x - 1, y),  # directly ahead
+                    (x, y + 1),  # left (down)
+                    (x, y - 1),  # right (up)
+                    (x - 1, y + 1),  # front-left
+                    (x - 1, y - 1),  # front-right
+                ]
+            )
+            if can_see_far:
+                positions.extend(
+                    [
+                        (x - 2, y),  # far ahead
+                        (x - 2, y + 1),  # far front-left
+                        (x - 2, y - 1),  # far front-right
+                        (x - 1, y + 2),  # wide left
+                        (x - 1, y - 2),  # wide right
+                    ]
+                )
 
         # Wrap positions for toroidal map
         wrapped_positions = [(px % self.grid_size, py % self.grid_size) for px, py in positions]
 
+        # Count agents using position_map (O(1) per tile, not per agent)
         count = 0
         for pos_key in wrapped_positions:
             if pos_key in self.position_map:
                 count += len(self.position_map[pos_key])
 
-        return count * vision
+        return count
 
     def redist_food(self):
         """Add food to the grid based on resupply amount."""
@@ -411,40 +476,21 @@ class Environment:
 
         # Update all agents and collect offspring
         new_agents = []
-        agents_wanting_to_eat = []  # Track agents that chose to eat
 
         for i, agent in enumerate(acting_agents):
             old_position = agent.position
             action = batch_actions[i]
 
-            # Execute the action (but defer eating)
+            # Execute the action
             offspring = agent.execute_action(action, self)
 
             # Update position map if agent moved
             if agent.position != old_position:
                 self.update_agent_position(agent.get_id(), old_position, agent.position)
 
-            # Track if agent wants to eat
-            if action == 2:  # ACTION_EAT
-                agents_wanting_to_eat.append(agent)
-
             # Collect offspring
             if offspring:
                 new_agents.append(offspring)
-
-        # Let agents eat in order of speed, grouped by tile
-        # This prevents checking food after it's gone
-        for agent in agents_wanting_to_eat:
-            if not agent.is_alive():
-                continue
-
-            # Check if there's food available at agent's position
-            x, y = agent.position
-            biome = self.get_biome(x, y)
-
-            # Only attempt to eat if food is available
-            if biome and biome.get_food_units() > 0:
-                agent.eat(self)
 
         # Add new offspring to population
         for offspring in new_agents:
@@ -665,20 +711,20 @@ class Environment:
             print(" | ".join(row))
         print()
 
-    # def is_tile_full(self, x, y):
-    #     """
-    #     Check if a tile has reached maximum agent capacity.
+    def is_tile_full(self, x, y):
+        """
+        Check if a tile has reached maximum agent capacity.
 
-    #     Args:
-    #         x (int): X coordinate
-    #         y (int): Y coordinate
+        Args:
+            x (int): X coordinate
+            y (int): Y coordinate
 
-    #     Returns:
-    #         bool: True if tile is full, False otherwise
-    #     """
-    #     position = (x, y)
-    #     agents_here = len(self.position_map.get(position, set()))
-    #     return agents_here >= MAX_AGENTS_PER_TILE
+        Returns:
+            bool: True if tile is full, False otherwise
+        """
+        position = (x, y)
+        agents_here = len(self.position_map.get(position, set()))
+        return agents_here >= MAX_AGENTS_PER_TILE
 
 
 if __name__ == "__main__":
