@@ -1,7 +1,10 @@
 # pond_spawn
 *************************
 
+### With visuals
 ![Simulation Visualization GIF](assets/gifs/visual_sim.gif)
+
+### Without visuals (print to console)
 ![Simulation GIF](assets/gifs/sim_gif_looped.gif)
 
 *************************
