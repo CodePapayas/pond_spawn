@@ -47,6 +47,9 @@ class Brain(nn.Module):
         self.layers = nn.ModuleList()
         self._build_network(config["layers"])
 
+        # Move the entire network to the target device
+        self.to(self.device)
+
     def _build_network(self, layer_configs):
         """
         Construct the neural network layers from configuration dictionaries.
