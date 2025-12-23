@@ -129,16 +129,7 @@ class Agent:
         Returns:
             int: Action index (0=MOVE, 1=TURN, 2=EAT, 3=REPRODUCE)
         """
-        energy, food, agents, visibility, movement = perception[0]
-
-        # Critical: Low energy and no food available -> must move to find food
-        if energy < 0.25 and food == 0:
-            return ACTION_MOVE
-
-        # Too much competition for available food -> move to find better location
-        # Deprecated ---> 1 agent per tile makes this logic null
-        # if food > 0 and agents > (food * 2 + 1):
-        #     return ACTION_MOVE
+        # energy, food, agents, visibility, movement = perception[0]
 
         # Otherwise, let the brain decide using winner-takes-all
         self.brain.eval()  # Set to evaluation mode
@@ -312,110 +303,6 @@ class Agent:
         """
         energy_gain = 20 * metabolism
         self.add_energy(energy_gain)
-
-    # def update(self, environment):
-    #     """
-    #     Main update method called each simulation step.
-
-    #     Process:
-    #     1. Age the agent
-    #     2. Consume base metabolic energy (affected by metabolism trait)
-    #     3. Get perception from environment
-    #     4. Use brain to decide action (winner-takes-all)
-    #     5. Execute the chosen action (all actions cost energy, scaled by metabolism)
-    #     6. Return offspring if reproduction occurred
-
-    #     Args:
-    #         environment: The simulation environment
-
-    #     Returns:
-    #         Agent or None: New offspring if reproduction occurred
-    #     """
-    #     # Increment age
-    #     self.age += 1
-
-    #     if self.reached_natural_death():
-    #         self.kill_agent()
-    #         return None
-
-    #     # Base metabolic cost (just for staying alive)
-    #     metabolism = self.get_trait("metabolism") or 1.0
-    #     self.consume_energy(0.1 * metabolism)
-
-    #     if not self.is_alive():
-    #         return None
-
-    #     # Get perception and make decision
-    #     perception = self.perceive(environment)
-    #     action = self.decide(perception)
-
-    #     # Execute action based on winner-takes-all decision
-    #     offspring = None
-
-    #     if action == ACTION_MOVE:
-    #         self.move(environment)
-    #     elif action == ACTION_TURN:
-    #         self.turn()
-    #     elif action == ACTION_EAT:
-    #         self.eat(environment)
-    #     elif action == ACTION_REPRODUCE:
-    #         offspring = self.reproduce(environment)
-
-    #     return offspring
-
-    # def update_without_eating(self, environment):
-    #     """
-    #     Update method that defers eating to allow speed-based priority.
-
-    #     This version returns the action so the environment can process
-    #     eating in speed-priority order. If eating fails (no food), agent
-    #     will move instead.
-
-    #     Args:
-    #         environment: The simulation environment
-
-    #     Returns:
-    #         tuple: (action_index, offspring or None)
-    #     """
-
-    #     # Increment age
-    #     self.age += 1
-
-    #     if self.reached_natural_death():
-    #         self.kill_agent()
-    #         return (None, None)
-
-    #     # Base metabolic cost (just for staying alive)
-    #     metabolism = self.get_trait("metabolism") or 1.0
-    #     self.consume_energy(0.05 * metabolism)
-
-    #     if not self.is_alive():
-    #         self.alive = False
-    #         return (None, None)
-
-    #     # Get perception and make decision
-    #     perception = self.perceive(environment)
-    #     action = self.decide(perception)
-
-    #     # Execute action based on winner-takes-all decision
-    #     offspring = None
-
-    #     if action == ACTION_MOVE:
-    #         self.move(environment)
-    #         self.consume_energy(0.08 * metabolism)
-    #     elif action == ACTION_TURN:
-    #         self.turn()
-    #         self.consume_energy(0.04 * metabolism)
-    #     elif action == ACTION_REPRODUCE:
-    #         offspring = self.reproduce(environment)
-    #     elif action == ACTION_SLEEP:
-    #         self.sleep(metabolism)
-    #     elif action == ACTION_NOTHING:
-    #         self.loaf_around()
-    #     elif action == ACTION_EAT:
-    #         self.eat(environment)
-
-    #     return (action, offspring)
 
     def consume_energy(self, amount):
         """

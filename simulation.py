@@ -10,7 +10,7 @@ from controllers.landscape import Biome
 POPULATION = 300
 FOOD_RESUPPLY = 3
 MAX_FOOD_PER_TILE = 3
-TICKS = 10000
+TICKS = 1000
 MAX_AGENTS_PER_TILE = 1
 
 
