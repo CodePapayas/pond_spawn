@@ -156,14 +156,15 @@ class Agent:
         """
         x, y = self.position
         terrain_speed = environment.get_biome(x, y).get_movement_speed()
+        heading = self.get_heading()
 
         # Determine new position based on heading
         # 0=North (y-1), 1=East (x+1), 2=South (y+1), 3=West (x-1)
-        if self.heading == 0:  # North
+        if heading == 0:  # North
             new_x, new_y = x, y - 1
-        elif self.heading == 1:  # East
+        elif heading == 1:  # East
             new_x, new_y = x + 1, y
-        elif self.heading == 2:  # South
+        elif heading == 2:  # South
             new_x, new_y = x, y + 1
         else:  # West (heading == 3)
             new_x, new_y = x - 1, y
@@ -186,7 +187,7 @@ class Agent:
         Heading transitions: North -> East -> South -> West -> North
         Energy cost affected by metabolism trait.
         """
-        self.heading = (self.heading + 1) % 4
+        self.heading = (self.get_heading() + 1) % 4
         # Energy cost for turning (affected by metabolism)
         metabolism = self.get_trait("metabolism") or 1.0
         self.consume_energy(0.1 * metabolism)
