@@ -20,6 +20,27 @@ ACTION_NOTHING = 5  # Agent can choose to do nothing. This burns the standard ra
 headings = [0, 1, 2, 3]
 
 
+def create_death_range(size=100, early_death_chance=0.1, late_death_start=500):
+    """
+    Create death probability range with mostly zeros.
+    - early_death_chance: probability of early death values
+    - late_death_start: when death becomes certain
+    """
+    death_range = []
+
+    for i in range(size):
+        if i < 5 and r.random() < early_death_chance:
+            # Small chance of very early death
+            death_range.append(r.randint(50, 150))
+        elif i > 15 and i < 20 and r.random() < 0.05:
+            # Tiny chance in middle age
+            death_range.append(r.randint(200, 400))
+        else:
+            death_range.append(500 + (i + late_death_start) // 4)
+
+    return death_range
+
+
 class Agent:
     """
     Represents an individual agent in the simulation.
@@ -32,7 +53,7 @@ class Agent:
     - Internal state for tracking history and observations
     """
 
-    #
+    death_range = create_death_range()
 
     def __init__(self, genome, position):
         """
@@ -432,36 +453,12 @@ class Agent:
 
     def _assign_death_age(self):
         """Assign a single death age using the configured distribution."""
-        candidates = [value for value in create_death_range() if value > 0]
+        candidates = [value for value in Agent.death_range if value > 0]
         if not candidates:
             return None
         return r.choice(candidates)
 
 
-def create_death_range(size=100, early_death_chance=0.1, late_death_start=200):
-    """
-    Create death probability range with mostly zeros.
-    - early_death_chance: probability of early death values
-    - late_death_start: when death becomes certain
-    """
-    death_range = []
-
-    for i in range(size):
-        if i < 5 and r.random() < early_death_chance:
-            # Small chance of very early death
-            death_range.append(r.randint(50, 150))
-        elif i >= late_death_start:
-            # Certain death after threshold - scaled much higher
-            death_range.append(500 + (i - late_death_start) * 20)
-        elif i > 15 and i < 20 and r.random() < 0.05:
-            # Tiny chance in middle age
-            death_range.append(r.randint(200, 400))
-        else:
-            # Most positions are zero
-            death_range.append(0)
-
-    return death_range
-
-
 if __name__ == "__main__":
-    pass
+    dummy_range = create_death_range()
+    print(f"{dummy_range}")
