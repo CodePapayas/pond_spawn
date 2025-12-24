@@ -118,7 +118,7 @@ def draw_heading_indicator(screen, x, y, heading, cell_size):
     pygame.draw.polygon(screen, WHITE, points)
 
 
-def run_visualization(grid_size=12, population=100, cell_size=40, fps=10):
+def run_visualization(grid_size=12, population=100, cell_size=40, fps=10, max_ticks=1000):
     """Run the pygame visualization."""
     pygame.init()
 
@@ -224,6 +224,11 @@ def run_visualization(grid_size=12, population=100, cell_size=40, fps=10):
 
         pygame.display.flip()
 
+        # Check for tick limit
+        if max_ticks and stats['step'] >= max_ticks:
+            print(f"Reached maximum ticks ({max_ticks}) at step {stats['step']}")
+            running = False
+
         # Check for extinction
         if stats["alive_agents"] == 0:
             print(f"Extinction at step {stats['step']}")
@@ -254,6 +259,7 @@ def parse_args():
     parser.add_argument("--population", type=int, default=100, help="Initial population")
     parser.add_argument("--cell-size", type=int, default=40, help="Pixel size of each cell")
     parser.add_argument("--fps", type=int, default=10, help="Frames per second (simulation speed)")
+    parser.add_argument("--max-ticks", type=int, default=1000, help="Maximum number of simulation ticks (default: 1000)")
     return parser.parse_args()
 
 
@@ -264,6 +270,7 @@ def main():
         population=args.population,
         cell_size=args.cell_size,
         fps=args.fps,
+        max_ticks=args.max_ticks,
     )
 
 
