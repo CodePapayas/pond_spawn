@@ -53,13 +53,28 @@ Place your agent sprite at `assets/sprites/callumV1.png`. The visualizer will au
 <ul>
     <s><li>The Callums demonstrate interesting behavior with the current genomic and environmental settings. A genome that favors conserving energy at the expense of procreation predictably results a population collapse; A genome that favors reproduction tends to have about 33% of their total energy level on average across the population.</li>
     <li>The Callums are still clustering at the edges of the map, so I'm wondering if I should add the ability to loop around if you hit the edges. It also may be that the Callums are just stupid and need more options to choose from.</li>
-    <li>Longer sims with more steps and larger populations make my pc cry.</li></s>
+    <li>Longer sims with more steps and larger populations make my pc cry.</li>
     <li>It turns out the feedforward nn is actually fairly efficient given it's size and lack of backpropagation. The problem, it seems, is my horribly inefficient sim loop logic.</li>
     <li>Drawing is much harder than I initially thought.</li>
-    <li>These Callum's don't procreate enough, and I think it's due to environmental pressures being non-existant. Maybe seasons?</li>
+    <li>These Callum's don't procreate enough, and I think it's due to environmental pressures being non-existant. Maybe seasons?</li></s>
 </ul>
 
 # DEV LOG
+*************************
+<h1>December 23rd, 2025</h1>
+Updating after a while. I debated on abandoning this project and just starting anew with lessons learned, but I think I want to see this one through.
+
+A lot of this isn't as connected as I thought it was. The death logic, for example, was not working. It turns out I had written the algorithm for assigning death ages incorrectly and I honestly can't remember what direction I was going with that so, ya know, just fixed that to actually work. I also remembered that tests are a thing and started updating/adding some.
+
+TODO
+<ul>
+    <li>The tests need to be accurate and reflect the current state of the program. Solo work is hard; testing keeps us on task</li>
+    <li>Make a test file for the environment. A lot of important functions live there now and there is a need to know if they actually work.</li>
+    <li>Connect intelligence to the decision making algorithm; Create an actual action tied to it. I think it makes sense for it to dictate the rate at which an entity makes decisions in reaction to stimuli, so somehow it needs to dampen or enhance that function.</li>
+</ul>
+
+*************************
+
 *************************
 <h1>November 15th, 2025</h1>
 Artificial life simulations are hard. We fixed the energy add function. It was boundless, which satisfied the Callum's but didn't fit the sim. Will write more and update TODO later.
