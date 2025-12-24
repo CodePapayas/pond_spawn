@@ -20,7 +20,7 @@ ACTION_NOTHING = 5  # Agent can choose to do nothing. This burns the standard ra
 headings = [0, 1, 2, 3]
 
 
-def create_death_range(size=100, early_death_chance=0.1, late_death_start=500):
+def create_death_range(size=200, early_death_chance=0.15, late_death_start=500):
     """
     Create death probability range with mostly zeros.
     - early_death_chance: probability of early death values
