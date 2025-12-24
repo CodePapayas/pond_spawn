@@ -204,3 +204,36 @@ def test_agent_dies_when_killed(genome):
     agent.kill_agent()
 
     assert not agent.is_alive()
+
+
+def test_agent_natural_death_age_exactly(genome):
+    agent = Agent(genome, position=(1, 1))
+    agent.death_age = 500
+    agent.age = 500
+
+    assert agent.reached_natural_death()
+
+
+def test_agent_natural_death_age_above(genome):
+    agent = Agent(genome, position=(1, 1))
+    agent.death_age = 500
+    agent.age = 501
+
+    assert agent.reached_natural_death()
+
+
+def test_agent_natural_death_age_below(genome):
+    agent = Agent(genome, position=(1, 1))
+    agent.death_age = 500
+    agent.age = 499
+
+    assert not agent.reached_natural_death()
+
+
+def test_agent_assigned_death(genome):
+    agent = Agent(genome, position=(1, 1))
+    death_age = agent._assign_death_age()
+    agent.age = death_age
+    agent.death_age = death_age
+
+    assert agent.reached_natural_death()
