@@ -1,17 +1,13 @@
-"""
-Tests for landscape.py (Biome class and related functions).
-"""
-
 import sys
 from pathlib import Path
 
 import pytest
 
+from controllers.landscape import Biome, clamp, generate_biome_id
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-
-from controllers.landscape import Biome, clamp, generate_biome_id
 
 
 @pytest.fixture
@@ -144,9 +140,11 @@ def test_clamp_function():
     clamped_val = clamp(2, 1, 4)
     assert clamped_val == 2
 
+
 def test_food_unit_none(generated_biome):
     generated_biome.features["food_units"] = None
     assert generated_biome.get_food_units() == 0
+
 
 def test_food_unit_missing_key(generated_biome):
     del generated_biome.features["food_units"]
