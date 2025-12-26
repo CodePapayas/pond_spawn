@@ -33,19 +33,21 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run tests with coverage
-        uses: lpenz/ghaction-pytest-cov@v1
-        with:
-          pytest-args: --cov=controllers --cov=simulation --cov-report=xml
+        run: |
+          pytest --cov=controllers --cov=simulation --cov-report=term-missing
+
+      - name: Generate coverage badge
+        uses: tj-actions/coverage-badge-py@v2
 
       - name: Push coverage badge
         if: github.ref == 'refs/heads/main'
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git fetch origin badges:badges || git checkout --orphan badges
+          git fetch origin badges:badges
           git checkout badges
           mkdir -p badges
-          cp coverage.svg badges/coverage.svg
+          mv coverage.svg badges/
           git add badges/coverage.svg
           git commit -m "Update coverage badge" || echo "No changes to commit"
           git push origin badges
