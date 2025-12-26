@@ -1,7 +1,7 @@
 # pond_spawn
 
 [![Coverage](https://raw.githubusercontent.com/codepapayas/pond_spawn/badges/badges/coverage.svg)](https://github.com/codepapayas/pond_spawn)
-[![CI](https://github.com/codepapayas/pond_spawn/actions/workflows/main.yaml/badge.svg)](https://github.com/codepapayas/pond_spawn/actions)
+[![CI](https://github.com/codepapayas/pond_spawn/actions/workflows/main.yml/badge.svg)](https://github.com/codepapayas/pond_spawn/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Language](https://img.shields.io/badge/language-python-blue)
 
