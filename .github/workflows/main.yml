@@ -1,4 +1,4 @@
-name: Lint
+name: Lint and Coverage
 on: [push, pull_request]
 
 jobs:
@@ -13,3 +13,39 @@ jobs:
         with:
           version: latest
           args: check .
+
+  coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run tests with coverage
+        uses: lpenz/ghaction-pytest-cov@v1
+        with:
+          pytest-args: --cov=controllers --cov=simulation --cov-report=xml
+
+      - name: Push coverage badge
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git fetch origin badges:badges || git checkout --orphan badges
+          git checkout badges
+          mkdir -p badges
+          cp coverage.svg badges/coverage.svg
+          git add badges/coverage.svg
+          git commit -m "Update coverage badge" || echo "No changes to commit"
+          git push origin badges
