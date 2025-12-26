@@ -1,4 +1,5 @@
 # pond_spawn
+![Coverage](https://raw.githubusercontent.com/codepapayas/pond_spawn/badges/badges/coverage.svg)
 *************************
 
 ### With visuals
