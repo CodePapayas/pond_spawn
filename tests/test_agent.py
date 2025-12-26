@@ -237,3 +237,14 @@ def test_agent_assigned_death(genome):
     agent.death_age = death_age
 
     assert agent.reached_natural_death()
+
+def test_agent_skip_turn(genome):
+    agent = Agent(genome, position=(1, 1))
+    agent.loaf_around()
+
+    assert agent.should_skip()
+
+def test_agent_skip_turn_flag_reset(genome):
+    agent = Agent(genome, position=(1, 1))
+
+    assert not agent.should_skip()
