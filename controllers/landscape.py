@@ -157,11 +157,11 @@ class Biome:
         key_check = "food_units"
 
         if key_check in self.features:
-            if self.features["food_units"] == None:
+            if self.features["food_units"] is None:
                 self.features["food_units"] = 0
         else:
             self.features["food_units"] = 0
-            
+
         return self.features.get("food_units")
 
 
