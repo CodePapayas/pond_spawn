@@ -225,7 +225,7 @@ def run_visualization(grid_size=12, population=100, cell_size=40, fps=10, max_ti
         pygame.display.flip()
 
         # Check for tick limit
-        if max_ticks and stats['step'] >= max_ticks:
+        if max_ticks and stats["step"] >= max_ticks:
             print(f"Reached maximum ticks ({max_ticks}) at step {stats['step']}")
             running = False
 
@@ -259,7 +259,12 @@ def parse_args():
     parser.add_argument("--population", type=int, default=100, help="Initial population")
     parser.add_argument("--cell-size", type=int, default=40, help="Pixel size of each cell")
     parser.add_argument("--fps", type=int, default=10, help="Frames per second (simulation speed)")
-    parser.add_argument("--max-ticks", type=int, default=1000, help="Maximum number of simulation ticks (default: 1000)")
+    parser.add_argument(
+        "--max-ticks",
+        type=int,
+        default=1000,
+        help="Maximum number of simulation ticks (default: 1000)",
+    )
     return parser.parse_args()
 
 
