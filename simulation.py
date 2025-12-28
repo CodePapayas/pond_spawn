@@ -434,6 +434,7 @@ class Environment:
             # Natural aging and random lifespan limit
             agent.age += 1
             if agent.reached_natural_death():
+                agent.add_cause_of_death("Reached assigned death age")
                 agent.kill_agent()
                 self._record_lifespan(agent)
                 continue
