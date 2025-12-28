@@ -262,3 +262,35 @@ def test_agents_parentage(genome, environment_factory):
     offspring = agent.reproduce(env)
 
     assert offspring.parent == agent.get_id()
+
+
+def test_cause_of_death(genome):
+    agent = Agent(genome, position=(1, 1))
+    death_cause = "starvation"
+    agent.add_cause_of_death(death_cause)
+
+    assert agent.cause_of_death == "starvation"
+
+
+def test_invalid_cause_of_death(genome):
+    agent = Agent(genome, position=(1, 1))
+
+    with pytest.raises(TypeError, match="Cause of death must be type:str"):
+        agent.add_cause_of_death(24)
+
+
+def test_is_alive_old_age(genome):
+    agent = Agent(genome, position=(1, 1))
+    agent.add_cause_of_death("Reached assigned death age")
+    agent.kill_agent()
+    agent.is_alive()
+
+    assert agent.cause_of_death == "Reached assigned death age"
+
+
+def test_is_alive_starvation(genome):
+    agent = Agent(genome, position=(1, 1))
+    agent.kill_agent()
+    agent.is_alive()
+
+    assert agent.cause_of_death == "Died of starvation"

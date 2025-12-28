@@ -72,6 +72,7 @@ class Agent:
         self.id = genome.id
         self.parent = self.id
         self.death_age = self._assign_death_age()
+        self.cause_of_death = None
         self.skip_turn = False  # Flag to skip next turn after doing nothing
 
         # Create and configure brain (will be moved to GPU by environment for batching)
@@ -321,14 +322,14 @@ class Agent:
 
         return offspring
 
-    def sleep(self, metabolism):
+    def sleep(self, metabolism: float):
         """
         Make da lil guys sleep
         """
         energy_gain = 20 * metabolism
         self.add_energy(energy_gain)
 
-    def consume_energy(self, amount):
+    def consume_energy(self, amount: float):
         """
         Reduce agent's energy by the specified amount.
 
@@ -337,7 +338,7 @@ class Agent:
         """
         self.energy -= amount
 
-    def add_energy(self, amount):
+    def add_energy(self, amount: float):
         """
         Increase agent's energy by the specified amount.
 
@@ -360,6 +361,8 @@ class Agent:
             bool: True if agent is alive
         """
         if self.energy <= 0:
+            if not self.cause_of_death == "Reached assigned death age":
+                self.add_cause_of_death("Died of starvation")
             self.alive = False
             return False
 
@@ -372,7 +375,7 @@ class Agent:
         self.energy = 0
         self.alive = False
 
-    def get_trait(self, trait_name):
+    def get_trait(self, trait_name: str):
         """
         Get a specific trait value from the genome.
 
@@ -459,6 +462,12 @@ class Agent:
         if not candidates:
             return None
         return r.choice(candidates)
+
+    def add_cause_of_death(self, cod: str):
+        if not isinstance(cod, str):
+            raise TypeError("Cause of death must be type:str")
+
+        self.cause_of_death = cod
 
 
 if __name__ == "__main__":
