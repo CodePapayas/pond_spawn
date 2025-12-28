@@ -13,8 +13,8 @@ ACTION_EAT = 2  # Attempt to eat food at current position
 ACTION_REPRODUCE = 3  # Attempt to reproduce (costs 25% of current energy)
 ACTION_SLEEP = 4  # Rest; Burns energy, but less than anything else
 ACTION_NOTHING = 5  # Agent can choose to do nothing. This burns the standard rate of metabolism it costs to be alive and nothing more
-# Action 6
-# Action 7
+# ACTION_TURN_COUNTER = 6  # Agent can turn 90 degrees counter-clockwise
+# ACTION_ATTACK = 7. # Agent can attempt to absorb another agent
 
 # Directional headings - where the agent can point
 headings = [0, 1, 2, 3]
@@ -70,6 +70,7 @@ class Agent:
         self.heading = r.choice(headings)  # 0=North, 1=East, 2=South, 3=West
         self.alive = True
         self.id = genome.id
+        self.parent = self.id
         self.death_age = self._assign_death_age()
         self.skip_turn = False  # Flag to skip next turn after doing nothing
 
@@ -316,6 +317,7 @@ class Agent:
         offspring = Agent(offspring_genome, offspring_position)
         offspring.energy = reproduction_cost  # Offspring gets the energy parent spent
         # self.kill_agent()
+        offspring.parent = self.id
 
         return offspring
 
