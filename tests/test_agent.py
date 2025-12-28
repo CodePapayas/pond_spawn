@@ -250,3 +250,15 @@ def test_agent_skip_turn_flag_reset(genome):
     agent = Agent(genome, position=(1, 1))
 
     assert not agent.should_skip()
+
+
+def test_agents_parentage(genome, environment_factory):
+    env = environment_factory(food_units=3, agents_in_range=0)
+    agent = Agent(genome, position=(1, 1))
+    agent.energy = 80.0
+    agent.age = 100  # Must be >= 100 to reproduce
+
+    r.seed(0)
+    offspring = agent.reproduce(env)
+
+    assert offspring.parent == agent.get_id()
