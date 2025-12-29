@@ -277,6 +277,7 @@ class Agent:
             return None
         x, y = self.position
         procreation_modifier = self.get_trait("reproduction_cost")
+        clone_energy_bonus = self.get_trait("clone_energy_threshold")
         # biome_locale = environment.get_biome(x, y)
 
         # Need minimum energy to reproduce
@@ -303,20 +304,13 @@ class Agent:
             (x, (y - 1) % grid_size),
         ]
 
-        # Filter out full tiles
-        valid_positions = [
-            pos for pos in possible_positions if not environment.is_tile_full(pos[0], pos[1])
-        ]
-
-        if not valid_positions:
-            # No valid position, reproduction fails but energy already spent
-            return None
-
-        offspring_position = r.choice(valid_positions)
+        offspring_position = r.choice(possible_positions)
 
         # Create offspring with starting energy from parent
         offspring = Agent(offspring_genome, offspring_position)
-        offspring.energy = reproduction_cost  # Offspring gets the energy parent spent
+        offspring.energy = reproduction_cost + (
+            50 * clone_energy_bonus
+        )  # Offspring gets the energy parent spent
         # self.kill_agent()
         offspring.parent = self.id
 

@@ -11,7 +11,7 @@ POPULATION = 300
 FOOD_RESUPPLY = 3
 MAX_FOOD_PER_TILE = 3
 TICKS = 1000
-MAX_AGENTS_PER_TILE = 1
+# MAX_AGENTS_PER_TILE = 1
 
 
 class Environment:
@@ -51,8 +51,8 @@ class Environment:
         self._initialize_biomes()
         # Biomes already have 0-3 food from generation, don't add more initially
 
-        # Cap population at 3 * grid_size * grid_size (max capacity)
-        max_capacity = MAX_AGENTS_PER_TILE * grid_size * grid_size
+        # Cap population at 2 * grid_size * grid_size (max capacity)
+        max_capacity = 2 * grid_size * grid_size
         if num_agents > max_capacity:
             print(
                 f"Warning: Requested population {num_agents} exceeds max capacity {max_capacity}. Capping at {max_capacity}."
@@ -101,7 +101,7 @@ class Environment:
         Args:
             num_agents (int): Number of agents to spawn
         """
-        # Create a list of all possible positions, repeated MAX_AGENTS_PER_TILE times
+        # Create a list of all possible positions
         all_positions = []
         for x in range(self.grid_size):
             for y in range(self.grid_size):
@@ -712,20 +712,20 @@ class Environment:
             print(" | ".join(row))
         print()
 
-    def is_tile_full(self, x, y):
-        """
-        Check if a tile has reached maximum agent capacity.
+    # def is_tile_full(self, x, y):
+    #     """
+    #     Check if a tile has reached maximum agent capacity.
 
-        Args:
-            x (int): X coordinate
-            y (int): Y coordinate
+    #     Args:
+    #         x (int): X coordinate
+    #         y (int): Y coordinate
 
-        Returns:
-            bool: True if tile is full, False otherwise
-        """
-        position = (x, y)
-        agents_here = len(self.position_map.get(position, set()))
-        return agents_here >= MAX_AGENTS_PER_TILE
+    #     Returns:
+    #         bool: True if tile is full, False otherwise
+    #     """
+    #     position = (x, y)
+    #     agents_here = len(self.position_map.get(position, set()))
+    #     return agents_here >= MAX_AGENTS_PER_TILE
 
 
 if __name__ == "__main__":
