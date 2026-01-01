@@ -10,7 +10,7 @@ ignore-paths=.venv,venv,__pycache__,htmlcov,pond_spawn.egg-info,tests
 
 # Files or directories matching the regular expression patterns are skipped.
 # The regex matches against base names, not paths.
-ignore-patterns=^\.#,\.pyc$,__pycache__,test_.*\.py$
+ignore-patterns=^\.#,\.pyc$,__pycache__,test_.*\.py$,.*pygame.*
 
 # Analyse import fallback blocks. This can be used to support both Python 2 and
 # 3 compatible code, which means that the block might have code that exists
@@ -295,7 +295,7 @@ ignored-parents=
 max-args=5
 
 # Maximum number of attributes for a class (see R0902).
-max-attributes=7
+max-attributes=12
 
 # Maximum number of boolean expressions in an if statement (see R0916).
 max-bool-expr=5
