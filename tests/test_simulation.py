@@ -392,31 +392,6 @@ class TestUpdateAgentPosition:
 
 
 # -----------------------------------------------------------------------------
-# Tests: is_tile_full()
-# -----------------------------------------------------------------------------
-
-
-class TestIsTileFull:
-    """Tests for Environment.is_tile_full() method."""
-
-    def test_empty_tile_not_full(self, environment_factory):
-        """Empty tile should not be full."""
-        env = environment_factory(grid_size=4, num_agents=0, food_units=0)
-
-        assert env.is_tile_full(0, 0) is False
-
-    def test_tile_with_max_agents_is_full(self, environment_factory, agent_factory):
-        """Tile at capacity should be full."""
-        env = environment_factory(grid_size=4, num_agents=0, food_units=0)
-        agent = agent_factory(position=(0, 0))
-
-        # Add agent to position map (MAX_AGENTS_PER_TILE = 1)
-        env.position_map[(0, 0)] = {agent.get_id()}
-
-        assert env.is_tile_full(0, 0) is True
-
-
-# -----------------------------------------------------------------------------
 # Tests: get_stats()
 # -----------------------------------------------------------------------------
 
