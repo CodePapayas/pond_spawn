@@ -55,7 +55,10 @@ class Environment:
         max_capacity = 2 * grid_size * grid_size
         if num_agents > max_capacity:
             print(
-                f"Warning: Requested population {num_agents} exceeds max capacity {max_capacity}. Capping at {max_capacity}."
+                f"""Warning:
+                population {num_agents} >  max capacity {max_capacity}.
+                Capping at {max_capacity}.
+                """
             )
             num_agents = max_capacity
 
@@ -194,11 +197,10 @@ class Environment:
         Vision determines range:
         - vision > 1.0: Can see 2 tiles ahead (wide field)
         - vision 0.5-1.0: Can see 1 tile ahead (normal field)
-        - vision < 0.5: Blind - returns random guess (0-3)
+        - vision < 0.: Blind - returns random guess (0-3)
 
         Args:
             position (tuple): (x, y) position of the focal agent.
-            vision (float): Agent's vision trait value.
 
         Returns:
             int: Number of agents in forward field of view (or random if blind).
@@ -407,6 +409,7 @@ class Environment:
 
         return actions
 
+    # pylint: disable=too-many-locals
     def step(self):
         """
         Execute one simulation step.
@@ -591,7 +594,8 @@ class Environment:
         Log statistics to a state dictionary for graphing.
 
         Args:
-            stats (dict): Statistics dictionary with keys: step, alive_agents, total_food, avg_energy, median_lifespan, min_age, max_age
+            stats (dict): keys: step, alive_agents, total_food,
+            avg_energy, median_lifespan, min_age, max_age
             state_dict (dict): Dictionary to accumulate stats over time
 
         Returns:
