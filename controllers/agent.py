@@ -1,3 +1,11 @@
+"""Agent behavior and lifecycle logic.
+
+Defines the :class:`~controllers.agent.Agent` type and related constants used by
+the simulation runtime. Agents perceive the environment, decide on actions via
+their neural network, and execute actions that affect their energy, position,
+and reproduction.
+"""
+
 import random as r
 from pathlib import Path
 
@@ -12,7 +20,8 @@ ACTION_TURN = 1  # Turn 90 degrees clockwise
 ACTION_EAT = 2  # Attempt to eat food at current position
 ACTION_REPRODUCE = 3  # Attempt to reproduce (costs 25% of current energy)
 ACTION_SLEEP = 4  # Rest; Burns energy, but less than anything else
-ACTION_NOTHING = 5  # Agent can choose to do nothing. This burns the standard rate of metabolism it costs to be alive and nothing more
+ACTION_NOTHING = 5  # Agent can choose to do nothing.
+# This burns the standard rate of metabolism it costs to be alive and nothing more.
 # ACTION_TURN_COUNTER = 6  # Agent can turn 90 degrees counter-clockwise
 # ACTION_ATTACK = 7. # Agent can attempt to absorb another agent
 
@@ -32,7 +41,7 @@ def create_death_range(size=200, early_death_chance=0.15, late_death_start=500):
         if i < 5 and r.random() < early_death_chance:
             # Small chance of very early death
             death_range.append(r.randint(50, 150))
-        elif i > 15 and i < 20 and r.random() < 0.05:
+        elif 15 < i < 20 and r.random() < 0.05:
             # Tiny chance in middle age
             death_range.append(r.randint(200, 400))
         else:
@@ -97,38 +106,26 @@ class Agent:
             torch.Tensor: Input tensor for the brain (shape: [1, input_size])
         """
 
-        # Collect observational data
-        x, y = self.position
-        biome = environment.get_biome(x, y)
+        biome = environment.get_biome(*self.position)
         food_available = biome.get_food_units()
-        terrain_speed = biome.get_movement_speed()
         visibility = biome.get_visibility()
 
-        # Count nearby agents based on visual ability
         visual_range = self.get_trait("vision") or 1.0
         nearby_agents = environment.count_agents_in_range(self.position, visual_range)
 
-        # Determine how good the agents vision is
-        agent_vision = (
-            nearby_agents / (visibility * visual_range) if (visibility * visual_range) > 0 else 0
+        denom = visibility * visual_range
+        normalized_visibility = np.clip(nearby_agents / denom if denom > 0 else 0.0, 0.0, 1.0)
+
+        normalized_movement = np.clip(
+            biome.get_movement_speed() * (self.get_trait("speed") or 1.0),
+            0.0,
+            1.0,
         )
 
-        # Determine how well the agent moves on the terrain
-        speed_stat = self.get_trait("speed") or 1.0
-        movement_speed = terrain_speed * speed_stat
-
-        # Normalize inputs for processing (all values clipped to [0.0, 1.0])
-        normalized_energy = np.clip(self.energy / 100.0, 0.0, 1.0)
-        normalized_food = np.clip(food_available / 5.0, 0.0, 1.0)  # Food ranges 0-5
-        normalized_agent_count = np.clip(nearby_agents / 10.0, 0.0, 1.0)
-        normalized_visibility = np.clip(agent_vision, 0.0, 1.0)
-        normalized_movement = np.clip(movement_speed, 0.0, 1.0)
-
-        # Return what was perceived
         perception = [
-            normalized_energy,
-            normalized_food,
-            normalized_agent_count,
+            np.clip(self.energy / 100.0, 0.0, 1.0),
+            np.clip(food_available / 5.0, 0.0, 1.0),
+            np.clip(nearby_agents / 10.0, 0.0, 1.0),
             normalized_visibility,
             normalized_movement,
         ]
@@ -458,6 +455,7 @@ class Agent:
         return r.choice(candidates)
 
     def add_cause_of_death(self, cod: str):
+        """Record a human-readable cause of death string for the agent."""
         if not isinstance(cod, str):
             raise TypeError("Cause of death must be type:str")
 

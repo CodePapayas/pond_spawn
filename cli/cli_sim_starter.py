@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 from simulation import Environment
 
 
+# pylint: disable=too-many-locals
 def plot_simulation_stats(logged_stats, initial_population, avg_traits=None):
     """
     Create line graphs for simulation statistics over time.
@@ -96,7 +97,7 @@ def plot_simulation_stats(logged_stats, initial_population, avg_traits=None):
             ha="center",
             va="center",
             fontsize=8,
-            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+            bbox={"boxstyle": "round", "facecolor": "wheat", "alpha": 0.5},
         )
 
     # Generate filename with timestamp
@@ -202,7 +203,7 @@ def run_simulation(args):
     print("Food resupplies only when total food reaches 0")
     print("-" * 50)
 
-    for i in range(args.steps):
+    for _ in range(args.steps):
         # Run step
         env.step()
 
