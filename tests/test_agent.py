@@ -194,7 +194,9 @@ def test_reproduce_creates_offspring_and_reduces_energy(genome, environment_fact
     # = 80.0 * (0.50 * 0.7) = 80.0 * 0.35 = 28.0
     assert agent.energy == pytest.approx(80.0 - 28.0)
     assert offspring.position in {(2, 1), (0, 1), (1, 2), (1, 0)}
-    assert offspring.energy == pytest.approx(28.0)
+    # offspring.energy = reproduction_cost + (50 * clone_energy_bonus)
+    # = 28.0 + (50 * 1.0) = 78.0
+    assert offspring.energy == pytest.approx(78.0)
 
 
 def test_agent_dies_when_killed(genome):
