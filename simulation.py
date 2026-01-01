@@ -1,3 +1,12 @@
+"""
+Main simulation module for the Pond Spawn artificial life simulation.
+
+This module defines the Environment class which manages the grid, agents,
+food distribution, and the main simulation loop. It handles the interaction
+between agents and their environment, including movement, perception,
+and resource consumption.
+"""
+
 import random as r
 
 import torch as t
@@ -78,7 +87,8 @@ class Environment:
         Args:
             total_food (int): Base food units to distribute (modified by fertility)
         """
-        for x, y, biome in self.iter_biomes():
+
+        for x, y, biome in self.iter_biomes():  # pylint: disable=unused-variable
             # Get fertility modifier (0.0 to 1.0)
             fertility = biome.get_fertility()
 
@@ -190,6 +200,7 @@ class Environment:
             self.agents_by_id[agent_id] for agent_id in agent_ids if agent_id in self.agents_by_id
         ]
 
+    # pylint: disable=too-many-branches
     def count_agents_in_range(self, position, vision):
         """
         Count agents in the 180-degree field in front of the agent at `position`.
@@ -353,6 +364,7 @@ class Environment:
             self.position_map[new_position] = set()
         self.position_map[new_position].add(agent_id)
 
+    # pylint: disable=too-many-locals
     def _batch_decide(self, agents, batch_perceptions):
         """
         Run batched decision-making for all agents on GPU.
@@ -370,7 +382,7 @@ class Environment:
 
         for i, agent in enumerate(agents):
             perception = batch_perceptions[i]
-            energy, food, agents_nearby, visibility, movement = perception
+            energy, food, agents_nearby, visibility, movement = perception  # pylint:disable=unused-variable
 
             # Critical: Low energy and no food available -> must move to find food
             if energy < 0.25 and food == 0:
@@ -409,7 +421,7 @@ class Environment:
 
         return actions
 
-    # pylint: disable=too-many-locals
+    # pylint: disable=too-many-locals,too-many-statements
     def step(self):
         """
         Execute one simulation step.
@@ -733,7 +745,9 @@ class Environment:
 
 
 if __name__ == "__main__":
-    # For backwards compatibility, run with default settings
-    from cli.cli_sim_starter import main
+    # For backwards compatibility, run the CLI entrypoint.
+    # Use runpy to avoid a static import cycle between this module and
+    # cli/cli_sim_starter.py (which imports Environment from here).
+    import runpy
 
-    main()
+    runpy.run_module("cli.cli_sim_starter", run_name="__main__")
