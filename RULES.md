@@ -86,7 +86,7 @@
 ## Neural Network (Brain)
 
 - Architecture: 5 → 8 → 8 → 8 → 6
-- Activations: ReLU, ReLU, Sigmoid
+- Activations: Some combination of ReLU + Sigmoid + Tanh [depending on sim run]
 - Weights loaded from genome
 - Winner-takes-all output selection
 
