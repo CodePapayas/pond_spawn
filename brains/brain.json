@@ -1,11 +1,15 @@
 {
   "layers": [
-    {"type": "linear", "input_size": 5, "output_size": 8},
+    {"type": "linear", "input_size": 5, "output_size": 16},
     {"type": "activation", "function": "tanh"},
-    {"type": "linear", "input_size": 8, "output_size": 8},
-    {"type": "activation", "function": "tanh"},
-    {"type": "linear", "input_size": 8, "output_size": 8},
+    {"type": "linear", "input_size": 16, "output_size": 16},
+    {"type": "activation", "function": "sigmoid"},
+    {"type": "linear", "input_size": 16, "output_size": 16},
     {"type": "activation", "function": "relu"},
-    {"type": "linear", "input_size": 8, "output_size": 6}
+    {"type": "linear", "input_size": 16, "output_size": 16},
+    {"type": "activation", "function": "tanh"},
+    {"type": "linear", "input_size": 16, "output_size": 16},
+    {"type": "activation", "function": "sigmoid"},
+    {"type": "linear", "input_size": 16, "output_size": 6}
   ]
 }
