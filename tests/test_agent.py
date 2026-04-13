@@ -39,6 +39,9 @@ class DummyGenome:
             "clone_energy_threshold": {"value": 1.0},
             "mutation_rate": {"value": 0.1},
             "reproduction_cost": {"value": 0.7},
+            "attack": {"value": 1.0},
+            "defense": {"value": 0.8},
+            "aggression": {"value": 0.9},
         }
         self.brain_weights = [0.0] * DummyGenome._weight_count
 
@@ -194,7 +197,9 @@ def test_reproduce_creates_offspring_and_reduces_energy(genome, environment_fact
     # = 80.0 * (0.50 * 0.7) = 80.0 * 0.35 = 28.0
     assert agent.energy == pytest.approx(80.0 - 28.0)
     assert offspring.position in {(2, 1), (0, 1), (1, 2), (1, 0)}
-    assert offspring.energy == pytest.approx(28.0)
+    # offspring gets reproduction_cost + (50 * clone_energy_threshold)
+    # = 28.0 + (50 * 1.0) = 78.0
+    assert offspring.energy == pytest.approx(78.0)
 
 
 def test_agent_dies_when_killed(genome):
@@ -294,3 +299,65 @@ def test_is_alive_starvation(genome):
     agent.is_alive()
 
     assert agent.cause_of_death == "Died of starvation"
+
+
+def test_eat_agent_transfers_partial_energy(genome):
+    attacker = Agent(genome, position=(1, 1))
+    target = Agent(genome, position=(1, 1))
+    attacker.energy = 50.0
+    target.energy = 60.0
+
+    attacker.eat_agent(target)
+
+    # gains 50% of target energy: 60 * 0.5 = 30, capped at max (100 * 1.2 = 120)
+    assert attacker.energy == pytest.approx(80.0)
+    assert not target.is_alive()
+
+
+def test_eat_agent_sets_cause_of_death(genome):
+    attacker = Agent(genome, position=(1, 1))
+    target = Agent(genome, position=(1, 1))
+
+    attacker.eat_agent(target)
+
+    assert target.cause_of_death == "Killed in combat"
+
+
+def test_attack_low_aggression_no_combat(genome):
+    attacker = Agent(genome, position=(1, 1))
+    target = Agent(genome, position=(1, 1))
+    attacker.genome.traits["aggression"]["value"] = 0.5  # below 0.80
+
+    result = attacker.attack(target)
+
+    assert result is False
+    assert target.is_alive()
+
+
+def test_attack_strong_attacker_wins(genome):
+    attacker = Agent(genome, position=(1, 1))
+    target = Agent(genome, position=(1, 1))
+    # attack=1.0, defense=0.8: 1.0 > 0.8 * 0.66 = 0.528 → guaranteed win
+    # aggression=0.9 >= 0.80
+
+    result = attacker.attack(target)
+
+    assert result is True
+    assert not target.is_alive()
+    assert target.cause_of_death == "Killed in combat"
+
+
+def test_attack_costs_energy(genome):
+    attacker = Agent(genome, position=(1, 1))
+    target = Agent(genome, position=(1, 1))
+    attacker.energy = 80.0
+    # attack=1.0 > defense=0.8 * 0.66 → attacker wins and gains energy
+    # cost = 0.2 * metabolism(0.8) = 0.16, then gains 50% of target's 100.0 = 50.0
+    # net change: -0.16 + 50.0 = +49.84, capped at max (100 * 1.2 = 120)
+
+    attacker.attack(target)
+
+    # Should be capped at max energy (120)
+    energy_capacity = attacker.get_trait("energy_capacity") or 1.0
+    max_energy = 100.0 * energy_capacity
+    assert attacker.energy == pytest.approx(max_energy)
