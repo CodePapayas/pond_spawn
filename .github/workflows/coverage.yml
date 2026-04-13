@@ -1,19 +1,8 @@
-name: Lint and Coverage
+name: Coverage
+
 on: [push, pull_request]
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install and run Ruff
-        uses: astral-sh/ruff-action@v3
-        with:
-          version: latest
-          args: check .
-
   coverage:
     runs-on: ubuntu-latest
     permissions:

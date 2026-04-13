@@ -1,3 +1,12 @@
+"""
+Main simulation module for the Pond Spawn artificial life simulation.
+
+This module defines the Environment class which manages the grid, agents,
+food distribution, and the main simulation loop. It handles the interaction
+between agents and their environment, including movement, perception,
+and resource consumption.
+"""
+
 import random as r
 
 import torch as t
@@ -56,7 +65,10 @@ class Environment:
         max_capacity = 2 * grid_size * grid_size
         if num_agents > max_capacity:
             print(
-                f"Warning: Requested population {num_agents} exceeds max capacity {max_capacity}. Capping at {max_capacity}."
+                f"""Warning:
+                population {num_agents} >  max capacity {max_capacity}.
+                Capping at {max_capacity}.
+                """
             )
             num_agents = max_capacity
 
@@ -76,7 +88,8 @@ class Environment:
         Args:
             total_food (int): Base food units to distribute (modified by fertility)
         """
-        for x, y, biome in self.iter_biomes():
+
+        for x, y, biome in self.iter_biomes():  # pylint: disable=unused-variable
             # Get fertility modifier (0.0 to 1.0)
             fertility = biome.get_fertility()
 
@@ -188,6 +201,7 @@ class Environment:
             self.agents_by_id[agent_id] for agent_id in agent_ids if agent_id in self.agents_by_id
         ]
 
+    # pylint: disable=too-many-branches
     def count_agents_in_range(self, position, vision):
         """
         Count agents in the 180-degree field in front of the agent at `position`.
@@ -195,11 +209,10 @@ class Environment:
         Vision determines range:
         - vision > 1.0: Can see 2 tiles ahead (wide field)
         - vision 0.5-1.0: Can see 1 tile ahead (normal field)
-        - vision < 0.5: Blind - returns random guess (0-3)
+        - vision < 0.: Blind - returns random guess (0-3)
 
         Args:
             position (tuple): (x, y) position of the focal agent.
-            vision (float): Agent's vision trait value.
 
         Returns:
             int: Number of agents in forward field of view (or random if blind).
@@ -403,7 +416,7 @@ class Environment:
 
         for i, agent in enumerate(agents):
             perception = batch_perceptions[i]
-            energy, food, agents_nearby, visibility, movement = perception
+            energy, food, agents_nearby, visibility, movement = perception  # pylint:disable=unused-variable
 
             # Critical: Low energy and no food available -> must move to find food
             if energy < 0.25 and food == 0:
@@ -442,6 +455,7 @@ class Environment:
 
         return actions
 
+    # pylint: disable=too-many-locals,too-many-statements
     def step(self):
         """
         Execute one simulation step.
@@ -634,7 +648,8 @@ class Environment:
         Log statistics to a state dictionary for graphing.
 
         Args:
-            stats (dict): Statistics dictionary with keys: step, alive_agents, total_food, avg_energy, median_lifespan, min_age, max_age
+            stats (dict): keys: step, alive_agents, total_food,
+            avg_energy, median_lifespan, min_age, max_age
             state_dict (dict): Dictionary to accumulate stats over time
 
         Returns:
@@ -772,7 +787,9 @@ class Environment:
 
 
 if __name__ == "__main__":
-    # For backwards compatibility, run with default settings
-    from cli.cli_sim_starter import main
+    # For backwards compatibility, run the CLI entrypoint.
+    # Use runpy to avoid a static import cycle between this module and
+    # cli/cli_sim_starter.py (which imports Environment from here).
+    import runpy
 
-    main()
+    runpy.run_module("cli.cli_sim_starter", run_name="__main__")

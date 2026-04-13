@@ -1,7 +1,15 @@
+"""
+Neural network controller for agents.
+
+This module defines the Brain class, which is a dynamic PyTorch neural network
+constructed from a JSON configuration. It handles the forward pass logic for
+agent decision making and manages the loading of weights from genomes.
+"""
+
 import json
 
 import torch as t
-import torch.nn as nn
+from torch import nn
 
 
 class Brain(nn.Module):
@@ -42,7 +50,7 @@ class Brain(nn.Module):
             device = t.device("cuda" if t.cuda.is_available() else "cpu")
         self.device = device
 
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             config = json.load(f)
         self.layers = nn.ModuleList()
         self._build_network(config["layers"])

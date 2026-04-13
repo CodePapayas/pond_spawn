@@ -1,3 +1,10 @@
+"""Genome representation and mutation logic.
+
+This module defines :class:`~controllers.genome.Genome`, which stores an
+agent's genetic traits and neural-network weights. It supports random genome
+generation, mutation, and serialization to/from dictionaries.
+"""
+
 import copy as c
 import json as j
 import random as r
@@ -44,7 +51,7 @@ class Genome:
     def _load_base_data(cls):
         """Load base genome template and calculate brain weight count (done once)."""
         if cls._base_genome is None:
-            with open(GENOME_PATH) as file:
+            with open(GENOME_PATH, encoding="utf-8") as file:
                 cls._base_genome = j.load(file)
             brain_instance = Brain(str(BRAIN_CONFIG_PATH))
             cls._brain_weight_count = brain_instance.count_weights()
@@ -90,7 +97,7 @@ class Genome:
 
         # Initialize traits
         self.traits = genome_data["traits"]
-        for trait, info in self.traits.items():
+        for _trait, info in self.traits.items():
             if "min" in info and "max" in info:
                 info["value"] = r.uniform(info["min"], info["max"])
 
@@ -121,7 +128,7 @@ class Genome:
         mutation_rate = self.traits.get("mutation_rate", {}).get("value", 0.1)
 
         # Mutate traits
-        for trait, info in new_genome.traits.items():
+        for _trait, info in new_genome.traits.items():
             # Each trait has a chance equal to mutation_rate to mutate
             if r.random() < mutation_rate:
                 # Mutation factor scales with mutation_rate
@@ -136,12 +143,12 @@ class Genome:
                 info["value"] = mutated_value
 
         # Mutate brain weights
-        for i in range(len(new_genome.brain_weights)):
+        for i, weight in enumerate(new_genome.brain_weights):
             # Each weight has a chance equal to mutation_rate to mutate
             if r.random() < mutation_rate:
                 mutation_magnitude = mutation_rate * 0.5
                 mutation_factor = r.uniform(1.0 - mutation_magnitude, 1.0 + mutation_magnitude)
-                new_genome.brain_weights[i] = new_genome.brain_weights[i] * mutation_factor
+                new_genome.brain_weights[i] = weight * mutation_factor
 
         return new_genome
 

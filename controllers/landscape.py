@@ -1,3 +1,10 @@
+"""Biome and landscape data structures.
+
+This module defines :class:`~controllers.landscape.Biome`, which represents the
+environmental properties of a single grid tile (movement speed, visibility,
+fertility, and food availability). Biomes are generated from a JSON template.
+"""
+
 import copy as c
 import json
 import random as r
@@ -39,7 +46,7 @@ class Biome:
     def _load_base_data(cls):
         """Load base biome template (done once)."""
         if cls._base_biome is None:
-            with open(BIOME_PATH) as file:
+            with open(BIOME_PATH, encoding="utf-8") as file:
                 cls._base_biome = json.load(file)
 
     def __init__(self, biome_dict=None):
