@@ -184,7 +184,7 @@ def test_reproduce_creates_offspring_and_reduces_energy(genome, environment_fact
     env = environment_factory(food_units=3, agents_in_range=0)
     agent = Agent(genome, position=(1, 1))
     agent.energy = 80.0
-    agent.age = 100  # Must be >= 100 to reproduce
+    100 < agent.age < 250
 
     r.seed(0)
     offspring = agent.reproduce(env)
@@ -296,3 +296,56 @@ def test_is_alive_starvation(genome):
     agent.is_alive()
 
     assert agent.cause_of_death == "Died of starvation"
+
+def make_combat_agent(position, *, aggression, attack, defense, energy=50.0):
+    genome = DummyGenome()
+    genome.traits["aggression"] = {"value": aggression}
+    genome.traits["attack"] = {"value": attack}
+    genome.traits["defense"] = {"value": defense}
+    agent = Agent(genome, position=position)
+    agent.energy = energy
+    return agent
+
+
+def test_attack_agent_stronger_than_victim():
+    attacker = make_combat_agent((1, 1), aggression=0.8, attack=0.9, defense=0.2, energy=50.0)
+    victim = make_combat_agent((1, 1), aggression=0.5, attack=0.5, defense=0.3, energy=50.0)
+
+    attacker.attack_agent(victim)
+
+    assert attacker.energy > 50.0
+    assert victim.energy < 50.0
+
+
+def test_attack_victim_stronger_than_agent():
+    attacker = make_combat_agent((1, 1), aggression=0.8, attack=0.2, defense=0.3, energy=50.0)
+    victim = make_combat_agent((1, 1), aggression=0.5, attack=0.5, defense=0.9, energy=50.0)
+
+    attacker.attack_agent(victim)
+
+    assert attacker.energy < 50.0
+    assert victim.energy > 50.0
+
+
+def test_attack_agent_fully_eats_victim():
+    # attack=1.5 > v_defense=1.0 → attacker wins; energy_stolen = 10.0 * 1.0 = 10.0 → victim dies
+    attacker = make_combat_agent((1, 1), aggression=0.8, attack=1.5, defense=0.2, energy=100.0)
+    victim = make_combat_agent((1, 1), aggression=0.5, attack=0.5, defense=1.0, energy=10.0)
+
+    attacker.attack_agent(victim)
+
+    assert victim.energy == pytest.approx(0.0)
+    assert not victim.is_alive()
+    assert victim.cause_of_death == "Eaten alive"
+
+
+def test_attack_victim_eats_agent():
+    # attacker.defense=1.0 → energy_lost = attacker.energy * 1.0 = all of attacker's energy
+    attacker = make_combat_agent((1, 1), aggression=0.8, attack=0.2, defense=1.0, energy=10.0)
+    victim = make_combat_agent((1, 1), aggression=0.5, attack=0.5, defense=0.9, energy=100.0)
+
+    attacker.attack_agent(victim)
+
+    assert attacker.energy == pytest.approx(0.0)
+    assert not attacker.is_alive()
+    assert attacker.cause_of_death == "Eaten alive"
