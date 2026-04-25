@@ -21,9 +21,8 @@ ACTION_EAT = 2  # Attempt to eat food at current position
 ACTION_REPRODUCE = 3  # Attempt to reproduce (costs 25% of current energy)
 ACTION_SLEEP = 4  # Rest; Burns energy, but less than anything else
 ACTION_NOTHING = 5  # Agent can choose to do nothing.
-# This burns the standard rate of metabolism it costs to be alive and nothing more.
-# ACTION_TURN_COUNTER = 6  # Agent can turn 90 degrees counter-clockwise
-# ACTION_ATTACK = 7. # Agent can attempt to absorb another agent
+ACTION_TURN_COUNTER = 6  # Agent can turn 90 degrees counter-clockwise
+ACTION_ATTACK = 7 # Agent can attempt to absorb another agent
 
 # Directional headings - where the agent can point
 headings = [0, 1, 2, 3]
@@ -50,7 +49,7 @@ def create_death_range(size=200, early_death_chance=0.15, late_death_start=500):
     return death_range
 
 
-class Agent:
+class Agent:  # pylint: disable=too-many-public-methods
     """
     Represents an individual agent in the simulation.
 
@@ -212,6 +211,17 @@ class Agent:
         metabolism = self.get_trait("metabolism") or 1.0
         self.consume_energy(0.1 * metabolism)
 
+    def turn_left(self):
+        """
+        Turn the agent 90 degrees counter-clockwise.
+
+        Heading transitions: North -> West -> South -> East -> North
+        Energy cost affected by metabolism trait.
+        """
+        self.heading = (self.get_heading() - 1) % 4
+        metabolism = self.get_trait("metabolism") or 1.0
+        self.consume_energy(0.1 * metabolism)
+
     def eat(self, environment):
         """
         Attempt to eat food at current position.
@@ -270,7 +280,7 @@ class Agent:
             Agent or None: New offspring agent if reproduction successful
         """
 
-        if self.age < 100:
+        if self.age < 100 and self.age > 250:
             return None
         x, y = self.position
         procreation_modifier = self.get_trait("reproduction_cost")
@@ -320,6 +330,10 @@ class Agent:
         energy_gain = 20 * metabolism
         self.add_energy(energy_gain)
 
+    def get_energy_lvl(self):
+        """Return the agent's current energy level."""
+        return self.energy
+
     def consume_energy(self, amount: float):
         """
         Reduce agent's energy by the specified amount.
@@ -352,7 +366,7 @@ class Agent:
             bool: True if agent is alive
         """
         if self.energy <= 0:
-            if not self.cause_of_death == "Reached assigned death age":
+            if self.cause_of_death not in ("Reached assigned death age", "Eaten alive"):
                 self.add_cause_of_death("Died of starvation")
             self.alive = False
             return False
@@ -419,6 +433,10 @@ class Agent:
             self.loaf_around()
         elif action == ACTION_EAT:
             self.eat(environment)
+        elif action == ACTION_ATTACK:
+            victim = environment.get_agents_at(*self.position)[0]
+            if victim and victim is not self:
+                self.attack_agent(victim)
 
         return offspring
 
@@ -461,6 +479,38 @@ class Agent:
 
         self.cause_of_death = cod
 
+    def attack_agent(self, victim):
+        """
+        Attempt to absorb energy from a victim agent.
+
+        If the attacker's attack exceeds the victim's defense, the attacker steals a
+        fraction of the victim's energy. Otherwise the victim's defense overpowers the
+        attacker and the attacker loses energy instead. Either agent is killed if their
+        energy reaches zero.
+        """
+        aggression = self.get_trait("aggression")
+        defense, attack = self.get_trait("defense"), self.get_trait("attack")
+        v_defense = victim.get_trait("defense")
+
+        if aggression <= .55:
+            self.consume_energy(0.1)
+            return
+
+        if attack > v_defense:
+            energy_stolen = victim.get_energy_lvl() * v_defense
+            victim.consume_energy(energy_stolen)
+            self.add_energy(energy_stolen)
+            if victim.get_energy_lvl() == 0:
+                victim.add_cause_of_death("Eaten alive")
+                victim.kill_agent()
+
+        else:
+            energy_lost = self.get_energy_lvl() * defense
+            self.consume_energy(energy_lost)
+            victim.add_energy(energy_lost)
+            if self.get_energy_lvl() == 0:
+                self.add_cause_of_death("Eaten alive")
+                self.kill_agent()
 
 if __name__ == "__main__":
     dummy_range = create_death_range()
