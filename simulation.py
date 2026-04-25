@@ -17,6 +17,7 @@ from controllers.landscape import Biome
 
 # Global variables
 POPULATION = 300
+POPULATION_CAP = 1000
 FOOD_RESUPPLY = 3
 MAX_FOOD_PER_TILE = 3
 TICKS = 1000
@@ -364,7 +365,40 @@ class Environment:
             self.position_map[new_position] = set()
         self.position_map[new_position].add(agent_id)
 
-    # pylint: disable=too-many-locals
+    def _resolve_combat(self, agents):
+        """
+        Resolve combat between agents sharing the same tile.
+
+        Called after all actions execute in a step. Aggressive agents
+        (aggression >= 0.80) each attack one random co-tile agent.
+
+        Args:
+            agents (list): All alive agents for this step
+        """
+        tile_agents = {}
+        for agent in agents:
+            if not agent.is_alive():
+                continue
+            pos = agent.position
+            if pos not in tile_agents:
+                tile_agents[pos] = []
+            tile_agents[pos].append(agent)
+
+        for tile_group in tile_agents.values():
+            if len(tile_group) < 2:
+                continue
+            for attacker in list(tile_group):
+                if not attacker.is_alive():
+                    continue
+                aggression = attacker.get_trait("aggression") or 0.0
+                if aggression < 0.80:
+                    continue
+                targets = [a for a in tile_group if a is not attacker and a.is_alive()]
+                if not targets:
+                    continue
+                target = r.choice(targets)
+                attacker.attack(target)
+
     def _batch_decide(self, agents, batch_perceptions):
         """
         Run batched decision-making for all agents on GPU.
@@ -497,6 +531,11 @@ class Environment:
             old_position = agent.position
             action = batch_actions[i]
 
+            # Enforce population cap by denying reproduction
+            if action == 3 and len(self.agents) + len(new_agents) >= POPULATION_CAP:
+                # Force them to do nothing instead of reproducing
+                action = 5
+
             # Execute the action
             offspring = agent.execute_action(action, self)
 
@@ -507,6 +546,9 @@ class Environment:
             # Collect offspring
             if offspring:
                 new_agents.append(offspring)
+
+        # COMBAT PHASE: aggressive agents on shared tiles attack
+        self._resolve_combat(alive_agents)
 
         # Add new offspring to population
         for offspring in new_agents:

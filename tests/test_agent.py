@@ -39,6 +39,9 @@ class DummyGenome:
             "clone_energy_threshold": {"value": 1.0},
             "mutation_rate": {"value": 0.1},
             "reproduction_cost": {"value": 0.7},
+            "attack": {"value": 1.0},
+            "defense": {"value": 0.8},
+            "aggression": {"value": 0.9},
         }
         self.brain_weights = [0.0] * DummyGenome._weight_count
 
@@ -194,7 +197,7 @@ def test_reproduce_creates_offspring_and_reduces_energy(genome, environment_fact
     # = 80.0 * (0.50 * 0.7) = 80.0 * 0.35 = 28.0
     assert agent.energy == pytest.approx(80.0 - 28.0)
     assert offspring.position in {(2, 1), (0, 1), (1, 2), (1, 0)}
-    # offspring.energy = reproduction_cost + (50 * clone_energy_bonus)
+    # offspring gets reproduction_cost + (50 * clone_energy_threshold)
     # = 28.0 + (50 * 1.0) = 78.0
     assert offspring.energy == pytest.approx(78.0)
 

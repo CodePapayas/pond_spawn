@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude plugin:*)",
+      "Bash(python -m pytest tests/test_agent.py tests/test_simulation.py -x -q)",
+      "Bash(python3 -m pytest tests/test_agent.py tests/test_simulation.py -x -q)",
+      "Bash(.venv/bin/pytest tests/test_agent.py tests/test_simulation.py -x -q)",
+      "Bash(.venv/bin/pytest tests/test_agent.py tests/test_simulation.py -q --ignore-glob=\"*\" -k \"not TestIsTileFull\")",
+      "Bash(python3:*)",
+      "Bash(.venv/bin/pytest tests/ -q -k \"not TestIsTileFull\")"
+    ]
+  }
+}

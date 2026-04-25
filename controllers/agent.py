@@ -263,6 +263,53 @@ class Agent:  # pylint: disable=too-many-public-methods
 
         return False
 
+    def eat_agent(self, target_agent):
+        """Win combat: gain 50% of target's energy, kill target."""
+        energy_capacity_trait = self.get_trait("energy_capacity") or 1.0
+        max_energy = 100.0 * energy_capacity_trait
+        energy_gained = target_agent.energy * 0.5
+        self.energy = min(self.energy + energy_gained, max_energy)
+        target_agent.add_cause_of_death("Killed in combat")
+        target_agent.kill_agent()
+
+    def attack(self, target_agent):
+        """
+        Attempt to attack a target agent.
+
+        Requires aggression >= 0.80 to initiate.
+        Outcome based on attack vs defense ratio:
+          - attack > defense * 0.66: attacker wins
+          - attack > defense * 0.33: 50/50
+          - attack <= defense * 0.33: defender wins
+        Costs 0.2 * metabolism energy to initiate.
+
+        Returns:
+            bool: True if attack was attempted, False if aggression too low
+        """
+        agent_attack = self.get_trait("attack")
+        agent_aggression = self.get_trait("aggression")
+        target_defense = target_agent.get_trait("defense")
+
+        if agent_aggression is None or agent_aggression < 0.80:
+            return False
+
+        metabolism = self.get_trait("metabolism") or 1.0
+        self.consume_energy(0.2 * metabolism)
+
+        if agent_attack > target_defense * 0.66:
+            self.eat_agent(target_agent)
+            return True
+
+        if agent_attack > target_defense * 0.33:
+            if r.random() >= 0.5:
+                self.eat_agent(target_agent)
+            else:
+                target_agent.eat_agent(self)
+            return True
+
+        target_agent.eat_agent(self)
+        return True
+
     def reproduce(self, environment):
         """
         Attempt to reproduce if energy threshold is met.

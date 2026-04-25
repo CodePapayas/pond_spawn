@@ -41,6 +41,9 @@ class DummyGenome:
             "clone_energy_threshold": {"value": 1.0},
             "mutation_rate": {"value": 0.1},
             "reproduction_cost": {"value": 0.7},
+            "attack": {"value": 1.0},
+            "defense": {"value": 0.8},
+            "aggression": {"value": 0.9},
         }
         self.brain_weights = [0.0] * DummyGenome._weight_count
 
@@ -480,3 +483,54 @@ class TestStep:
         for i, agent in enumerate(env.agents):
             if agent.is_alive():
                 assert agent.age >= initial_ages[i]
+
+
+# -----------------------------------------------------------------------------
+# Tests: _resolve_combat()
+# -----------------------------------------------------------------------------
+
+
+class TestResolveCombat:
+    """Tests for Environment._resolve_combat() method."""
+
+    def test_aggressive_agent_kills_co_tile_target(self, environment_factory, agent_factory):
+        """High-aggression agent on same tile should kill weaker target."""
+        env = environment_factory(grid_size=4, num_agents=0, food_units=0)
+
+        # attacker: aggression=0.9, attack=1.0 → beats defense=0.8 guaranteed
+        attacker = agent_factory(position=(1, 1))
+        attacker.genome.traits["aggression"]["value"] = 0.9
+        attacker.genome.traits["attack"]["value"] = 1.0
+
+        target = agent_factory(position=(1, 1))
+        target.genome.traits["defense"]["value"] = 0.8
+        target.genome.traits["aggression"]["value"] = 0.0
+
+        env._resolve_combat([attacker, target])
+
+        assert not target.is_alive()
+        assert target.cause_of_death == "Killed in combat"
+
+    def test_low_aggression_agent_does_not_attack(self, environment_factory, agent_factory):
+        """Agent with aggression below 0.80 should not initiate combat."""
+        env = environment_factory(grid_size=4, num_agents=0, food_units=0)
+
+        passive = agent_factory(position=(2, 2))
+        passive.genome.traits["aggression"]["value"] = 0.5
+
+        target = agent_factory(position=(2, 2))
+
+        env._resolve_combat([passive, target])
+
+        assert target.is_alive()
+
+    def test_single_agent_tile_no_combat(self, environment_factory, agent_factory):
+        """Sole occupant of a tile should not trigger combat."""
+        env = environment_factory(grid_size=4, num_agents=0, food_units=0)
+
+        lone = agent_factory(position=(0, 0))
+        lone.genome.traits["aggression"]["value"] = 1.0
+
+        env._resolve_combat([lone])
+
+        assert lone.is_alive()
