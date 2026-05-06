@@ -22,7 +22,7 @@ ACTION_REPRODUCE = 3  # Attempt to reproduce (costs 25% of current energy)
 ACTION_SLEEP = 4  # Rest; Burns energy, but less than anything else
 ACTION_NOTHING = 5  # Agent can choose to do nothing.
 ACTION_TURN_COUNTER = 6  # Agent can turn 90 degrees counter-clockwise
-ACTION_ATTACK = 7 # Agent can attempt to absorb another agent
+ACTION_ATTACK = 7  # Agent can attempt to absorb another agent
 
 # Directional headings - where the agent can point
 headings = [0, 1, 2, 3]
@@ -315,7 +315,7 @@ class Agent:  # pylint: disable=too-many-public-methods
         Attempt to reproduce if energy threshold is met.
 
         Reproduction rules:
-        - Requires minimum energy threshold (50 energy)
+        - Requires minimum energy threshold (40 energy)
         - Costs 40% of current energy
         - Creates a mutated offspring at nearby position
         - Offspring gets the energy cost as starting energy
@@ -327,7 +327,9 @@ class Agent:  # pylint: disable=too-many-public-methods
             Agent or None: New offspring agent if reproduction successful
         """
 
-        if self.age < 100 and self.age > 250:
+        if self.age < 100 or self.age > 250:
+            return None
+        if self.energy < 40:
             return None
         x, y = self.position
         procreation_modifier = self.get_trait("reproduction_cost")
@@ -413,7 +415,11 @@ class Agent:  # pylint: disable=too-many-public-methods
             bool: True if agent is alive
         """
         if self.energy <= 0:
-            if self.cause_of_death not in ("Reached assigned death age", "Eaten alive"):
+            if self.cause_of_death not in (
+                "Reached assigned death age",
+                "Eaten alive",
+                "Killed in combat",
+            ):
                 self.add_cause_of_death("Died of starvation")
             self.alive = False
             return False
@@ -480,6 +486,9 @@ class Agent:  # pylint: disable=too-many-public-methods
             self.loaf_around()
         elif action == ACTION_EAT:
             self.eat(environment)
+        elif action == ACTION_TURN_COUNTER:
+            self.turn_left()
+            self.consume_energy(0.04 * metabolism)
         elif action == ACTION_ATTACK:
             victim = environment.get_agents_at(*self.position)[0]
             if victim and victim is not self:
@@ -539,7 +548,7 @@ class Agent:  # pylint: disable=too-many-public-methods
         defense, attack = self.get_trait("defense"), self.get_trait("attack")
         v_defense = victim.get_trait("defense")
 
-        if aggression <= .55:
+        if aggression <= 0.55:
             self.consume_energy(0.1)
             return
 
@@ -558,6 +567,7 @@ class Agent:  # pylint: disable=too-many-public-methods
             if self.get_energy_lvl() == 0:
                 self.add_cause_of_death("Eaten alive")
                 self.kill_agent()
+
 
 if __name__ == "__main__":
     dummy_range = create_death_range()

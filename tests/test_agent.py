@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from controllers.agent import (  # noqa: E402
     ACTION_REPRODUCE,
+    ACTION_TURN_COUNTER,
     Agent,
 )
 from controllers.brain import Brain  # noqa: E402
@@ -187,7 +188,7 @@ def test_reproduce_creates_offspring_and_reduces_energy(genome, environment_fact
     env = environment_factory(food_units=3, agents_in_range=0)
     agent = Agent(genome, position=(1, 1))
     agent.energy = 80.0
-    100 < agent.age < 250
+    agent.age = 150
 
     r.seed(0)
     offspring = agent.reproduce(env)
@@ -300,6 +301,7 @@ def test_is_alive_starvation(genome):
 
     assert agent.cause_of_death == "Died of starvation"
 
+
 def make_combat_agent(position, *, aggression, attack, defense, energy=50.0):
     genome = DummyGenome()
     genome.traits["aggression"] = {"value": aggression}
@@ -352,3 +354,38 @@ def test_attack_victim_eats_agent():
     assert attacker.energy == pytest.approx(0.0)
     assert not attacker.is_alive()
     assert attacker.cause_of_death == "Eaten alive"
+
+
+def test_turn_left_decrements_heading(genome):
+    agent = Agent(genome, position=(1, 1))
+    agent.heading = 1  # East
+    agent.turn_left()
+    assert agent.heading == 0  # North
+
+
+def test_turn_left_wraps_heading(genome):
+    agent = Agent(genome, position=(1, 1))
+    agent.heading = 0  # North
+    agent.turn_left()
+    assert agent.heading == 3  # West
+
+
+def test_turn_left_consumes_energy(genome):
+    agent = Agent(genome, position=(1, 1))
+    starting_energy = agent.energy
+    agent.turn_left()
+    # cost = 0.1 * metabolism = 0.1 * 0.8 = 0.08
+    assert agent.energy == pytest.approx(starting_energy - 0.08)
+
+
+def test_execute_action_turn_left_dispatches(genome, environment_factory):
+    env = environment_factory(agents_in_range=0)
+    agent = Agent(genome, position=(1, 1))
+    agent.heading = 2  # South
+    starting_energy = agent.energy
+
+    agent.execute_action(ACTION_TURN_COUNTER, env)
+
+    assert agent.heading == 1  # East
+    # turn_left costs 0.1 * 0.8 = 0.08, plus execute_action extra 0.04 * 0.8 = 0.032
+    assert agent.energy == pytest.approx(starting_energy - 0.08 - 0.032)

@@ -118,7 +118,14 @@ def draw_heading_indicator(screen, x, y, heading, cell_size):
     pygame.draw.polygon(screen, WHITE, points)
 
 
-def run_visualization(grid_size=12, population=100, cell_size=40, fps=10, max_ticks=1000):
+def run_visualization(
+    grid_size=12,
+    population=100,
+    cell_size=40,
+    fps=10,
+    max_ticks=1000,
+    population_cap=None,
+):
     """Run the pygame visualization."""
     pygame.init()
 
@@ -140,7 +147,11 @@ def run_visualization(grid_size=12, population=100, cell_size=40, fps=10, max_ti
         print("No sprite found, using circle fallback")
 
     # Create environment
-    env = Environment(grid_size=grid_size, num_agents=population)
+    env = Environment(
+        grid_size=grid_size,
+        num_agents=population,
+        population_cap=population_cap,
+    )
     logged_stats = {}
 
     running = True
@@ -265,6 +276,12 @@ def parse_args():
         default=1000,
         help="Maximum number of simulation ticks (default: 1000)",
     )
+    parser.add_argument(
+        "--population-cap",
+        type=int,
+        default=None,
+        help="Optional max living population; omit for no reproduction cap",
+    )
     return parser.parse_args()
 
 
@@ -276,6 +293,7 @@ def main():
         cell_size=args.cell_size,
         fps=args.fps,
         max_ticks=args.max_ticks,
+        population_cap=args.population_cap,
     )
 
 

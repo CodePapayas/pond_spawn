@@ -7,7 +7,10 @@
       "Bash(.venv/bin/pytest tests/test_agent.py tests/test_simulation.py -x -q)",
       "Bash(.venv/bin/pytest tests/test_agent.py tests/test_simulation.py -q --ignore-glob=\"*\" -k \"not TestIsTileFull\")",
       "Bash(python3:*)",
-      "Bash(.venv/bin/pytest tests/ -q -k \"not TestIsTileFull\")"
+      "Bash(.venv/bin/pytest tests/ -q -k \"not TestIsTileFull\")",
+      "Bash(python -m pytest --tb=short)",
+      "Bash(.venv/bin/pytest --tb=short)",
+      "Bash(.venv/bin/pytest tests/test_agent.py -v --tb=short)"
     ]
   }
 }
