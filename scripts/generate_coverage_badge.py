@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import sys
-import xml.etree.ElementTree as et
 from pathlib import Path
+from xml.etree import ElementTree
 
 
 def get_badge_color(coverage_percent: int) -> str:
@@ -22,7 +22,7 @@ def get_badge_color(coverage_percent: int) -> str:
 
 def load_coverage_percent(report_path: Path) -> int:
     """Extract and round line coverage percentage from coverage.xml."""
-    root = et.parse(report_path).getroot()
+    root = ElementTree.parse(report_path).getroot()
     line_rate = root.attrib.get("line-rate")
     if line_rate is None:
         raise ValueError("coverage.xml is missing the 'line-rate' attribute")
@@ -40,7 +40,8 @@ def build_svg(coverage_percent: int) -> str:
     right_rect_x = label_width
     color = get_badge_color(coverage_percent)
 
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{total_width}" height="20" role="img" aria-label="{label}: {value}">
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{total_width}" height="20"
+role="img" aria-label="{label}: {value}">
 <linearGradient id="smooth" x2="0" y2="100%">
 <stop offset="0" stop-color="#fff" stop-opacity=".7"/>
 <stop offset=".1" stop-color="#aaa" stop-opacity=".1"/>
