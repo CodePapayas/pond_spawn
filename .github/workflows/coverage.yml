@@ -23,10 +23,12 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=controllers --cov=simulation --cov-report=term-missing
+          pytest --cov=controllers --cov=simulation --cov-report=term-missing --cov-report=xml
 
       - name: Generate coverage badge
-        uses: tj-actions/coverage-badge-py@v2
+        if: github.ref == 'refs/heads/main'
+        run: |
+          python scripts/generate_coverage_badge.py coverage.xml coverage.svg
 
       - name: Push coverage badge
         if: github.ref == 'refs/heads/main'
