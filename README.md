@@ -1,4 +1,11 @@
-# pond_spawn
+```
+  ██████╗  ██████╗ ███╗   ██╗██████╗       ███████╗██████╗  █████╗ ██╗    ██╗███╗   ██╗
+  ██╔══██╗██╔═══██╗████╗  ██║██╔══██╗      ██╔════╝██╔══██╗██╔══██╗██║    ██║████╗  ██║
+  ██████╔╝██║   ██║██╔██╗ ██║██║  ██║      ███████╗██████╔╝███████║██║ █╗ ██║██╔██╗ ██║
+  ██╔═══╝ ██║   ██║██║╚██╗██║██║  ██║      ╚════██║██╔═══╝ ██╔══██║██║███╗██║██║╚██╗██║
+  ██║     ╚██████╔╝██║ ╚████║██████╔╝      ███████║██║     ██║  ██║╚███╔███╔╝██║ ╚████║
+  ╚═╝      ╚═════╝ ╚═╝  ╚═══╝╚═════╝       ╚══════╝╚═╝     ╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝  ╚═══╝
+```
 
 [![Coverage](https://raw.githubusercontent.com/codepapayas/pond_spawn/badges/badges/coverage.svg)](https://github.com/codepapayas/pond_spawn)
 [![Ruff](https://github.com/codepapayas/pond_spawn/actions/workflows/ruff.yml/badge.svg)](https://github.com/codepapayas/pond_spawn/actions/workflows/ruff.yml)
@@ -20,19 +27,36 @@ Tossing out the old AI README and writing my own. This will serve double-duty as
 ## RUNNING THE SIMULATION
 *************************
 
+Install dependencies first:
+
+```bash
+pip install -r requirements.txt
+```
+
+Console runner:
+
 ```bash
 # Basic usage
 python -m cli.cli_sim_starter
 
 # Custom parameters
-python -m cli.cli_sim_starter --population 100 --steps 500 --grid-size 20
+python -m cli.cli_sim_starter --grid-size 14 --population 80 --steps 1500
 
-# Fast run without visuals
-python -m cli.cli_sim_starter --no-visual --steps 5000
+# Stats only, no grid dump
+python -m cli.cli_sim_starter --stats-only --no-visual
 
-# Get help
+# Show the randomized starting state before the sim runs
+python -m cli.cli_sim_starter --show-initial
+
+# Full help
 python -m cli.cli_sim_starter --help
 ```
+
+Current CLI flags for `cli_sim_starter`:
+
+`--grid-size` · `--population` · `--population-cap` · `--food-resupply` · `--steps` · `--delay` · `--no-visual` · `--show-initial` · `--stats-only`
+
+The CLI writes a stats chart to `charts/simulation_stats_<timestamp>.png` when the run ends.
 
 ### Pygame Visualizer
 ```bash
@@ -40,18 +64,127 @@ python -m cli.cli_sim_starter --help
 python -m cli.pygame_visualizer
 
 # Custom parameters
-python -m cli.pygame_visualizer --grid-size 20 --population 200 --cell-size 30 --fps 15
+python -m cli.pygame_visualizer --grid-size 20 --population 200 --cell-size 30 --fps 15 --max-ticks 2000
 
-# Controls:
-#   Space - Pause/Resume
-#   Escape - Quit (generates stats graph on exit)
+# Full help
+python -m cli.pygame_visualizer --help
 ```
 
-Place your agent sprite at `assets/sprites/callumV1.png`. The visualizer will automatically load it and rotate based on heading. Falls back to colored circles if no sprite is found.
+Current visualizer flags:
+
+`--grid-size` · `--population` · `--population-cap` · `--cell-size` · `--fps` · `--max-ticks`
+
+Controls:
+
+`Space` pauses/resumes the sim. `Escape` quits and generates the final stats chart.
+
+Place your agent sprite at `assets/sprites/callumV1.png`. The visualizer rotates it by heading and falls back to circles plus heading markers if the sprite is missing.
 
 # OVERVIEW
 *************************
 <h2>This is my attempt to understand a: neural networks, and b: artificial life simulations.</h2>
+
+The current codebase is a toroidal grid-world sim with random biome generation, mutated genomes, PyTorch brains, fertility-scaled food regrowth, and both console and pygame front ends.
+
+# CURRENT SPECS
+*************************
+
+**Brain**
+
+The brain is built dynamically from `brains/brain.json`, not hard-coded in Python.
+
+| Property | Value |
+|----------|-------|
+| Inputs | 5 normalized values |
+| Current architecture | `5 → 12 → 12 → 12 → 8` |
+| Hidden activations | `ReLU` |
+| Output selection | `argmax` winner-takes-all |
+| Learning | No backpropagation; weights change only through genome mutation |
+| Parameter count | 488 trainable weights/biases |
+
+Current perception vector:
+
+`energy / 100` · `food_on_current_tile / 5` · `nearby_agents / 10` · `visibility-adjusted crowding` · `terrain_movement_speed × speed_trait`
+
+The environment also applies two hard survival heuristics before brain output is used:
+
+`low energy + no food => move`
+
+`too many nearby agents for the available food => move`
+
+**Action Surface**
+
+The brain currently outputs 8 action slots:
+
+`MOVE` · `TURN_RIGHT` · `EAT` · `REPRODUCE` · `SLEEP` · `DO_NOTHING` · `TURN_LEFT` · `ATTACK`
+
+What is actually wired today:
+
+All 8 outputs are currently wired in `execute_action()`, including `TURN_LEFT` via `ACTION_TURN_COUNTER = 6`.
+
+There is also a separate combat phase after actions execute: agents with `aggression >= 0.80` may attack another agent on the same tile even if they did not explicitly choose the `ATTACK` output.
+
+**Genome**
+
+The genome template lives in `genomes/genome.json` and currently defines 12 traits:
+
+`vision` · `speed` · `metabolism` · `daily_nutrition_minimum` · `energy_capacity` · `mutation_rate` · `clone_energy_threshold` · `reproduction_cost` · `intelligence` · `attack` · `defense` · `aggression`
+
+Status of those traits in the current runtime:
+
+`vision`, `speed`, `metabolism`, `energy_capacity`, `mutation_rate`, `clone_energy_threshold`, `reproduction_cost`, `attack`, `defense`, and `aggression` are all used by behavior or lifecycle logic.
+
+`daily_nutrition_minimum` and `intelligence` are still defined in the genome but are not currently consumed by the sim loop.
+
+**Environment**
+
+| Mechanic | Current behavior |
+|----------|------------------|
+| World topology | Toroidal wraparound grid |
+| Biome features | `movement_speed`, `visibility`, `fertility`, `food_units` |
+| Initial biome food | Random choice from `0, 1, 2, 3` per tile |
+| Initial energy | `100.0` |
+| Initial heading | Randomized |
+| Environment defaults | `Environment(grid_size=12, num_agents=300, food_units=3)` |
+| CLI defaults | `grid_size=10`, `population=50`, `food_resupply=3`, `steps=1000` |
+| Visualizer defaults | `grid_size=12`, `population=100`, `fps=10`, `max_ticks=1000` |
+| Population cap | Optional; defaults to no reproduction cap |
+| Spawn cap | Initial population capped to `2 * grid_size * grid_size` |
+
+**Energy / Lifecycle Rules**
+
+| Mechanic | Current behavior |
+|----------|------------------|
+| Passive metabolism drain | `0.1 × metabolism` every tick |
+| Move cost | `terrain_speed × speed × metabolism × 0.15` |
+| Turn-right cost | `0.1 × metabolism` inside `turn()` plus `0.04 × metabolism` in action execution |
+| Turn-left cost | `0.1 × metabolism` inside `turn_left()` plus `0.04 × metabolism` in action execution |
+| Eat gain | Up to `33.3` energy per food unit, capped by `energy_capacity` |
+| Sleep effect | Adds `20 × metabolism` energy |
+| Loaf / do nothing | Costs `0.005 × metabolism` and skips the next turn |
+| Reproduction age window | 100 to 250 ticks inclusive of the lower check and exclusive of values above 250 |
+| Reproduction minimum energy | 40 |
+| Reproduction cost | `current_energy × (0.50 × reproduction_cost_trait)` |
+| Offspring spawn | One adjacent wrapped tile, chosen at random |
+| Offspring starting energy | `reproduction_cost + (50 × clone_energy_threshold)` |
+| Natural death | Randomly assigned death age from `create_death_range()` |
+| Starvation | Agent dies at `energy <= 0` |
+
+**Food Regrowth**
+
+Food is not replenished on a fixed timer. The environment redistributes food when:
+
+`total_food < len(self.agents) / 50`
+
+Each tile then gains:
+
+`int(food_resupply_amount × biome_fertility) % 100`
+
+That means fertile tiles accumulate food faster over time, and food stacks instead of resetting.
+
+**Runtime Notes**
+
+The simulation uses PyTorch for inference and will pick `cuda` automatically when available. The environment batches perception/decision work per tick, but each agent still owns its own `Brain` instance loaded from its genome weights.
 
 
 # OBSERVATIONS

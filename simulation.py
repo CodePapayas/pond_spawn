@@ -17,7 +17,6 @@ from controllers.landscape import Biome
 
 # Global variables
 POPULATION = 300
-POPULATION_CAP = 1000
 FOOD_RESUPPLY = 3
 MAX_FOOD_PER_TILE = 3
 TICKS = 1000
@@ -35,7 +34,13 @@ class Environment:
     - Simulation step logic
     """
 
-    def __init__(self, grid_size=12, num_agents=POPULATION, food_units=FOOD_RESUPPLY):
+    def __init__(
+        self,
+        grid_size=12,
+        num_agents=POPULATION,
+        food_units=FOOD_RESUPPLY,
+        population_cap=None,
+    ):
         """
         Initialize the simulation environment.
 
@@ -43,10 +48,13 @@ class Environment:
             grid_size (int): Size of the square grid (grid_size x grid_size)
             num_agents (int): Number of agents to spawn initially
             food_units (int): Food units to add per resupply cycle
+            population_cap (int | None): Optional maximum living population.
+                If None, reproduction is uncapped.
         """
         self.grid_size = grid_size
         self.grid = [[None for _ in range(grid_size)] for _ in range(grid_size)]
         self.food_resupply_amount = food_units  # Store for resupply
+        self.population_cap = population_cap
         self.position_map = {}
         self.agents_by_id = {}
         self.agents = []
@@ -532,7 +540,11 @@ class Environment:
             action = batch_actions[i]
 
             # Enforce population cap by denying reproduction
-            if action == 3 and len(self.agents) + len(new_agents) >= POPULATION_CAP:
+            if (
+                action == 3
+                and self.population_cap is not None
+                and len(self.agents) + len(new_agents) >= self.population_cap
+            ):
                 # Force them to do nothing instead of reproducing
                 action = 5
 

@@ -111,8 +111,13 @@ def empty_environment():
 def environment_factory():
     """Factory fixture to create environments with custom parameters."""
 
-    def _create(grid_size=6, num_agents=10, food_units=2):
-        return Environment(grid_size=grid_size, num_agents=num_agents, food_units=food_units)
+    def _create(grid_size=6, num_agents=10, food_units=2, population_cap=None):
+        return Environment(
+            grid_size=grid_size,
+            num_agents=num_agents,
+            food_units=food_units,
+            population_cap=population_cap,
+        )
 
     return _create
 
@@ -298,10 +303,10 @@ class TestSpawnAgents:
     def test_spawn_respects_max_capacity(self):
         """Should cap population at max grid capacity."""
         grid_size = 3
-        # MAX_AGENTS_PER_TILE = 1, so max capacity = 1 * 3 * 3 = 9
+        max_capacity = 2 * grid_size * grid_size
         env = Environment(grid_size=grid_size, num_agents=100, food_units=0)
 
-        assert len(env.agents) <= grid_size * grid_size
+        assert len(env.agents) <= max_capacity
 
     def test_spawn_zero_agents(self, empty_environment):
         """Environment with zero agents should have empty agent structures."""
@@ -483,6 +488,40 @@ class TestStep:
         for i, agent in enumerate(env.agents):
             if agent.is_alive():
                 assert agent.age >= initial_ages[i]
+
+    def test_step_population_cap_blocks_reproduction_when_reached(
+        self, environment_factory, agent_factory
+    ):
+        """Reproduction should be denied once the optional population cap is hit."""
+        env = environment_factory(grid_size=4, num_agents=0, food_units=0, population_cap=1)
+        agent = agent_factory(position=(1, 1))
+        agent.age = 150
+        agent.energy = 100.0
+        env.agents = [agent]
+        env.agents_by_id = {agent.get_id(): agent}
+        env.position_map = {agent.position: {agent.get_id()}}
+        env._batch_decide = lambda agents, batch_perceptions: [3]
+
+        env.step()
+
+        assert len(env.agents) == 1
+
+    def test_step_without_population_cap_allows_reproduction(
+        self, environment_factory, agent_factory
+    ):
+        """Reproduction should proceed when no optional population cap is configured."""
+        env = environment_factory(grid_size=4, num_agents=0, food_units=0, population_cap=None)
+        agent = agent_factory(position=(1, 1))
+        agent.age = 150
+        agent.energy = 100.0
+        env.agents = [agent]
+        env.agents_by_id = {agent.get_id(): agent}
+        env.position_map = {agent.position: {agent.get_id()}}
+        env._batch_decide = lambda agents, batch_perceptions: [3]
+
+        env.step()
+
+        assert len(env.agents) == 2
 
 
 # -----------------------------------------------------------------------------

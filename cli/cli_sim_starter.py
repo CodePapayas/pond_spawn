@@ -154,6 +154,13 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--population-cap",
+        type=int,
+        default=None,
+        help="Optional max living population; omit for no reproduction cap",
+    )
+
+    parser.add_argument(
         "--no-visual",
         action="store_true",
         help="Disable grid visualization (faster)",
@@ -174,6 +181,7 @@ def parse_args():
     return parser.parse_args()
 
 
+# pylint: disable=too-many-branches,too-many-statements
 def run_simulation(args):
     """
     Run the simulation with provided arguments.
@@ -184,7 +192,10 @@ def run_simulation(args):
     # Create simulation environment
     print(f"Initializing simulation with {args.population} agents...")
     env = Environment(
-        grid_size=args.grid_size, num_agents=args.population, food_units=args.food_resupply
+        grid_size=args.grid_size,
+        num_agents=args.population,
+        food_units=args.food_resupply,
+        population_cap=args.population_cap,
     )
     logged_stats = {}
 
@@ -200,6 +211,10 @@ def run_simulation(args):
     # Run simulation
     print(f"\nRunning simulation for {args.steps} steps...")
     print(f"Food resupply: {args.food_resupply} units per resupply (scaled by biome fertility)")
+    if args.population_cap is None:
+        print("Population cap: none")
+    else:
+        print(f"Population cap: {args.population_cap}")
     print("Food resupplies only when total food reaches 0")
     print("-" * 50)
 
