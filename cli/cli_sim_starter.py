@@ -513,13 +513,10 @@ def plot_meta_stats(all_results, args):
     _style_ax(ax_deaths, "Cumulative Deaths by Cause — Average", "Total Deaths")
 
     # --- Config table ---
-    cap_label = "unlimited" if args.no_pop_cap else str(args.pop_cap)
     config_rows = [
         ["Grid size", f"{args.grid_size}×{args.grid_size}"],
         ["Initial pop", str(args.population)],
         ["Steps", str(args.steps)],
-        ["Food resupply", str(args.food_resupply)],
-        ["Pop cap", cap_label],
         ["Runs", str(n_runs)],
         ["Workers", str(args.workers)],
     ]
@@ -838,11 +835,7 @@ def run_simulation(args):
         initial_grid = env.capture_grid_state()
         env.print_grid_state(initial_grid, "Initial Grid")
 
-    cap_label = "unlimited" if args.no_pop_cap else str(args.pop_cap)
-    print(
-        f"\n  Running {args.steps} steps  ·  food regen rate 0–{args.food_resupply} steps/tile"
-        f"  ·  pop cap {cap_label}"
-    )
+    print(f"\n  Running {args.steps} steps")
     print("  " + "─" * (col_width - 2))
 
     for _ in range(args.steps):
@@ -949,23 +942,12 @@ def parse_args():
         help="Max steps between food regen events per tile (higher = slower, 0 = never)",
     )
     parser.add_argument("--steps", type=int, default=1000, help="Number of simulation steps to run")
-    parser.add_argument("--pop-cap", type=int, default=1000, help="Maximum population")
-    parser.add_argument(
-        "--no-pop-cap", action="store_true", help="Disable the population cap entirely"
-    )
     parser.add_argument(
         "--delay",
         type=float,
         default=0.0001,
         help="Delay between steps in seconds (ignored in --no-visual mode)",
     )
-    parser.add_argument(
-        "--population-cap",
-        type=int,
-        default=None,
-        help="Optional max living population; omit for no reproduction cap",
-    )
-
     parser.add_argument(
         "--no-visual",
         action="store_true",
