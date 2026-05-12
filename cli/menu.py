@@ -5,7 +5,7 @@ Run with:  python -m cli.menu
 """
 
 import types
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from cli.cli_sim_starter import run_simulation
 
@@ -33,10 +33,10 @@ class Settings:  # pylint: disable=too-many-instance-attributes
     population: int = 50
     steps: int = 1000
     runs: int = 1
+    workers: int = 4
     delay: float = 0.0001
     visual: str = "progress"  # "progress" | "stats" | "grid"
     show_initial: bool = False
-    run_summaries: list = field(default_factory=list)
 
 
 def _to_args(s: Settings):
@@ -45,6 +45,8 @@ def _to_args(s: Settings):
         grid_size=s.grid_size,
         population=s.population,
         steps=s.steps,
+        runs=s.runs,
+        workers=s.workers,
         delay=s.delay,
         no_visual=s.visual == "progress",
         stats_only=s.visual == "stats",
@@ -86,6 +88,7 @@ def _display_settings(s: Settings):
     print(f"    Population  : {s.population}")
     print(f"    Steps       : {s.steps}")
     print(f"    Runs        : {s.runs}")
+    print(f"    Workers     : {s.workers}")
     print(f"    Step delay  : {s.delay}s")
     print(f"    Visual mode : {VISUAL_LABELS[s.visual]}")
     print(f"    Show initial: {'yes' if s.show_initial else 'no'}")
@@ -97,10 +100,11 @@ def _display_menu():
     print("  [2] Set population")
     print("  [3] Set steps per run")
     print("  [4] Set number of runs")
-    print("  [5] Set step delay")
-    print("  [6] Change visual mode")
-    print("  [7] Toggle show-initial grid")
-    print("  [8] RUN")
+    print("  [5] Set parallel workers")
+    print("  [6] Set step delay")
+    print("  [7] Change visual mode")
+    print("  [8] Toggle show-initial grid")
+    print("  [9] RUN")
     print("  [0] Quit")
     print("  ────────────────────────────────────────")
 
@@ -122,28 +126,7 @@ def _choose_visual(current: str) -> str:
 
 def _run_all(s: Settings):
     args = _to_args(s)
-    summaries = []
-
-    for run_num in range(1, s.runs + 1):
-        header = f"RUN {run_num}/{s.runs}"
-        sep = "=" * (len(header) + 4)
-        print(f"\n{sep}")
-        print(f"  {header}")
-        print(f"{sep}")
-        try:
-            run_simulation(args)
-            summaries.append({"run": run_num, "status": "completed"})
-        except Exception as exc:  # pylint: disable=broad-except
-            print(f"\n  Run {run_num} failed: {exc}")
-            summaries.append({"run": run_num, "status": f"error: {exc}"})
-
-    if s.runs > 1:
-        print("\n" + "=" * 40)
-        print("  MULTI-RUN SUMMARY")
-        print("=" * 40)
-        for summary in summaries:
-            print(f"  Run {summary['run']}: {summary['status']}")
-        print("=" * 40)
+    run_simulation(args)
 
 
 def main():
@@ -177,17 +160,20 @@ def main():
             s.runs = _prompt_int("Number of runs", 1, 50, s.runs)
 
         elif choice == "5":
-            s.delay = _prompt_float("Step delay (seconds)", 0.0, 5.0, s.delay)
+            s.workers = _prompt_int("Parallel workers", 1, 32, s.workers)
 
         elif choice == "6":
-            s.visual = _choose_visual(s.visual)
+            s.delay = _prompt_float("Step delay (seconds)", 0.0, 5.0, s.delay)
 
         elif choice == "7":
+            s.visual = _choose_visual(s.visual)
+
+        elif choice == "8":
             s.show_initial = not s.show_initial
             state = "enabled" if s.show_initial else "disabled"
             print(f"  Show-initial {state}.")
 
-        elif choice == "8":
+        elif choice == "9":
             _run_all(s)
             input("\n  Press Enter to return to menu...")
 
