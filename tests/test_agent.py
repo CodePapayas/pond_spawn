@@ -146,7 +146,11 @@ def test_decide_uses_brain_output_when_energy_sufficient(genome, environment_fac
         (),
         {
             "eval": staticmethod(lambda: None),
-            "__call__": staticmethod(lambda perception: t.tensor([[-100.0, -100.0, -100.0, 100.0, -100.0, -100.0, -100.0, -100.0]])),
+            "__call__": staticmethod(
+                lambda perception: t.tensor(
+                    [[-100.0, -100.0, -100.0, 100.0, -100.0, -100.0, -100.0, -100.0]]
+                )
+            ),
         },
     )()
 

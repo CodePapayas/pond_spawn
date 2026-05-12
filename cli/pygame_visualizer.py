@@ -264,8 +264,8 @@ def run_visualization(
     # Generate final graph
     if logged_stats:
         avg_traits = env.get_average_genome_traits()
-        death_tally = env.get_death_tally()
-        plot_simulation_stats(logged_stats, population, avg_traits, death_tally)
+        death_stats = env.get_stats().get("death_stats", {})
+        plot_simulation_stats(logged_stats, population, avg_traits, death_stats)
 
 
 def parse_args():
