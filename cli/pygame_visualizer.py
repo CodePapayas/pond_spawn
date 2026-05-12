@@ -124,7 +124,6 @@ def run_visualization(
     cell_size=40,
     fps=10,
     max_ticks=1000,
-    population_cap=None,
 ):
     """Run the pygame visualization."""
     pygame.init()
@@ -150,7 +149,6 @@ def run_visualization(
     env = Environment(
         grid_size=grid_size,
         num_agents=population,
-        population_cap=population_cap,
     )
     logged_stats = {}
 
@@ -276,12 +274,6 @@ def parse_args():
         default=1000,
         help="Maximum number of simulation ticks (default: 1000)",
     )
-    parser.add_argument(
-        "--population-cap",
-        type=int,
-        default=None,
-        help="Optional max living population; omit for no reproduction cap",
-    )
     return parser.parse_args()
 
 
@@ -293,7 +285,6 @@ def main():
         cell_size=args.cell_size,
         fps=args.fps,
         max_ticks=args.max_ticks,
-        population_cap=args.population_cap,
     )
 
 

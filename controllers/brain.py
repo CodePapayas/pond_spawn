@@ -234,6 +234,23 @@ class Brain(nn.Module):
                     ).view_as(layer.bias)
                     idx += bias_size
 
+    def initial_weights(self):
+        """Return a flat weight list for a new genome.
+
+        Weights are randomized in [-0.5, 0.5]; biases are fixed at 0.001 so
+        neurons start with a small positive activation rather than potentially
+        dead-on-arrival negative bias.
+        """
+        import random as rand  # pylint: disable=import-outside-toplevel
+
+        values = []
+        for layer in self.layers:
+            if isinstance(layer, nn.Linear):
+                values.extend(rand.uniform(-0.5, 0.5) for _ in range(layer.weight.numel()))
+                if layer.bias is not None:
+                    values.extend(0.001 for _ in range(layer.bias.numel()))
+        return values
+
 
 if __name__ == "__main__":
     pass

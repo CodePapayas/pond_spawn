@@ -12,6 +12,10 @@ from pathlib import Path
 
 TERRAIN_RANGE = 10
 
+# Scales regen probability so a max-fertility tile fills 3 food in ~250 ticks.
+# Expected ticks per food unit = 1 / rate, so 3 / rate ≈ 250 → rate ≈ 0.012.
+REGEN_RATE_SCALE = 0.012
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 BIOME_PATH = ROOT_DIR / "biomes" / "biome.json"
 
@@ -153,6 +157,16 @@ class Biome:
         if isinstance(self.features.get("visibility"), dict):
             return self.features["visibility"].get("value")
         return self.features.get("visibility")
+
+    def get_regen_rate(self):
+        """Return this tile's food regen probability per tick (0–1).
+
+        Fertility (0.01–1.6) is normalized against the max so the result
+        maps cleanly to a per-tick probability. A tile at max fertility
+        gains 1 food unit every tick; a barren tile almost never does.
+        """
+        fertility = self.get_fertility() or 0.0
+        return min(fertility / 1.6 * REGEN_RATE_SCALE, 1.0)
 
     def get_food_units(self):
         """

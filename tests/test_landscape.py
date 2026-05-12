@@ -141,6 +141,34 @@ def test_clamp_function():
     assert clamped_val == 2
 
 
+def test_get_regen_rate_max_fertility(biome_factory):
+    """Max fertility (1.6) should produce regen_rate of REGEN_RATE_SCALE (0.012)."""
+    from controllers.landscape import REGEN_RATE_SCALE
+
+    biome = biome_factory(fertility=1.6)
+    assert biome.get_regen_rate() == pytest.approx(REGEN_RATE_SCALE)
+
+
+def test_get_regen_rate_zero_fertility(biome_factory):
+    """Zero fertility (barren tile) should produce regen_rate of 0.0."""
+    biome = biome_factory(fertility=0.0)
+    assert biome.get_regen_rate() == pytest.approx(0.0)
+
+
+def test_get_regen_rate_mid_fertility(biome_factory):
+    """Fertility of 0.8 (half of 1.6) should produce half of REGEN_RATE_SCALE."""
+    from controllers.landscape import REGEN_RATE_SCALE
+
+    biome = biome_factory(fertility=0.8)
+    assert biome.get_regen_rate() == pytest.approx(REGEN_RATE_SCALE * 0.5)
+
+
+def test_get_regen_rate_clamped_at_one(biome_factory):
+    """Fertility above 1.6 should not produce regen_rate above 1.0."""
+    biome = biome_factory(fertility=2.0)
+    assert biome.get_regen_rate() <= 1.0
+
+
 def test_food_unit_none(generated_biome):
     generated_biome.features["food_units"] = None
     assert generated_biome.get_food_units() == 0

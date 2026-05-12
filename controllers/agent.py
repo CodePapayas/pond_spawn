@@ -24,6 +24,11 @@ ACTION_NOTHING = 5  # Agent can choose to do nothing.
 ACTION_TURN_COUNTER = 6  # Agent can turn 90 degrees counter-clockwise
 ACTION_ATTACK = 7  # Agent can attempt to absorb another agent
 
+MATURITY_AGE = 100  # ticks before an agent can reproduce
+CHILDHOOD_TICKS = 50  # ticks of boosted defense and parent damage routing
+BIRTH_FAIL_CHANCE = 0.02  # probability a reproduction attempt produces no offspring
+FAIL_COUNTS_CHANCE = 0.20  # on a failed birth, chance it still burns one offspring slot
+
 # Directional headings - where the agent can point
 headings = [0, 1, 2, 3]
 
@@ -49,7 +54,7 @@ def create_death_range(size=200, early_death_chance=0.15, late_death_start=500):
     return death_range
 
 
-class Agent:  # pylint: disable=too-many-public-methods
+class Agent:  # pylint: disable=too-many-public-methods,too-many-instance-attributes
     """
     Represents an individual agent in the simulation.
 
@@ -79,9 +84,17 @@ class Agent:  # pylint: disable=too-many-public-methods
         self.alive = True
         self.id = genome.id
         self.parent = self.id
+        self.parent_id = None  # set to parent's genome id at birth
+        self.parent_defense_bonus = 0.0  # extra defense inherited from parent during childhood
         self.death_age = self._assign_death_age()
         self.cause_of_death = None
         self.skip_turn = False  # Flag to skip next turn after doing nothing
+
+        self.max_offspring = r.randint(1, 10)
+        self.offspring_count = 0
+        reproductive_window = max((self.death_age or 0) - MATURITY_AGE, 1)
+        self.reproduction_cooldown = reproductive_window // self.max_offspring
+        self.last_reproduced_age = None
 
         # Create and configure brain (will be moved to GPU by environment for batching)
         brain_config_path = Path(__file__).resolve().parent.parent / "brains" / "brain.json"
@@ -263,11 +276,19 @@ class Agent:  # pylint: disable=too-many-public-methods
 
         return False
 
+    def get_effective_defense(self):
+        """Defense linearly blended from (own + parent) at age 0 down to own at CHILDHOOD_TICKS."""
+        own = self.get_trait("defense")
+        if self.age >= CHILDHOOD_TICKS or self.parent_defense_bonus == 0.0:
+            return own
+        ratio = self.age / CHILDHOOD_TICKS
+        return own + self.parent_defense_bonus * (1.0 - ratio)
+
     def eat_agent(self, target_agent):
-        """Win combat: gain 50% of target's energy, kill target."""
+        """Win combat: gain 12.5% of target's energy, kill target."""
         energy_capacity_trait = self.get_trait("energy_capacity") or 1.0
         max_energy = 100.0 * energy_capacity_trait
-        energy_gained = target_agent.energy * 0.5
+        energy_gained = target_agent.energy * 0.125
         self.energy = min(self.energy + energy_gained, max_energy)
         target_agent.add_cause_of_death("Killed in combat")
         target_agent.kill_agent()
@@ -288,7 +309,7 @@ class Agent:  # pylint: disable=too-many-public-methods
         """
         agent_attack = self.get_trait("attack")
         agent_aggression = self.get_trait("aggression")
-        target_defense = target_agent.get_trait("defense")
+        target_defense = target_agent.get_effective_defense()
 
         if agent_aggression is None or agent_aggression < 0.80:
             return False
@@ -327,31 +348,37 @@ class Agent:  # pylint: disable=too-many-public-methods
             Agent or None: New offspring agent if reproduction successful
         """
 
-        if self.age < 100 or self.age > 250:
+        if self.age < MATURITY_AGE:
             return None
         if self.energy < 40:
             return None
+        if self.offspring_count >= self.max_offspring:
+            return None
+        if self.last_reproduced_age is not None:
+            if self.age - self.last_reproduced_age < self.reproduction_cooldown:
+                return None
+
         x, y = self.position
         procreation_modifier = self.get_trait("reproduction_cost")
-        clone_energy_bonus = self.get_trait("clone_energy_threshold")
-        # biome_locale = environment.get_biome(x, y)
 
-        # Need minimum energy to reproduce
-
-        # Can't reproduce on empty food tiles (not sustainable)
-        # if biome_locale.get_food_units() == 0:
-        #     return None
-
-        # Calculate reproduction cost
+        # Calculate and pay energy cost before outcome is decided
         reproduction_cost = self.energy * (0.50 * procreation_modifier)
-
-        # Deduct reproduction cost from parent
         self.consume_energy(reproduction_cost)
 
-        # Create mutated genome from parent
+        # Small chance birth fails entirely
+        if r.random() < BIRTH_FAIL_CHANCE:
+            # Rare: failed birth still burns a slot (miscarriage-equivalent)
+            if r.random() < FAIL_COUNTS_CHANCE:
+                self.offspring_count += 1
+                self.last_reproduced_age = self.age
+            return None
+
+        # Successful birth
+        self.offspring_count += 1
+        self.last_reproduced_age = self.age
+
         offspring_genome = self.genome.mutate()
 
-        # Try to find a nearby valid position for offspring (with wrapping)
         grid_size = environment.grid_size
         possible_positions = [
             ((x + 1) % grid_size, y),
@@ -359,16 +386,14 @@ class Agent:  # pylint: disable=too-many-public-methods
             (x, (y + 1) % grid_size),
             (x, (y - 1) % grid_size),
         ]
+        empty_positions = [p for p in possible_positions if p not in environment.position_map]
+        offspring_position = r.choice(empty_positions if empty_positions else possible_positions)
 
-        offspring_position = r.choice(possible_positions)
-
-        # Create offspring with starting energy from parent
         offspring = Agent(offspring_genome, offspring_position)
-        offspring.energy = reproduction_cost + (
-            50 * clone_energy_bonus
-        )  # Offspring gets the energy parent spent
-        # self.kill_agent()
+        offspring.energy = reproduction_cost
         offspring.parent = self.id
+        offspring.parent_id = self.id
+        offspring.parent_defense_bonus = self.get_trait("defense")
 
         return offspring
 
@@ -376,7 +401,7 @@ class Agent:  # pylint: disable=too-many-public-methods
         """
         Make da lil guys sleep
         """
-        energy_gain = 20 * metabolism
+        energy_gain = 0.15 * metabolism
         self.add_energy(energy_gain)
 
     def get_energy_lvl(self):
@@ -492,7 +517,13 @@ class Agent:  # pylint: disable=too-many-public-methods
         elif action == ACTION_ATTACK:
             victim = environment.get_agents_at(*self.position)[0]
             if victim and victim is not self:
+                pre_attack_energy = victim.energy
                 self.attack_agent(victim)
+                if victim.age < CHILDHOOD_TICKS and victim.parent_id:
+                    parent = environment.agents_by_id.get(victim.parent_id)
+                    if parent and parent.is_alive():
+                        parent_ratio = 0.45 * (1.0 - victim.age / CHILDHOOD_TICKS)
+                        parent.consume_energy(pre_attack_energy * parent_ratio)
 
         return offspring
 
@@ -546,24 +577,24 @@ class Agent:  # pylint: disable=too-many-public-methods
         """
         aggression = self.get_trait("aggression")
         defense, attack = self.get_trait("defense"), self.get_trait("attack")
-        v_defense = victim.get_trait("defense")
+        v_defense = victim.get_effective_defense()
+
+        metabolism = self.get_trait("metabolism") or 1.0
 
         if aggression <= 0.55:
             self.consume_energy(0.1)
             return
 
+        # Chosen attacks are costly — agent burns energy just by trying.
+        self.consume_energy(0.5 * metabolism)
+
         if attack > v_defense:
-            energy_stolen = victim.get_energy_lvl() * v_defense
-            victim.consume_energy(energy_stolen)
-            self.add_energy(energy_stolen)
-            if victim.get_energy_lvl() == 0:
-                victim.add_cause_of_death("Eaten alive")
-                victim.kill_agent()
+            self.add_energy(victim.get_energy_lvl() * 0.125)
+            victim.add_cause_of_death("Eaten alive")
+            victim.kill_agent()
 
         else:
-            energy_lost = self.get_energy_lvl() * defense
-            self.consume_energy(energy_lost)
-            victim.add_energy(energy_lost)
+            self.consume_energy(self.get_energy_lvl() * defense)
             if self.get_energy_lvl() == 0:
                 self.add_cause_of_death("Eaten alive")
                 self.kill_agent()
