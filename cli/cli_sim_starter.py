@@ -9,6 +9,7 @@ import argparse
 import json
 import multiprocessing as mp
 import random
+import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -27,8 +28,6 @@ _GENOME_PATH = Path(__file__).resolve().parent.parent / "genomes" / "genome.json
 @contextmanager
 def _suppress_stdout():
     """Silence prints inside worker processes (e.g. torch device banner)."""
-    import sys
-
     old = sys.stdout
     sys.stdout = StringIO()
     try:
@@ -41,8 +40,8 @@ def _print_progress(step, total):
     """Print an in-place progress bar showing tick count only."""
     bar_width = 30
     filled = int(bar_width * step / total)
-    bar = "█" * filled + "─" * (bar_width - filled)
-    print(f"\r  [{bar}] {step}/{total}", end="", flush=True)
+    progress_bar = "█" * filled + "─" * (bar_width - filled)
+    print(f"\r  [{progress_bar}] {step}/{total}", end="", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -62,22 +61,17 @@ def _run_worker(task):
         dict: logged_stats, final_stats, avg_traits, initial_population, run_idx
     """
     args_dict, seed, run_idx, queue = task
-    import random as _r
-
-    _r.seed(seed)
+    random.seed(seed)
     np.random.seed(seed % (2**31))
 
     total_steps = args_dict["steps"]
     # Throttle queue writes: ~100 updates per run regardless of step count
     report_every = max(1, total_steps // 100)
 
-    pop_cap = None if args_dict["no_pop_cap"] else args_dict["pop_cap"]
     with _suppress_stdout():
         env = Environment(
             grid_size=args_dict["grid_size"],
             num_agents=args_dict["population"],
-            food_units=args_dict["food_resupply"],
-            pop_cap=pop_cap,
         )
     logged_stats = {}
     for step_num in range(total_steps):
@@ -392,7 +386,7 @@ def plot_simulation_stats(logged_stats, initial_population, avg_traits=None, dea
 # ---------------------------------------------------------------------------
 
 
-# pylint: disable=too-many-locals,too-many-statements
+# pylint: disable=too-many-locals,too-many-statements,too-many-branches
 def plot_meta_stats(all_results, args):
     """
     Generate an overlay report across multiple runs.
@@ -437,7 +431,7 @@ def plot_meta_stats(all_results, args):
                 result_vals.append(np.mean(pts))
         return result_steps, result_vals
 
-    palette = plt.cm.tab10.colors
+    palette = plt.get_cmap("tab10").colors
 
     fig = plt.figure(figsize=(22, 34))
     fig.suptitle(
@@ -723,12 +717,12 @@ def _print_master_bar(done, total, result=None):
     """
     bar_width = 28
     filled = int(bar_width * done / total)
-    bar = "█" * filled + "─" * (bar_width - filled)
+    progress_bar = "█" * filled + "─" * (bar_width - filled)
     if result is not None:
         fs = result["final_stats"]
         tag = "EXTINCT" if fs["alive_agents"] == 0 else f"{fs['alive_agents']} survivors"
         print(f"  Run {result['run_idx'] + 1:>2}  done  ·  step {fs['step']:>5}  ·  {tag}")
-    print(f"\r  [{bar}]  {done}/{total} runs complete", end="", flush=True)
+    print(f"\r  [{progress_bar}]  {done}/{total} runs complete", end="", flush=True)
 
 
 def run_meta_simulation(args):
@@ -752,21 +746,13 @@ def run_meta_simulation(args):
     if workers <= 1:
         # Sequential: one labeled bar per run, updating in place on a single line
         all_results = []
-        bar_width = 28
         for i in range(n_runs):
-            import random as _r
-
-            _r.seed(seeds[i])
+            random.seed(seeds[i])
             np.random.seed(seeds[i] % (2**31))
-            pop_cap = None if args_dict["no_pop_cap"] else args_dict["pop_cap"]
             with _suppress_stdout():
-                from simulation import Environment as _Env
-
-                env = _Env(
+                env = Environment(
                     grid_size=args_dict["grid_size"],
                     num_agents=args_dict["population"],
-                    food_units=args_dict["food_resupply"],
-                    pop_cap=pop_cap,
                 )
             logged_stats = {}
             for _ in range(args_dict["steps"]):
@@ -775,9 +761,9 @@ def run_meta_simulation(args):
                 logged_stats = env.log_stats(stats, logged_stats)
                 step = stats["step"]
                 total = args_dict["steps"]
-                filled = int(bar_width * step / total)
-                bar = "█" * filled + "─" * (bar_width - filled)
-                print(f"\r  Run {i + 1:>2}  [{bar}]  {step}/{total}", end="", flush=True)
+                filled = int(28 * step / total)
+                progress_bar = "█" * filled + "─" * (28 - filled)
+                print(f"\r  Run {i + 1:>2}  [{progress_bar}]  {step}/{total}", end="", flush=True)
                 if stats["alive_agents"] == 0:
                     break
             final_stats = env.get_stats()
@@ -842,12 +828,9 @@ def run_simulation(args):
         f"  Initializing simulation — {args.population} agents, "
         f"{args.grid_size}x{args.grid_size} grid"
     )
-    pop_cap = None if args.no_pop_cap else args.pop_cap
     env = Environment(
         grid_size=args.grid_size,
         num_agents=args.population,
-        food_units=args.food_resupply,
-        pop_cap=pop_cap,
     )
     logged_stats = {}
 
@@ -1005,105 +988,6 @@ def parse_args():
         help="Parallel worker processes for meta-runs (--runs > 1 only)",
     )
     return parser.parse_args()
-
-
-# pylint: disable=too-many-branches,too-many-statements
-def run_simulation(args):
-    """
-    Run the simulation with provided arguments.
-
-    Args:
-        args: Parsed command line arguments
-    """
-    # Create simulation environment
-    print(f"Initializing simulation with {args.population} agents...")
-    env = Environment(
-        grid_size=args.grid_size,
-        num_agents=args.population,
-        food_units=args.food_resupply,
-        population_cap=args.population_cap,
-    )
-    logged_stats = {}
-
-    # Capture and show initial state if requested
-    if args.show_initial:
-        initial_grid = env.capture_grid_state()
-        print("\nInitial Environment State:")
-        stats = env.get_stats()
-        for key, value in stats.items():
-            print(f"  {key}: {value}")
-        env.print_grid_state(initial_grid, "Initial Grid")
-
-    # Run simulation
-    print(f"\nRunning simulation for {args.steps} steps...")
-    print(f"Food resupply: {args.food_resupply} units per resupply (scaled by biome fertility)")
-    if args.population_cap is None:
-        print("Population cap: none")
-    else:
-        print(f"Population cap: {args.population_cap}")
-    print("Food resupplies only when total food reaches 0")
-    print("-" * 50)
-
-    for _ in range(args.steps):
-        # Run step
-        env.step()
-
-        # Get stats
-        stats = env.get_stats()
-
-        # Log stats for graphing
-        logged_stats = env.log_stats(stats, logged_stats)
-
-        # Print stats
-        if not args.no_visual or args.stats_only:
-            print(f"\nOriginal population: {args.population}")
-            print(f"Step {stats['step']}, Food={stats['total_food']}")
-            print("Current simulation stats:")
-            for key, value in stats.items():
-                print(f"  {key}: {value}")
-
-        # Print grid if visualization enabled
-        if not args.no_visual and not args.stats_only:
-            print("Current grid:")
-            env.print_grid()
-
-        # Check for extinction
-        if stats["alive_agents"] == 0:
-            print("\n" + "=" * 50)
-            print("EXTINCTION EVENT - All agents have died")
-            print(f"Simulation ended at step {stats['step']}")
-            print("=" * 50)
-            break
-
-        # Delay between steps
-        if args.delay > 0:
-            time.sleep(args.delay)
-
-    # Final summary
-    print("\n" + "=" * 50)
-    print("SIMULATION COMPLETE")
-    final_stats = env.get_stats()
-    print("\nFinal Statistics:")
-    for key, value in final_stats.items():
-        print(f"  {key}: {value}")
-
-    # Show average genome traits
-    avg_traits = env.get_average_genome_traits()
-    if avg_traits:
-        print("\nAverage Genome Traits (Living Population):")
-        for trait_name, avg_value in avg_traits.items():
-            print(f"  {trait_name}: {avg_value:.4f}")
-
-    if args.show_initial:
-        print("\nComparison:")
-        env.print_grid_state(initial_grid, "Initial Grid")
-        final_grid = env.capture_grid_state()
-        env.print_grid_state(final_grid, "Final Grid")
-
-    print("=" * 50)
-
-    # Generate graphs from logged stats
-    plot_simulation_stats(logged_stats, args.population, avg_traits)
 
 
 def main():

@@ -54,6 +54,7 @@ class Environment:
         self.lifespans = []  # Track all lifespans for median/min/max
         self.logged_lifespans = set()  # Prevent duplicate lifespan logging
         self.death_tally = {}  # cause_of_death string → count
+        self.death_ages = {}  # cause_of_death string → list of ages at death
 
         # GPU setup for batched brain inference
         self.device = t.device("cuda" if t.cuda.is_available() else "cpu")
@@ -597,6 +598,7 @@ class Environment:
             self._record_lifespan(agent)
             cod = agent.cause_of_death or "Unknown"
             self.death_tally[cod] = self.death_tally.get(cod, 0) + 1
+            self.death_ages.setdefault(cod, []).append(agent.age)
             agent_id = agent.get_id()
             position = agent.position
 
@@ -649,11 +651,35 @@ class Environment:
             "median_lifespan": median_lifespan,
             "min_age": min_age,
             "max_age": max_age,
+            "death_stats": self._get_canonical_death_stats(),
         }
 
     def get_death_tally(self):
         """Return a copy of the death cause tally accumulated over the run."""
         return dict(self.death_tally)
+
+    def _get_canonical_death_stats(self):
+        """Aggregate raw death causes into Starvation / Combat / Old Age buckets."""
+        cause_to_label = {
+            "Died of starvation": "Starvation",
+            "Eaten alive": "Combat",
+            "Killed in combat": "Combat",
+            "Reached assigned death age": "Old Age",
+        }
+        combined = {k: {"count": 0, "ages": []} for k in ("Starvation", "Combat", "Old Age")}
+        for cod, count in self.death_tally.items():
+            label = cause_to_label.get(cod, cod)
+            if label not in combined:
+                combined[label] = {"count": 0, "ages": []}
+            combined[label]["count"] += count
+            combined[label]["ages"].extend(self.death_ages.get(cod, []))
+        return {
+            label: {
+                "count": data["count"],
+                "avg_age": sum(data["ages"]) / len(data["ages"]) if data["ages"] else 0.0,
+            }
+            for label, data in combined.items()
+        }
 
     def get_average_genome_traits(self):
         """
@@ -693,6 +719,7 @@ class Environment:
             dict: Updated state dictionary
         """
         step = stats["step"]
+        ds = stats.get("death_stats", {})
         state_dict[step] = {
             "alive_agents": stats["alive_agents"],
             "total_food": stats["total_food"],
@@ -700,6 +727,9 @@ class Environment:
             "median_lifespan": stats["median_lifespan"],
             "min_age": stats["min_age"],
             "max_age": stats["max_age"],
+            "deaths_starvation": ds.get("Starvation", {}).get("count", 0),
+            "deaths_combat": ds.get("Combat", {}).get("count", 0),
+            "deaths_old_age": ds.get("Old Age", {}).get("count", 0),
         }
         return state_dict
 
