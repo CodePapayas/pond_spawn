@@ -128,11 +128,13 @@ def run_visualization(
     """Run the pygame visualization."""
     pygame.init()
 
-    # Calculate window size
-    window_width = grid_size * cell_size
-    window_height = grid_size * cell_size + 60  # Extra space for stats
+    # Fit cell size to screen on load
+    info = pygame.display.Info()
+    cell_size = max(min(info.current_w // grid_size, (info.current_h - 60) // grid_size), 10)
 
-    screen = pygame.display.set_mode((window_width, window_height))
+    screen = pygame.display.set_mode(
+        (grid_size * cell_size, grid_size * cell_size + 60), pygame.RESIZABLE
+    )
     pygame.display.set_caption("Pond Spawn Simulation")
     clock = pygame.time.Clock()
     font = pygame.font.Font(None, 24)
@@ -164,6 +166,10 @@ def run_visualization(
                     paused = not paused
                 elif event.key == pygame.K_ESCAPE:
                     running = False
+            elif event.type == pygame.VIDEORESIZE:
+                cell_size = max(min(event.w // grid_size, (event.h - 60) // grid_size), 10)
+                sprite_size = int(cell_size * 0.8)
+                agent_sprites = load_agent_sprites(sprite_size)
 
         if not paused:
             env.step()
@@ -258,7 +264,8 @@ def run_visualization(
     # Generate final graph
     if logged_stats:
         avg_traits = env.get_average_genome_traits()
-        plot_simulation_stats(logged_stats, population, avg_traits)
+        death_tally = env.get_death_tally()
+        plot_simulation_stats(logged_stats, population, avg_traits, death_tally)
 
 
 def parse_args():

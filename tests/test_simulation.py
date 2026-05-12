@@ -86,10 +86,6 @@ class MockBiome:
     def get_fertility(self):
         return self.features.get("fertility", 0.5)
 
-    def get_regen_rate(self):
-        fertility = self.get_fertility() or 0.0
-        return min(fertility / 1.6, 1.0)
-
     def generate(self):
         return self
 
@@ -102,13 +98,13 @@ class MockBiome:
 @pytest.fixture
 def small_environment():
     """Create a small 4x4 environment with minimal agents for quick tests."""
-    return Environment(grid_size=4, num_agents=4)
+    return Environment(grid_size=4, num_agents=4, food_units=1)
 
 
 @pytest.fixture
 def empty_environment():
     """Create an environment with no agents."""
-    return Environment(grid_size=4, num_agents=0)
+    return Environment(grid_size=4, num_agents=0, food_units=1)
 
 
 @pytest.fixture
@@ -119,6 +115,8 @@ def environment_factory():
         return Environment(
             grid_size=grid_size,
             num_agents=num_agents,
+            food_units=food_units,
+            population_cap=population_cap,
         )
 
     return _create
@@ -159,7 +157,7 @@ def agent_factory(dummy_genome):
 @pytest.fixture
 def populated_environment():
     """Create an environment and run a few steps to establish state."""
-    env = Environment(grid_size=6, num_agents=20)
+    env = Environment(grid_size=6, num_agents=20, food_units=2)
     for _ in range(5):
         env.step()
     return env
@@ -172,47 +170,68 @@ def device():
 
 
 # -----------------------------------------------------------------------------
-# Tests: _tick_food_regen()
+# Tests: per-tile food regeneration
 # -----------------------------------------------------------------------------
 
 
-class TestTickFoodRegen:
-    """Tests for Environment._tick_food_regen() method."""
+class TestFoodRegen:
+    """Tests for per-tile food regeneration in step()."""
 
-    def test_max_fertility_tile_always_regens(self, environment_factory, mock_biome_factory):
-        """A tile at max fertility (regen_rate=1.0) gains food every tick."""
-        env = environment_factory(grid_size=2, num_agents=0, food_units=0)
-        env.grid[0][0] = mock_biome_factory(food_units=0, fertility=1.6)
+    def test_tile_with_zero_regen_rate_never_regens(self, environment_factory):
+        """A tile with regen_rate=0 should never gain food via the timer."""
+        env = environment_factory(grid_size=2, num_agents=0, food_units=1)
+        biome = env.grid[0][0]
+        biome.features["food_units"] = 0
+        biome.features["regen_rate"] = 0
+        biome.features["regen_timer"] = 0
 
-        env._tick_food_regen()
+        for _ in range(50):
+            env.step()
 
-        assert env.grid[0][0].get_food_units() == 1
+        assert biome.get_food_units() == 0
 
-    def test_zero_fertility_tile_never_regens(self, environment_factory, mock_biome_factory):
-        """A tile with zero fertility never gains food."""
-        env = environment_factory(grid_size=2, num_agents=0, food_units=0)
-        env.grid[0][0] = mock_biome_factory(food_units=0, fertility=0.0)
+    def test_tile_regens_after_rate_steps(self, environment_factory):
+        """A tile with regen_rate=3 should gain 1 food unit every 3 steps."""
+        env = environment_factory(grid_size=2, num_agents=0, food_units=1)
+        biome = env.grid[0][0]
+        biome.features["food_units"] = 0
+        biome.features["regen_rate"] = 3
+        biome.features["regen_timer"] = 0
 
-        for _ in range(100):
-            env._tick_food_regen()
+        # Freeze all other tiles so they don't interfere with food cap logic
+        for x in range(2):
+            for y in range(2):
+                if (x, y) != (0, 0):
+                    env.grid[x][y].features["regen_rate"] = 0
 
-        assert env.grid[0][0].get_food_units() == 0
+        env.step()
+        env.step()
+        assert biome.get_food_units() == 0  # not yet
+        env.step()
+        assert biome.get_food_units() == 1  # regen fired
 
-    def test_food_accumulates_and_caps(self, environment_factory, mock_biome_factory):
-        """Max fertility tile accumulates food up to MAX_FOOD_PER_TILE, then stops."""
+    def test_tile_does_not_exceed_max_food(self, environment_factory):
+        """Food should not exceed MAX_FOOD_PER_TILE regardless of regen ticks."""
         from simulation import MAX_FOOD_PER_TILE
 
-        env = environment_factory(grid_size=2, num_agents=0, food_units=0)
-        for row in range(2):
-            for col in range(2):
-                env.grid[row][col] = mock_biome_factory(food_units=0, fertility=1.6)
+        env = environment_factory(grid_size=2, num_agents=0, food_units=1)
+        biome = env.grid[0][0]
+        biome.features["food_units"] = MAX_FOOD_PER_TILE
+        biome.features["regen_rate"] = 1
+        biome.features["regen_timer"] = 0
 
-        for _ in range(MAX_FOOD_PER_TILE + 10):
-            env._tick_food_regen()
+        for _ in range(10):
+            env.step()
 
-        for row in range(2):
-            for col in range(2):
-                assert env.grid[row][col].get_food_units() == MAX_FOOD_PER_TILE
+        assert biome.get_food_units() == MAX_FOOD_PER_TILE
+
+    def test_all_tiles_get_regen_rate_on_init(self, environment_factory):
+        """Every biome tile should have regen_rate and regen_timer after init."""
+        env = environment_factory(grid_size=4, num_agents=0, food_units=5)
+        for x, y, biome in env.iter_biomes():
+            assert "regen_rate" in biome.features, f"Tile ({x},{y}) missing regen_rate"
+            assert "regen_timer" in biome.features, f"Tile ({x},{y}) missing regen_timer"
+            assert biome.features["regen_rate"] >= 0
 
 
 # -----------------------------------------------------------------------------
@@ -277,10 +296,10 @@ class TestSpawnAgents:
             assert 0 <= y < env.grid_size, f"Agent y={y} out of bounds"
 
     def test_spawn_respects_max_capacity(self):
-        """Should cap population at max grid capacity."""
+        """Should cap population at 3 * grid_size²."""
         grid_size = 3
-        max_capacity = 2 * grid_size * grid_size
-        env = Environment(grid_size=grid_size, num_agents=100)
+        max_capacity = 3 * grid_size * grid_size  # 27
+        env = Environment(grid_size=grid_size, num_agents=100, food_units=0)
 
         assert len(env.agents) <= max_capacity
 
@@ -465,6 +484,40 @@ class TestStep:
             if agent.is_alive():
                 assert agent.age >= initial_ages[i]
 
+    def test_step_population_cap_blocks_reproduction_when_reached(
+        self, environment_factory, agent_factory
+    ):
+        """Reproduction should be denied once the optional population cap is hit."""
+        env = environment_factory(grid_size=4, num_agents=0, food_units=0, population_cap=1)
+        agent = agent_factory(position=(1, 1))
+        agent.age = 150
+        agent.energy = 100.0
+        env.agents = [agent]
+        env.agents_by_id = {agent.get_id(): agent}
+        env.position_map = {agent.position: {agent.get_id()}}
+        env._batch_decide = lambda agents, batch_perceptions: [3]
+
+        env.step()
+
+        assert len(env.agents) == 1
+
+    def test_step_without_population_cap_allows_reproduction(
+        self, environment_factory, agent_factory
+    ):
+        """Reproduction should proceed when no optional population cap is configured."""
+        env = environment_factory(grid_size=4, num_agents=0, food_units=0, population_cap=None)
+        agent = agent_factory(position=(1, 1))
+        agent.age = 150
+        agent.energy = 100.0
+        env.agents = [agent]
+        env.agents_by_id = {agent.get_id(): agent}
+        env.position_map = {agent.position: {agent.get_id()}}
+        env._batch_decide = lambda agents, batch_perceptions: [3]
+
+        env.step()
+
+        assert len(env.agents) == 2
+
 
 # -----------------------------------------------------------------------------
 # Tests: _resolve_combat()
@@ -478,19 +531,19 @@ class TestResolveCombat:
         """High-aggression agent on same tile should kill weaker target."""
         env = environment_factory(grid_size=4, num_agents=0, food_units=0)
 
-        # attacker: aggression=0.9, attack=1.0 → beats defense=0.8 guaranteed
+        # attacker: aggression=0.9, attack=1.5 > defense=1.0 → wins; energy_stolen = target.energy * 1.0 → target dies
         attacker = agent_factory(position=(1, 1))
         attacker.genome.traits["aggression"]["value"] = 0.9
-        attacker.genome.traits["attack"]["value"] = 1.0
+        attacker.genome.traits["attack"]["value"] = 1.5
 
         target = agent_factory(position=(1, 1))
-        target.genome.traits["defense"]["value"] = 0.8
+        target.genome.traits["defense"]["value"] = 1.0
         target.genome.traits["aggression"]["value"] = 0.0
 
         env._resolve_combat([attacker, target])
 
         assert not target.is_alive()
-        assert target.cause_of_death == "Killed in combat"
+        assert target.cause_of_death == "Eaten alive"
 
     def test_low_aggression_agent_does_not_attack(self, environment_factory, agent_factory):
         """Agent with aggression below 0.80 should not initiate combat."""

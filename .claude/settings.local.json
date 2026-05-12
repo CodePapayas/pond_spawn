@@ -26,7 +26,17 @@
       "Bash(ruff check *)",
       "Bash(pylint . *)",
       "Bash(pip3 show *)",
-      "Bash(.venv/bin/pytest *)"
+      "Bash(.venv/bin/pytest *)",
+      "Bash(git -C /Users/zacholson/repos/pond_spawn log --oneline --all)",
+      "Bash(git -C /Users/zacholson/repos/pond_spawn log --all --full-history -- \"*.py\" --oneline)",
+      "Bash(git -C /Users/zacholson/repos/pond_spawn show --name-only HEAD~5..HEAD)",
+      "Bash(grep \"\\\\.py$\")",
+      "Bash(git -C /Users/zacholson/repos/pond_spawn stash list)",
+      "Bash(git -C /Users/zacholson/repos/pond_spawn status)",
+      "Bash(git -C /Users/zacholson/repos/pond_spawn diff README.md)",
+      "Bash(git -C /Users/zacholson/repos/pond_spawn log --all --oneline --diff-filter=D -- \"*.py\")",
+      "Bash(git -C /Users/zacholson/repos/pond_spawn show fca56ea --name-status)",
+      "Bash(git -C /Users/zacholson/repos/pond_spawn diff cli/pygame_visualizer.py)"
     ]
   }
 }
