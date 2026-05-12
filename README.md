@@ -116,7 +116,7 @@ The brain is built dynamically from `brains/brain.json`, not hard-coded in Pytho
 | Inputs | 5 normalized values |
 | Current architecture | `5 → 12 → 12 → 12 → 8` |
 | Hidden activations | `ReLU` |
-| Output selection | `argmax` winner-takes-all |
+| Output selection | `softmax` sampling (multinomial draw) |
 | Learning | No backpropagation; weights change only through genome mutation |
 
 Current perception vector:

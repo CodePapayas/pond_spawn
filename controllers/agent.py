@@ -14,7 +14,7 @@ import torch as t
 
 from controllers.brain import Brain
 
-# Action constants - brain output with highest value determines action
+# Action constants - brain output is softmax-sampled to determine action
 ACTION_MOVE = 0  # Move in the direction of the agent's heading
 ACTION_TURN = 1  # Turn 90 degrees clockwise
 ACTION_EAT = 2  # Attempt to eat food at current position
@@ -163,13 +163,14 @@ class Agent:  # pylint: disable=too-many-public-methods,too-many-instance-attrib
         """
         # energy, food, agents, visibility, movement = perception[0]
 
-        # Otherwise, let the brain decide using winner-takes-all
+        # Otherwise, let the brain decide using softmax sampling
         self.brain.eval()  # Set to evaluation mode
         with t.no_grad():
             output = self.brain(perception)
 
-        # Winner-takes-all: select action with highest output value
-        action = t.argmax(output).item()
+        # Softmax sampling: sample action proportional to output probabilities
+        probs = t.softmax(output, dim=-1)
+        action = t.multinomial(probs, num_samples=1).item()
 
         return action
 

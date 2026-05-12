@@ -120,7 +120,7 @@ Two combat paths exist:
 - Activations: ReLU between each linear layer
 - Defined in `brains/brain.json`
 - Weights loaded from genome
-- Winner-takes-all output selection (argmax)
+- Softmax sampling output selection (multinomial draw over softmax probabilities)
 
 ## Mutation
 
