@@ -15,8 +15,8 @@ import matplotlib.pyplot as plt
 from simulation import Environment
 
 
-# pylint: disable=too-many-locals
-def plot_simulation_stats(logged_stats, initial_population, avg_traits=None):
+# pylint: disable=too-many-locals,too-many-statements
+def plot_simulation_stats(logged_stats, initial_population, avg_traits=None, death_tally=None):
     """
     Create line graphs for simulation statistics over time.
 
@@ -24,6 +24,7 @@ def plot_simulation_stats(logged_stats, initial_population, avg_traits=None):
         logged_stats (dict): Dictionary mapping step -> stats dict
         initial_population (int): Initial agent population
         avg_traits (dict): Average genome traits of final population
+        death_tally (dict): cause_of_death string -> count over the run
     """
     if not logged_stats:
         print("No stats to plot.")
@@ -38,8 +39,18 @@ def plot_simulation_stats(logged_stats, initial_population, avg_traits=None):
     min_age = [logged_stats[s]["min_age"] for s in steps]
     max_age = [logged_stats[s]["max_age"] for s in steps]
 
-    # Create figure with 4 subplots
-    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(10, 14))
+    has_death_table = bool(death_tally)
+
+    # 4 time-series plots + optional death table row
+    nrows = 5 if has_death_table else 4
+    height_ratios = [3, 3, 3, 3, 1.4] if has_death_table else [1, 1, 1, 1]
+    fig, axes = plt.subplots(
+        nrows,
+        1,
+        figsize=(10, 17 if has_death_table else 14),
+        gridspec_kw={"height_ratios": height_ratios},
+    )
+    ax1, ax2, ax3, ax4 = axes[0], axes[1], axes[2], axes[3]
     fig.suptitle("Pond Spawn Simulation Statistics", fontsize=16, fontweight="bold")
 
     # Plot 1: Agent Population
@@ -82,7 +93,37 @@ def plot_simulation_stats(logged_stats, initial_population, avg_traits=None):
     ax4.legend()
     ax4.grid(True, alpha=0.3)
 
-    plt.tight_layout(rect=[0, 0.12, 1, 0.97])
+    # Table 5: Death causes
+    if has_death_table:
+        ax5 = axes[4]
+        ax5.axis("off")
+        ax5.set_title("Deaths by Cause", fontsize=14, fontweight="bold", pad=8)
+        total_deaths = sum(death_tally.values())
+        rows = sorted(death_tally.items(), key=lambda x: -x[1])
+        rows.append(("TOTAL", total_deaths))
+        table_data = [
+            [cause, str(count), f"{count / total_deaths * 100:.1f}%"] for cause, count in rows
+        ]
+        tbl = ax5.table(
+            cellText=table_data,
+            colLabels=["Cause of Death", "Count", "%"],
+            cellLoc="center",
+            loc="center",
+        )
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(10)
+        tbl.scale(1, 1.4)
+        # Style header row
+        for col in range(3):
+            tbl[(0, col)].set_facecolor("#2c3e50")
+            tbl[(0, col)].set_text_props(color="white", fontweight="bold")
+        # Style TOTAL row
+        total_row = len(rows)
+        for col in range(3):
+            tbl[(total_row, col)].set_facecolor("#dfe6e9")
+            tbl[(total_row, col)].set_text_props(fontweight="bold")
+
+    plt.tight_layout(rect=[0, 0.06 if avg_traits else 0, 1, 0.97])
 
     # Add genome trait averages as text annotation at the bottom if provided
     if avg_traits:
@@ -133,13 +174,6 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--food-resupply",
-        type=int,
-        default=3,
-        help="Food units to add per resupply cycle (scaled by biome fertility)",
-    )
-
-    parser.add_argument(
         "--steps",
         type=int,
         default=1000,
@@ -151,13 +185,6 @@ def parse_args():
         type=float,
         default=0.0001,
         help="Delay between steps in seconds",
-    )
-
-    parser.add_argument(
-        "--population-cap",
-        type=int,
-        default=None,
-        help="Optional max living population; omit for no reproduction cap",
     )
 
     parser.add_argument(
@@ -194,8 +221,6 @@ def run_simulation(args):
     env = Environment(
         grid_size=args.grid_size,
         num_agents=args.population,
-        food_units=args.food_resupply,
-        population_cap=args.population_cap,
     )
     logged_stats = {}
 
@@ -210,56 +235,69 @@ def run_simulation(args):
 
     # Run simulation
     print(f"\nRunning simulation for {args.steps} steps...")
-    print(f"Food resupply: {args.food_resupply} units per resupply (scaled by biome fertility)")
-    if args.population_cap is None:
-        print("Population cap: none")
-    else:
-        print(f"Population cap: {args.population_cap}")
-    print("Food resupplies only when total food reaches 0")
     print("-" * 50)
 
-    for _ in range(args.steps):
-        # Run step
-        env.step()
+    progress_interval = max(1, args.steps // 100)
+    interrupted = False
+    try:
+        for _ in range(args.steps):
+            # Run step
+            env.step()
 
-        # Get stats
-        stats = env.get_stats()
+            # Get stats
+            stats = env.get_stats()
 
-        # Log stats for graphing
-        logged_stats = env.log_stats(stats, logged_stats)
+            # Log stats for graphing
+            logged_stats = env.log_stats(stats, logged_stats)
 
-        # Print stats
-        if not args.no_visual or args.stats_only:
-            print(f"\nOriginal population: {args.population}")
-            print(f"Step {stats['step']}, Food={stats['total_food']}")
-            print("Current simulation stats:")
-            for key, value in stats.items():
-                print(f"  {key}: {value}")
+            # Print stats
+            if not args.no_visual or args.stats_only:
+                print(f"\nOriginal population: {args.population}")
+                print(f"Step {stats['step']}, Food={stats['total_food']}")
+                print("Current simulation stats:")
+                for key, value in stats.items():
+                    print(f"  {key}: {value}")
+            elif stats["step"] % progress_interval == 0:
+                pct = 100 * stats["step"] / args.steps
+                print(
+                    f"  Step {stats['step']}/{args.steps} ({pct:.0f}%)"
+                    f" | pop={stats['alive_agents']}"
+                    f" | food={stats['total_food']}"
+                    f" | avg_energy={stats['avg_energy']:.1f}",
+                    flush=True,
+                )
 
-        # Print grid if visualization enabled
-        if not args.no_visual and not args.stats_only:
-            print("Current grid:")
-            env.print_grid()
+            # Print grid if visualization enabled
+            if not args.no_visual and not args.stats_only:
+                print("Current grid:")
+                env.print_grid()
 
-        # Check for extinction
-        if stats["alive_agents"] == 0:
-            print("\n" + "=" * 50)
-            print("EXTINCTION EVENT - All agents have died")
-            print(f"Simulation ended at step {stats['step']}")
-            print("=" * 50)
-            break
+            # Check for extinction
+            if stats["alive_agents"] == 0:
+                print("\n" + "=" * 50)
+                print("EXTINCTION EVENT - All agents have died")
+                print(f"Simulation ended at step {stats['step']}")
+                print("=" * 50)
+                break
 
-        # Delay between steps
-        if args.delay > 0:
-            time.sleep(args.delay)
+            # Delay between steps
+            if args.delay > 0:
+                time.sleep(args.delay)
+
+    except KeyboardInterrupt:
+        interrupted = True
+        print("\n" + "=" * 50)
+        print("INTERRUPTED - saving results...")
 
     # Final summary
     print("\n" + "=" * 50)
-    print("SIMULATION COMPLETE")
+    print("SIMULATION INTERRUPTED" if interrupted else "SIMULATION COMPLETE")
     final_stats = env.get_stats()
     print("\nFinal Statistics:")
     for key, value in final_stats.items():
         print(f"  {key}: {value}")
+
+    death_tally = env.get_death_tally()
 
     # Show average genome traits
     avg_traits = env.get_average_genome_traits()
@@ -277,7 +315,7 @@ def run_simulation(args):
     print("=" * 50)
 
     # Generate graphs from logged stats
-    plot_simulation_stats(logged_stats, args.population, avg_traits)
+    plot_simulation_stats(logged_stats, args.population, avg_traits, death_tally)
 
 
 def main():

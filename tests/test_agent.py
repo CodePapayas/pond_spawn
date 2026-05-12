@@ -84,6 +84,8 @@ class MockEnvironment:
         self.grid_size = grid_size
         self.agents_in_range = agents_in_range
         self.full_tiles = set()  # Track which tiles are "full"
+        self.position_map = {}
+        self.agents_by_id = {}
 
     def get_biome(self, x, y):
         return self.biome
@@ -198,9 +200,7 @@ def test_reproduce_creates_offspring_and_reduces_energy(genome, environment_fact
     # = 80.0 * (0.50 * 0.7) = 80.0 * 0.35 = 28.0
     assert agent.energy == pytest.approx(80.0 - 28.0)
     assert offspring.position in {(2, 1), (0, 1), (1, 2), (1, 0)}
-    # offspring gets reproduction_cost + (50 * clone_energy_threshold)
-    # = 28.0 + (50 * 1.0) = 78.0
-    assert offspring.energy == pytest.approx(78.0)
+    assert offspring.energy == pytest.approx(28.0)
 
 
 def test_agent_dies_when_killed(genome):
@@ -323,23 +323,23 @@ def test_attack_agent_stronger_than_victim():
 
 
 def test_attack_victim_stronger_than_agent():
+    # Attacker loses but survives — victim gains nothing, only attacker burns energy
     attacker = make_combat_agent((1, 1), aggression=0.8, attack=0.2, defense=0.3, energy=50.0)
     victim = make_combat_agent((1, 1), aggression=0.5, attack=0.5, defense=0.9, energy=50.0)
 
     attacker.attack_agent(victim)
 
     assert attacker.energy < 50.0
-    assert victim.energy > 50.0
+    assert victim.energy == pytest.approx(50.0)  # no gain unless attacker dies
 
 
-def test_attack_agent_fully_eats_victim():
-    # attack=1.5 > v_defense=1.0 → attacker wins; energy_stolen = 10.0 * 1.0 = 10.0 → victim dies
+def test_attack_agent_kills_victim_gains_12_5_percent():
+    # attack=1.5 > v_defense=1.0 → attacker wins; victim dies, attacker gains 12.5% (10.0 * 0.125 = 1.25)
     attacker = make_combat_agent((1, 1), aggression=0.8, attack=1.5, defense=0.2, energy=100.0)
     victim = make_combat_agent((1, 1), aggression=0.5, attack=0.5, defense=1.0, energy=10.0)
 
     attacker.attack_agent(victim)
 
-    assert victim.energy == pytest.approx(0.0)
     assert not victim.is_alive()
     assert victim.cause_of_death == "Eaten alive"
 

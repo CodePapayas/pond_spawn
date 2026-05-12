@@ -92,8 +92,9 @@ class Genome:
         genome_data = c.deepcopy(self._base_genome)
         self.id = generate_genome_id()
 
-        # Initialize brain weights with random values
-        self.brain_weights = [r.uniform(-0.5, 0.5) for _ in range(self._brain_weight_count)]
+        # Weights randomized [-0.5, 0.5]; biases fixed at 0.001 (see Brain.initial_weights).
+        brain_instance = Brain(str(ROOT_DIR / "brains" / "brain.json"))
+        self.brain_weights = brain_instance.initial_weights()
 
         # Initialize traits
         self.traits = genome_data["traits"]

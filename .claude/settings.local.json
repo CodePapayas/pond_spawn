@@ -10,7 +10,23 @@
       "Bash(.venv/bin/pytest tests/ -q -k \"not TestIsTileFull\")",
       "Bash(python -m pytest --tb=short)",
       "Bash(.venv/bin/pytest --tb=short)",
-      "Bash(.venv/bin/pytest tests/test_agent.py -v --tb=short)"
+      "Bash(.venv/bin/pytest tests/test_agent.py -v --tb=short)",
+      "Bash(.venv/bin/python -m pytest tests/test_landscape.py tests/test_simulation.py::TestTickFoodRegen -v)",
+      "Bash(.venv/bin/python -m pytest tests/ -q)",
+      "Bash(sed -n '14,22p' /mnt/c/users/zachw/repos/pond_spawn/RULES.md)",
+      "Bash(sed -n '24,30p' /mnt/c/users/zachw/repos/pond_spawn/RULES.md)",
+      "Bash(python -c ' *)",
+      "Bash(python -m cli.cli_sim_starter --population 30 --grid-size 5 --steps 200)",
+      "Bash(python -m cli.cli_sim_starter --population 30 --grid-size 5 --steps 300 --no-visual)",
+      "Bash(python -m pytest tests/ -x -q)",
+      "Bash(git stash *)",
+      "Bash(python -m pytest tests/test_agent.py::test_reproduce_creates_offspring_and_reduces_energy -x -q)",
+      "Bash(python -m pytest tests/test_agent.py -x -q)",
+      "Bash(python *)",
+      "Bash(ruff check *)",
+      "Bash(pylint . *)",
+      "Bash(pip3 show *)",
+      "Bash(.venv/bin/pytest *)"
     ]
   }
 }

@@ -11,13 +11,12 @@ import random as r
 
 import torch as t
 
-from controllers.agent import Agent
+from controllers.agent import CHILDHOOD_TICKS, Agent
 from controllers.genome import Genome
 from controllers.landscape import Biome
 
 # Global variables
 POPULATION = 300
-FOOD_RESUPPLY = 3
 MAX_FOOD_PER_TILE = 3
 TICKS = 1000
 # MAX_AGENTS_PER_TILE = 1
@@ -38,8 +37,6 @@ class Environment:
         self,
         grid_size=12,
         num_agents=POPULATION,
-        food_units=FOOD_RESUPPLY,
-        population_cap=None,
     ):
         """
         Initialize the simulation environment.
@@ -47,20 +44,16 @@ class Environment:
         Args:
             grid_size (int): Size of the square grid (grid_size x grid_size)
             num_agents (int): Number of agents to spawn initially
-            food_units (int): Food units to add per resupply cycle
-            population_cap (int | None): Optional maximum living population.
-                If None, reproduction is uncapped.
         """
         self.grid_size = grid_size
         self.grid = [[None for _ in range(grid_size)] for _ in range(grid_size)]
-        self.food_resupply_amount = food_units  # Store for resupply
-        self.population_cap = population_cap
         self.position_map = {}
         self.agents_by_id = {}
         self.agents = []
         self.step_count = 0
         self.lifespans = []  # Track all lifespans for median/min/max
         self.logged_lifespans = set()  # Prevent duplicate lifespan logging
+        self.death_tally = {}  # cause_of_death string → count
 
         # GPU setup for batched brain inference
         self.device = t.device("cuda" if t.cuda.is_available() else "cpu")
@@ -88,25 +81,61 @@ class Environment:
             for y in range(self.grid_size):
                 biome = Biome().generate()
                 self.grid[x][y] = biome
+        self._assign_barren_tiles()
 
-    def _add_food(self, total_food):
+    def _assign_barren_tiles(self):
+        """Grow contiguous desert clusters until 35-45% of tiles are barren.
+
+        Seeds N points then expands via BFS with decaying spread probability,
+        producing organic desert regions with fertile oases between them.
         """
-        Add food units across the grid based on biome fertility (doesn't replace existing food).
+        total_tiles = self.grid_size * self.grid_size
+        target = int(total_tiles * r.uniform(0.35, 0.45))
+        num_seeds = max(2, self.grid_size // 3)
 
-        Args:
-            total_food (int): Base food units to distribute (modified by fertility)
+        all_pos = [(x, y) for x in range(self.grid_size) for y in range(self.grid_size)]
+        barren = set(r.sample(all_pos, min(num_seeds, total_tiles)))
+        frontier = list(barren)
+        spread_prob = 0.55
+
+        while len(barren) < target:
+            if not frontier:
+                # Stalled — drop a new seed anywhere fertile to continue
+                remaining = [p for p in all_pos if p not in barren]
+                if not remaining:
+                    break
+                seed = r.choice(remaining)
+                barren.add(seed)
+                frontier.append(seed)
+
+            next_frontier = []
+            for x, y in frontier:
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    nx, ny = (x + dx) % self.grid_size, (y + dy) % self.grid_size
+                    if (nx, ny) not in barren and r.random() < spread_prob:
+                        barren.add((nx, ny))
+                        next_frontier.append((nx, ny))
+                if len(barren) >= target:
+                    break
+            frontier = next_frontier
+            # Taper spread each generation so desert edges stay ragged, not blobby
+            spread_prob = max(0.30, spread_prob * 0.85)
+
+        for x, y in barren:
+            self.grid[x][y].features["fertility"]["value"] = 0.0
+            self.grid[x][y].features["food_units"] = 0
+
+    def _tick_food_regen(self):
+        """Passive per-tile food regen each tick.
+
+        Each tile rolls against its regen_rate (0–1, derived from fertility).
+        A successful roll adds exactly 1 food unit. High-fertility tiles grow
+        food more often; barren tiles rarely do.
         """
-
         for x, y, biome in self.iter_biomes():  # pylint: disable=unused-variable
-            # Get fertility modifier (0.0 to 1.0)
-            fertility = biome.get_fertility()
-
-            # Add food based on fertility - more fertile biomes get more food
-            # Use total_food as the max per tile, scaled by fertility
-            food_to_add = int(total_food * fertility) % 100
-
-            current_food = biome.get_food_units()
-            biome.features["food_units"] = (current_food or 0) + food_to_add
+            current = biome.get_food_units() or 0
+            if current < MAX_FOOD_PER_TILE and r.random() < biome.get_regen_rate():
+                biome.features["food_units"] = current + 1
 
     def _record_lifespan(self, agent):
         """Store a single lifespan entry per agent to avoid double counting."""
@@ -349,10 +378,6 @@ class Environment:
 
         return count
 
-    def redist_food(self):
-        """Add food to the grid based on resupply amount."""
-        self._add_food(self.food_resupply_amount)
-
     def update_agent_position(self, agent_id, old_position, new_position):
         """
         Update the position map when an agent moves.
@@ -405,7 +430,13 @@ class Environment:
                 if not targets:
                     continue
                 target = r.choice(targets)
+                pre_attack_energy = target.energy
                 attacker.attack(target)
+                if target.age < CHILDHOOD_TICKS and target.parent_id:
+                    parent = self.agents_by_id.get(target.parent_id)
+                    if parent and parent.is_alive():
+                        parent_ratio = 0.45 * (1.0 - target.age / CHILDHOOD_TICKS)
+                        parent.consume_energy(pre_attack_energy * parent_ratio)
 
     def _batch_decide(self, agents, batch_perceptions):
         """
@@ -474,13 +505,10 @@ class Environment:
         3. Add offspring from reproduction
         4. Remove dead agents
         """
-        current_food = sum(biome.get_food_units() for _, _, biome in self.iter_biomes())
-
         self.step_count += 1
 
-        # Replenish food
-        if current_food < len(self.agents) / 50:
-            self.redist_food()
+        # Each tile independently regenerates food based on its fertility-derived regen rate.
+        self._tick_food_regen()
 
         # Filter alive agents and do basic updates (age, metabolism, death checks)
         alive_agents = []
@@ -539,15 +567,6 @@ class Environment:
             old_position = agent.position
             action = batch_actions[i]
 
-            # Enforce population cap by denying reproduction
-            if (
-                action == 3
-                and self.population_cap is not None
-                and len(self.agents) + len(new_agents) >= self.population_cap
-            ):
-                # Force them to do nothing instead of reproducing
-                action = 5
-
             # Execute the action
             offspring = agent.execute_action(action, self)
 
@@ -576,6 +595,8 @@ class Environment:
         dead_agents = [agent for agent in self.agents if not agent.is_alive()]
         for agent in dead_agents:
             self._record_lifespan(agent)
+            cod = agent.cause_of_death or "Unknown"
+            self.death_tally[cod] = self.death_tally.get(cod, 0) + 1
             agent_id = agent.get_id()
             position = agent.position
 
@@ -629,6 +650,10 @@ class Environment:
             "min_age": min_age,
             "max_age": max_age,
         }
+
+    def get_death_tally(self):
+        """Return a copy of the death cause tally accumulated over the run."""
+        return dict(self.death_tally)
 
     def get_average_genome_traits(self):
         """

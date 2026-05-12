@@ -86,6 +86,10 @@ class MockBiome:
     def get_fertility(self):
         return self.features.get("fertility", 0.5)
 
+    def get_regen_rate(self):
+        fertility = self.get_fertility() or 0.0
+        return min(fertility / 1.6, 1.0)
+
     def generate(self):
         return self
 
@@ -98,13 +102,13 @@ class MockBiome:
 @pytest.fixture
 def small_environment():
     """Create a small 4x4 environment with minimal agents for quick tests."""
-    return Environment(grid_size=4, num_agents=4, food_units=1)
+    return Environment(grid_size=4, num_agents=4)
 
 
 @pytest.fixture
 def empty_environment():
     """Create an environment with no agents."""
-    return Environment(grid_size=4, num_agents=0, food_units=1)
+    return Environment(grid_size=4, num_agents=0)
 
 
 @pytest.fixture
@@ -115,8 +119,6 @@ def environment_factory():
         return Environment(
             grid_size=grid_size,
             num_agents=num_agents,
-            food_units=food_units,
-            population_cap=population_cap,
         )
 
     return _create
@@ -157,7 +159,7 @@ def agent_factory(dummy_genome):
 @pytest.fixture
 def populated_environment():
     """Create an environment and run a few steps to establish state."""
-    env = Environment(grid_size=6, num_agents=20, food_units=2)
+    env = Environment(grid_size=6, num_agents=20)
     for _ in range(5):
         env.step()
     return env
@@ -170,73 +172,47 @@ def device():
 
 
 # -----------------------------------------------------------------------------
-# Tests: _add_food()
+# Tests: _tick_food_regen()
 # -----------------------------------------------------------------------------
 
 
-class TestAddFood:
-    """Tests for Environment._add_food() method."""
+class TestTickFoodRegen:
+    """Tests for Environment._tick_food_regen() method."""
 
-    def test_add_food_increases_total_food(self, environment_factory):
-        """Adding food should increase total food in the environment."""
-        env = environment_factory(grid_size=4, num_agents=0, food_units=0)
-
-        # Get initial food count
-        initial_food = sum(biome.get_food_units() for _, _, biome in env.iter_biomes())
-
-        # Add food
-        env._add_food(5)
-
-        # Get new food count
-        new_food = sum(biome.get_food_units() for _, _, biome in env.iter_biomes())
-
-        assert new_food >= initial_food, "Food should increase after _add_food"
-
-    def test_add_food_respects_fertility(self, environment_factory, mock_biome_factory):
-        """Higher fertility biomes should receive more food."""
+    def test_max_fertility_tile_always_regens(self, environment_factory, mock_biome_factory):
+        """A tile at max fertility (regen_rate=1.0) gains food every tick."""
         env = environment_factory(grid_size=2, num_agents=0, food_units=0)
+        env.grid[0][0] = mock_biome_factory(food_units=0, fertility=1.6)
 
-        # Replace grid with controlled biomes - different fertilities
-        env.grid[0][0] = mock_biome_factory(food_units=0, fertility=1.0)  # High fertility
-        env.grid[0][1] = mock_biome_factory(food_units=0, fertility=0.5)  # Medium fertility
-        env.grid[1][0] = mock_biome_factory(food_units=0, fertility=0.0)  # No fertility
-        env.grid[1][1] = mock_biome_factory(food_units=0, fertility=0.25)  # Low fertility
+        env._tick_food_regen()
 
-        env._add_food(10)
+        assert env.grid[0][0].get_food_units() == 1
 
-        # Check food distribution matches fertility
-        assert env.grid[0][0].get_food_units() == 10  # 10 * 1.0 = 10
-        assert env.grid[0][1].get_food_units() == 5  # 10 * 0.5 = 5
-        assert env.grid[1][0].get_food_units() == 0  # 10 * 0.0 = 0
-        assert env.grid[1][1].get_food_units() == 2  # 10 * 0.25 = 2
-
-    def test_add_food_accumulates(self, environment_factory, mock_biome_factory):
-        """Food should accumulate when _add_food is called multiple times."""
+    def test_zero_fertility_tile_never_regens(self, environment_factory, mock_biome_factory):
+        """A tile with zero fertility never gains food."""
         env = environment_factory(grid_size=2, num_agents=0, food_units=0)
+        env.grid[0][0] = mock_biome_factory(food_units=0, fertility=0.0)
 
-        # Set all biomes to same fertility for predictable results
-        for x in range(2):
-            for y in range(2):
-                env.grid[x][y] = mock_biome_factory(food_units=0, fertility=1.0)
+        for _ in range(100):
+            env._tick_food_regen()
 
-        env._add_food(5)
-        env._add_food(5)
+        assert env.grid[0][0].get_food_units() == 0
 
-        # Each tile should have 10 food (5 + 5)
-        for x in range(2):
-            for y in range(2):
-                assert env.grid[x][y].get_food_units() == 10
+    def test_food_accumulates_and_caps(self, environment_factory, mock_biome_factory):
+        """Max fertility tile accumulates food up to MAX_FOOD_PER_TILE, then stops."""
+        from simulation import MAX_FOOD_PER_TILE
 
-    def test_add_food_with_zero_amount(self, environment_factory, mock_biome_factory):
-        """Adding zero food should not change existing food levels."""
         env = environment_factory(grid_size=2, num_agents=0, food_units=0)
+        for row in range(2):
+            for col in range(2):
+                env.grid[row][col] = mock_biome_factory(food_units=0, fertility=1.6)
 
-        # Set initial food
-        env.grid[0][0] = mock_biome_factory(food_units=5, fertility=1.0)
+        for _ in range(MAX_FOOD_PER_TILE + 10):
+            env._tick_food_regen()
 
-        env._add_food(0)
-
-        assert env.grid[0][0].get_food_units() == 5
+        for row in range(2):
+            for col in range(2):
+                assert env.grid[row][col].get_food_units() == MAX_FOOD_PER_TILE
 
 
 # -----------------------------------------------------------------------------
@@ -304,7 +280,7 @@ class TestSpawnAgents:
         """Should cap population at max grid capacity."""
         grid_size = 3
         max_capacity = 2 * grid_size * grid_size
-        env = Environment(grid_size=grid_size, num_agents=100, food_units=0)
+        env = Environment(grid_size=grid_size, num_agents=100)
 
         assert len(env.agents) <= max_capacity
 
@@ -488,40 +464,6 @@ class TestStep:
         for i, agent in enumerate(env.agents):
             if agent.is_alive():
                 assert agent.age >= initial_ages[i]
-
-    def test_step_population_cap_blocks_reproduction_when_reached(
-        self, environment_factory, agent_factory
-    ):
-        """Reproduction should be denied once the optional population cap is hit."""
-        env = environment_factory(grid_size=4, num_agents=0, food_units=0, population_cap=1)
-        agent = agent_factory(position=(1, 1))
-        agent.age = 150
-        agent.energy = 100.0
-        env.agents = [agent]
-        env.agents_by_id = {agent.get_id(): agent}
-        env.position_map = {agent.position: {agent.get_id()}}
-        env._batch_decide = lambda agents, batch_perceptions: [3]
-
-        env.step()
-
-        assert len(env.agents) == 1
-
-    def test_step_without_population_cap_allows_reproduction(
-        self, environment_factory, agent_factory
-    ):
-        """Reproduction should proceed when no optional population cap is configured."""
-        env = environment_factory(grid_size=4, num_agents=0, food_units=0, population_cap=None)
-        agent = agent_factory(position=(1, 1))
-        agent.age = 150
-        agent.energy = 100.0
-        env.agents = [agent]
-        env.agents_by_id = {agent.get_id(): agent}
-        env.position_map = {agent.position: {agent.get_id()}}
-        env._batch_decide = lambda agents, batch_perceptions: [3]
-
-        env.step()
-
-        assert len(env.agents) == 2
 
 
 # -----------------------------------------------------------------------------

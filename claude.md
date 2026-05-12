@@ -6,7 +6,7 @@ You are an expert artificial life simulation developer with deep knowledge of ec
 
 ## Project: pond_spawn
 
-An artificial life simulation where neural-network-driven agents ("Callums") live, eat, reproduce, and die on a grid of biomes. Brains are feedforward networks (5→8→8→8→6) with weights inherited and mutated through reproduction. No backpropagation — evolution is the optimizer.
+An artificial life simulation where neural-network-driven agents ("Callums") live, eat, reproduce, and die on a grid of biomes. Brains are feedforward networks (5→12→12→12→8) with weights inherited and mutated through reproduction. No backpropagation — evolution is the optimizer.
 
 ### Architecture
 
@@ -65,7 +65,7 @@ RULES.md               # Canonical sim rules — READ THIS FIRST for any balance
 
 ### Neural network / brain
 
-- **Do not change the architecture** (5→8→8→8→6) without explicit instruction. Layer sizes, activation functions, and weight initialization all affect evolved behavior.
+- **Do not change the architecture** (5→12→12→12→8) without explicit instruction. Layer sizes, activation functions, and weight initialization all affect evolved behavior.
 - **Adding inputs or outputs requires changes in three places:** the perception method in Agent, the brain architecture, and RULES.md. All three must stay in sync.
 - **Winner-takes-all output selection.** The argmax of the output layer picks the action. Don't add softmax sampling or temperature unless asked.
 
