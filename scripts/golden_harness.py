@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from simulation import Environment  # noqa: E402
+from simulation import Environment  # pylint: disable=wrong-import-position
 
 
 def _dump_agent(agent):
@@ -59,6 +59,7 @@ def _dump_grid(env):
 
 
 def run_harness(seed, grid_size, population, steps, output_path):
+    """Run a seeded simulation and write a golden JSON trace to output_path."""
     env = Environment(grid_size=grid_size, num_agents=population, seed=seed)
 
     # Step 0: dump initial state before any brain decisions touch it
@@ -118,6 +119,7 @@ def run_harness(seed, grid_size, population, steps, output_path):
 
 
 def main():
+    """Parse CLI args and run the golden harness."""
     parser = argparse.ArgumentParser(description="pond_spawn golden harness")
     parser.add_argument("--seed", type=int, default=42, help="RNG seed")
     parser.add_argument("--grid-size", type=int, default=12, help="Grid size")
