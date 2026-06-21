@@ -170,6 +170,9 @@ def run_visualization(
                 cell_size = max(min(event.w // grid_size, (event.h - 60) // grid_size), 10)
                 sprite_size = int(cell_size * 0.8)
                 agent_sprites = load_agent_sprites(sprite_size)
+                screen = pygame.display.set_mode(
+                    (grid_size * cell_size, grid_size * cell_size + 60), pygame.RESIZABLE
+                )
 
         if not paused:
             env.step()

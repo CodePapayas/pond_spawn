@@ -44,9 +44,9 @@ The `Agent.decide()` method uses a hybrid approach:
    - Low energy + no food → MOVE (search for food)
    - High competition → MOVE (avoid crowding)
    
-2. **Neural Network Decision** (winner-takes-all):
+2. **Neural Network Decision** (softmax-sampled):
    - If no critical rules apply, the brain processes perception
-   - Action with highest output value is selected
+   - Output is softmax-normalized and an action is sampled proportional to probability
    - Actions: 0=MOVE, 1=TURN, 2=EAT, 3=REPRODUCE
 
 This ensures agents always prioritize survival while allowing learned behavior for non-critical situations.

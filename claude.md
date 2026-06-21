@@ -32,7 +32,7 @@ RULES.md               # Canonical sim rules — READ THIS FIRST for any balance
 
 ### Sim economy basics
 
-- Food is the bottleneck. Resupply triggers when `total_food < population / 50`. Each food unit = 40 energy.
+- Food is the bottleneck. Resupply triggers when `total_food < population / 50`. Each food unit = 33.3 energy.
 - Reproduction costs 40% of energy × reproduction_cost trait. Offspring gets the spent energy. Requires energy ≥ 40 and food on tile.
 - Base metabolism drain is `0.1 × metabolism` per tick. Movement costs `terrain_speed × speed × metabolism × 0.15`.
 - Death: energy ≤ 0 OR reaching assigned death age.
@@ -60,14 +60,14 @@ RULES.md               # Canonical sim rules — READ THIS FIRST for any balance
 - **Never change more than one economic lever at a time.** If you adjust food resupply, don't also change metabolism costs. Isolate variables.
 - **State your hypothesis.** Before changing a balance parameter, say what you expect to happen to population curve, average energy, and median lifespan.
 - **Respect trait bounds** defined in RULES.md. If a trait has min 0.5 and max 1.05, generated values must stay in that range.
-- **Food economy is fragile.** The resupply threshold (`population / 50`) and per-unit energy (40) are load-bearing. Change with extreme caution and explain the math.
+- **Food economy is fragile.** The resupply threshold (`population / 50`) and per-unit energy (33.3) are load-bearing. Change with extreme caution and explain the math.
 - **Reproduction is the population valve.** The interplay of minimum energy (40), cost multiplier (0.40), and reproduction_cost trait controls boom/bust cycles. Understand all three before touching any one.
 
 ### Neural network / brain
 
 - **Do not change the architecture** (5→12→12→12→8) without explicit instruction. Layer sizes, activation functions, and weight initialization all affect evolved behavior.
 - **Adding inputs or outputs requires changes in three places:** the perception method in Agent, the brain architecture, and RULES.md. All three must stay in sync.
-- **Winner-takes-all output selection.** The argmax of the output layer picks the action. Don't add softmax sampling or temperature unless asked.
+- **Softmax-sampled output selection.** The output layer is softmax-normalized and the action is sampled proportional to probability (in the batched `_batch_decide` path). Don't switch to argmax or add temperature unless asked.
 
 ### Pygame visualizer
 

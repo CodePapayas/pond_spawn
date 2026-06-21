@@ -36,7 +36,12 @@
       "Bash(git -C /Users/zacholson/repos/pond_spawn diff README.md)",
       "Bash(git -C /Users/zacholson/repos/pond_spawn log --all --oneline --diff-filter=D -- \"*.py\")",
       "Bash(git -C /Users/zacholson/repos/pond_spawn show fca56ea --name-status)",
-      "Bash(git -C /Users/zacholson/repos/pond_spawn diff cli/pygame_visualizer.py)"
+      "Bash(git -C /Users/zacholson/repos/pond_spawn diff cli/pygame_visualizer.py)",
+      "Bash(.venv/bin/python *)",
+      "Bash(.venv/bin/python3 -c ' *)",
+      "Bash(cargo test *)",
+      "Read(//home/zachw/.cargo/bin/**)",
+      "Read(//usr/local/bin/**)"
     ]
   }
 }

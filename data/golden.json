@@ -1,0 +1,5180 @@
+{
+  "meta": {
+    "seed": 42,
+    "grid_size": 12,
+    "population": 100,
+    "steps": 200,
+    "note": "Brain output parity is NOT a target. Validate: trait bounds, weight ranges, biome structure, economy math."
+  },
+  "step_0_state": {
+    "stats": {
+      "step": 0,
+      "alive_agents": 100,
+      "total_food": 168,
+      "avg_energy": 100.0,
+      "median_lifespan": 0,
+      "min_age": 0,
+      "max_age": 0,
+      "death_stats": {
+        "Starvation": {
+          "count": 0,
+          "avg_age": 0.0
+        },
+        "Combat": {
+          "count": 0,
+          "avg_age": 0.0
+        },
+        "Old Age": {
+          "count": 0,
+          "avg_age": 0.0
+        }
+      }
+    },
+    "agents": [
+      {
+        "id": "g_7f671eec",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          6,
+          0
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.9860251910209089,
+          "speed": 0.5188737461787807,
+          "metabolism": 0.6852204045803549,
+          "daily_nutrition_minimum": 0.9883153802223621,
+          "energy_capacity": 0.9631049041429508,
+          "mutation_rate": 0.10041276899740591,
+          "clone_energy_threshold": 0.5892359666486477,
+          "reproduction_cost": 1.373508792516844,
+          "intelligence": 0.9241037975520436,
+          "attack": 1.106782789729476,
+          "defense": 0.5943573244741135,
+          "aggression": 0.4595570753952641
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49716444851998365,
+        "brain_weight_max": 0.49462775586092356
+      },
+      {
+        "id": "g_f836f571",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          2,
+          4
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 1.0390882955267493,
+          "speed": 0.9091887300652812,
+          "metabolism": 1.0250348748653038,
+          "daily_nutrition_minimum": 0.9902307916978285,
+          "energy_capacity": 0.9790452651992936,
+          "mutation_rate": 0.07903128198739358,
+          "clone_energy_threshold": 0.8927777081241175,
+          "reproduction_cost": 1.0097726355717125,
+          "intelligence": 0.7433068615256595,
+          "attack": 0.6923329816051116,
+          "defense": 0.7730751799193954,
+          "aggression": 0.2121714075606263
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49474880169438207,
+        "brain_weight_max": 0.4995950439343869
+      },
+      {
+        "id": "g_23245211",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          11,
+          9
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.8077451001693619,
+          "speed": 0.9963651000640283,
+          "metabolism": 0.6335083861990141,
+          "daily_nutrition_minimum": 0.9760552265381749,
+          "energy_capacity": 1.0185315991794557,
+          "mutation_rate": 0.05068041885883817,
+          "clone_energy_threshold": 0.6479054299415812,
+          "reproduction_cost": 0.951305097861908,
+          "intelligence": 0.5802641513556013,
+          "attack": 0.6254055505693494,
+          "defense": 0.65729826681337,
+          "aggression": 0.3147398666176414
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4969845284089113,
+        "brain_weight_max": 0.4934834412430483
+      },
+      {
+        "id": "g_f1b88d65",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          3,
+          1
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.7022282778212465,
+          "speed": 0.6275580405195391,
+          "metabolism": 0.5565977032620283,
+          "daily_nutrition_minimum": 0.9786956152596028,
+          "energy_capacity": 1.0222778373325867,
+          "mutation_rate": 0.06481706155678024,
+          "clone_energy_threshold": 0.7798536867008558,
+          "reproduction_cost": 0.7830284304471071,
+          "intelligence": 0.9746106721964363,
+          "attack": 0.6834135877675276,
+          "defense": 0.7689058160593107,
+          "aggression": 0.4021284480857691
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4993240684878958,
+        "brain_weight_max": 0.49989955256309204
+      },
+      {
+        "id": "g_8d888beb",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          9,
+          1
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 1.0023880429803071,
+          "speed": 0.7035851804202229,
+          "metabolism": 0.7664531813392141,
+          "daily_nutrition_minimum": 0.9758250709128339,
+          "energy_capacity": 0.9873910209693144,
+          "mutation_rate": 0.023489396897440604,
+          "clone_energy_threshold": 0.9353197156446789,
+          "reproduction_cost": 0.799212725708949,
+          "intelligence": 0.8902631691004143,
+          "attack": 0.8025388557593328,
+          "defense": 0.9448943648877617,
+          "aggression": 0.5505005279429199
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49820209332713417,
+        "brain_weight_max": 0.4977871162639056
+      },
+      {
+        "id": "g_e00bd534",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          2,
+          3
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.866936480928719,
+          "speed": 0.7087389665627609,
+          "metabolism": 0.9113277978571228,
+          "daily_nutrition_minimum": 0.9920694651208456,
+          "energy_capacity": 0.9785927980225363,
+          "mutation_rate": 0.21335226194093174,
+          "clone_energy_threshold": 0.9445676286296828,
+          "reproduction_cost": 1.1420474896569017,
+          "intelligence": 0.5138996776899597,
+          "attack": 0.6089950337245966,
+          "defense": 0.8820448818971569,
+          "aggression": 0.20989753812795264
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49983028452166356,
+        "brain_weight_max": 0.4974690995782959
+      },
+      {
+        "id": "g_257c54bc",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          9,
+          5
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.5352442510031208,
+          "speed": 0.610885122309756,
+          "metabolism": 0.5440218551826914,
+          "daily_nutrition_minimum": 0.9518877669142539,
+          "energy_capacity": 0.9884326010426022,
+          "mutation_rate": 0.24626754415150556,
+          "clone_energy_threshold": 0.8376810748941926,
+          "reproduction_cost": 1.1407541574154192,
+          "intelligence": 0.8913832074399397,
+          "attack": 0.9481044228605722,
+          "defense": 1.0390580389719966,
+          "aggression": 0.8612401711496315
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4951681173353286,
+        "brain_weight_max": 0.49872817501185174
+      },
+      {
+        "id": "g_33a315f3",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          7,
+          10
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.8606621490439252,
+          "speed": 0.9642018597191845,
+          "metabolism": 0.9576427336333413,
+          "daily_nutrition_minimum": 0.9734029571715817,
+          "energy_capacity": 1.0138916716431827,
+          "mutation_rate": 0.09662225227001882,
+          "clone_energy_threshold": 0.9089125925007024,
+          "reproduction_cost": 1.4178229575005539,
+          "intelligence": 0.9521145839466733,
+          "attack": 1.0956871828535597,
+          "defense": 0.5332310139348841,
+          "aggression": 0.6477799916945876
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49534854843387377,
+        "brain_weight_max": 0.49601373138465876
+      },
+      {
+        "id": "g_d59ef0fd",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          7,
+          3
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 1.0424531432892614,
+          "speed": 0.6435936519021302,
+          "metabolism": 0.83486453381396,
+          "daily_nutrition_minimum": 0.9658244279249236,
+          "energy_capacity": 1.0025391225331595,
+          "mutation_rate": 0.2488058405338123,
+          "clone_energy_threshold": 0.6946193394058046,
+          "reproduction_cost": 0.8472848531657269,
+          "intelligence": 0.8094488857166343,
+          "attack": 0.8897793501383703,
+          "defense": 0.8601588362731967,
+          "aggression": 0.5171296764044417
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4942494511009461,
+        "brain_weight_max": 0.4984335720532814
+      },
+      {
+        "id": "g_b565f64e",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          4,
+          3
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.749394070785362,
+          "speed": 0.997623686776994,
+          "metabolism": 0.9231475214275782,
+          "daily_nutrition_minimum": 0.9846110745904563,
+          "energy_capacity": 1.0167579202129546,
+          "mutation_rate": 0.19482870636595032,
+          "clone_energy_threshold": 0.6415351274541119,
+          "reproduction_cost": 1.3355484739355579,
+          "intelligence": 0.6525081148550531,
+          "attack": 0.5467905349068287,
+          "defense": 0.7214965438068897,
+          "aggression": 1.0457564954687772
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4991566858935794,
+        "brain_weight_max": 0.49321484699783213
+      },
+      {
+        "id": "g_70c98336",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          9,
+          3
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.9671982638165499,
+          "speed": 0.8385316940827585,
+          "metabolism": 1.026693034157584,
+          "daily_nutrition_minimum": 0.9987919753461285,
+          "energy_capacity": 0.9894423612910882,
+          "mutation_rate": 0.12771168646411502,
+          "clone_energy_threshold": 0.8317445310413301,
+          "reproduction_cost": 1.133666881975171,
+          "intelligence": 0.5308261897388534,
+          "attack": 1.000074789082994,
+          "defense": 0.7266080584699599,
+          "aggression": 0.7517619609571566
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49913235803772715,
+        "brain_weight_max": 0.4989516592825167
+      },
+      {
+        "id": "g_5f71dcc4",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          3,
+          9
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.775136690684516,
+          "speed": 0.5603213068915812,
+          "metabolism": 0.8653194245393565,
+          "daily_nutrition_minimum": 0.9790209870597998,
+          "energy_capacity": 1.0275115861978796,
+          "mutation_rate": 0.13606243297780998,
+          "clone_energy_threshold": 0.7730481057354113,
+          "reproduction_cost": 0.817686590765101,
+          "intelligence": 0.8299017233196815,
+          "attack": 1.0798931632564621,
+          "defense": 0.6786438876963627,
+          "aggression": 0.873950873416234
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.495671071309001,
+        "brain_weight_max": 0.4919455227059578
+      },
+      {
+        "id": "g_ef7cef26",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          11,
+          4
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.8420133081373924,
+          "speed": 0.6412286076348184,
+          "metabolism": 0.9120898660079058,
+          "daily_nutrition_minimum": 0.9833528226177729,
+          "energy_capacity": 0.9629096554020725,
+          "mutation_rate": 0.05787621347245113,
+          "clone_energy_threshold": 0.8331619539909225,
+          "reproduction_cost": 0.8256777941816438,
+          "intelligence": 0.7287913990667468,
+          "attack": 1.2453254265360072,
+          "defense": 0.67308157923661,
+          "aggression": 0.21990458842122582
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4941946392549059,
+        "brain_weight_max": 0.4967394367335324
+      },
+      {
+        "id": "g_e1831003",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          0,
+          6
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.8702048820904704,
+          "speed": 0.8250150235439195,
+          "metabolism": 0.9696228963607374,
+          "daily_nutrition_minimum": 0.9661499632271185,
+          "energy_capacity": 1.0344341553711194,
+          "mutation_rate": 0.10765021492368385,
+          "clone_energy_threshold": 0.5669447330690578,
+          "reproduction_cost": 1.1387214519079034,
+          "intelligence": 0.772566093495559,
+          "attack": 0.887942685330408,
+          "defense": 0.5247748645675733,
+          "aggression": 0.757281292868969
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4980450351693454,
+        "brain_weight_max": 0.4992418687896275
+      },
+      {
+        "id": "g_884c0a55",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          11,
+          3
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.9933554340640925,
+          "speed": 0.6953091945139569,
+          "metabolism": 0.6695783379986336,
+          "daily_nutrition_minimum": 0.9526207628094424,
+          "energy_capacity": 0.9504665732746308,
+          "mutation_rate": 0.19537832685243284,
+          "clone_energy_threshold": 0.9219128311496669,
+          "reproduction_cost": 1.4466154142266126,
+          "intelligence": 0.706054586915791,
+          "attack": 0.6789052423088943,
+          "defense": 0.5520902651484453,
+          "aggression": 0.44276686705158186
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49630292774165385,
+        "brain_weight_max": 0.49840509783475995
+      },
+      {
+        "id": "g_ae11d3c2",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          0,
+          11
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.5719953758856671,
+          "speed": 0.8761332399818207,
+          "metabolism": 0.8192110238687731,
+          "daily_nutrition_minimum": 0.9902535893224639,
+          "energy_capacity": 1.03498097206248,
+          "mutation_rate": 0.1803010075761211,
+          "clone_energy_threshold": 0.751642875075703,
+          "reproduction_cost": 0.8727708509778087,
+          "intelligence": 0.5756585277098123,
+          "attack": 1.0219666444646662,
+          "defense": 0.6659164945141547,
+          "aggression": 0.15206402629803614
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4984214224154453,
+        "brain_weight_max": 0.4994451352598056
+      },
+      {
+        "id": "g_bc3ddbfc",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          5,
+          6
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 1.0256916069343398,
+          "speed": 0.5303966954141497,
+          "metabolism": 1.0348606994866718,
+          "daily_nutrition_minimum": 0.9595095458405893,
+          "energy_capacity": 1.0314533504825039,
+          "mutation_rate": 0.1288062161529558,
+          "clone_energy_threshold": 0.792858419035678,
+          "reproduction_cost": 1.1351157723266914,
+          "intelligence": 0.5412420402544366,
+          "attack": 0.8283087075728613,
+          "defense": 0.7902886693847607,
+          "aggression": 0.5906235197062849
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49946407189867925,
+        "brain_weight_max": 0.4999541911825287
+      },
+      {
+        "id": "g_4580a4ae",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          5,
+          11
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.5968580905048192,
+          "speed": 0.5708689468698913,
+          "metabolism": 0.6506479246377026,
+          "daily_nutrition_minimum": 0.9540854555734756,
+          "energy_capacity": 1.037377588981544,
+          "mutation_rate": 0.11834102369181355,
+          "clone_energy_threshold": 0.7308470233427574,
+          "reproduction_cost": 0.9105786774473883,
+          "intelligence": 0.9911903641573785,
+          "attack": 0.6380587173470245,
+          "defense": 0.530633101185348,
+          "aggression": 0.9397044174129056
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49878957933063095,
+        "brain_weight_max": 0.4970094979583265
+      },
+      {
+        "id": "g_2a1eda7b",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          0,
+          10
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.527429297234786,
+          "speed": 0.6244721224865754,
+          "metabolism": 0.5610955366549556,
+          "daily_nutrition_minimum": 0.9557593953062362,
+          "energy_capacity": 1.0395058460799516,
+          "mutation_rate": 0.148055320858082,
+          "clone_energy_threshold": 0.631321922959507,
+          "reproduction_cost": 1.1490987936092465,
+          "intelligence": 0.6515027126264256,
+          "attack": 1.1619502173003968,
+          "defense": 0.8987219986917026,
+          "aggression": 0.4247873690836391
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4958424426601288,
+        "brain_weight_max": 0.4990481693744472
+      },
+      {
+        "id": "g_bbe277ba",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          0,
+          1
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.8386092609941512,
+          "speed": 0.9517756453443642,
+          "metabolism": 0.6934840027727567,
+          "daily_nutrition_minimum": 0.967156281857388,
+          "energy_capacity": 1.0418068588211555,
+          "mutation_rate": 0.0671608499861361,
+          "clone_energy_threshold": 0.5505949458013446,
+          "reproduction_cost": 0.7575372377063663,
+          "intelligence": 0.7271860160761447,
+          "attack": 1.0644267977494857,
+          "defense": 0.9604089681216559,
+          "aggression": 0.5630284532640207
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49899352723131085,
+        "brain_weight_max": 0.4940870638313377
+      },
+      {
+        "id": "g_d007fd07",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          4,
+          11
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.6433846607938618,
+          "speed": 0.5273166830402509,
+          "metabolism": 0.7670279659368304,
+          "daily_nutrition_minimum": 0.9609474097713238,
+          "energy_capacity": 1.0136266192931864,
+          "mutation_rate": 0.020950848415811026,
+          "clone_energy_threshold": 0.7461999906256523,
+          "reproduction_cost": 0.9159825345827584,
+          "intelligence": 0.9815920866399581,
+          "attack": 0.9020098235804632,
+          "defense": 0.9443446413905421,
+          "aggression": 0.11583140153640262
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4922162548187876,
+        "brain_weight_max": 0.49880609102496953
+      },
+      {
+        "id": "g_8a2e30d6",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          10,
+          5
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.6701004466867067,
+          "speed": 0.8829115559960192,
+          "metabolism": 0.9408192931887236,
+          "daily_nutrition_minimum": 0.9729356759771681,
+          "energy_capacity": 0.9665342081044522,
+          "mutation_rate": 0.01020237027157891,
+          "clone_energy_threshold": 0.5811200552450387,
+          "reproduction_cost": 1.4122160552371392,
+          "intelligence": 0.6657052835012951,
+          "attack": 0.5602814528230222,
+          "defense": 0.6346246421256994,
+          "aggression": 0.21348808078748224
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4967756173672936,
+        "brain_weight_max": 0.49790011287187175
+      },
+      {
+        "id": "g_2775957e",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          5,
+          7
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.5350179146854395,
+          "speed": 0.9515667935183232,
+          "metabolism": 0.787406735245276,
+          "daily_nutrition_minimum": 0.9530432556598379,
+          "energy_capacity": 0.9727586248844419,
+          "mutation_rate": 0.1505625738412389,
+          "clone_energy_threshold": 0.8196987406351065,
+          "reproduction_cost": 1.0982034696169396,
+          "intelligence": 0.7953135045983075,
+          "attack": 1.0860594402127868,
+          "defense": 0.6817492531263023,
+          "aggression": 0.6656009869777207
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49311668613099624,
+        "brain_weight_max": 0.49890988380093726
+      },
+      {
+        "id": "g_71203b7a",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          9,
+          0
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.6267329497749515,
+          "speed": 0.9735817499353545,
+          "metabolism": 0.7919785405823172,
+          "daily_nutrition_minimum": 0.9687236060048452,
+          "energy_capacity": 0.9600138073268509,
+          "mutation_rate": 0.04975252384228826,
+          "clone_energy_threshold": 0.8488719416589845,
+          "reproduction_cost": 1.213638197032311,
+          "intelligence": 0.9637813360382383,
+          "attack": 1.0633281360347902,
+          "defense": 0.5866691157837829,
+          "aggression": 0.9893015872902198
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49950487724134496,
+        "brain_weight_max": 0.499706564107641
+      },
+      {
+        "id": "g_0c858238",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          2,
+          8
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.9061970478266936,
+          "speed": 0.7619922192738235,
+          "metabolism": 0.598059564678446,
+          "daily_nutrition_minimum": 0.968541196242397,
+          "energy_capacity": 1.01991831142062,
+          "mutation_rate": 0.22855890431611506,
+          "clone_energy_threshold": 0.5542579040041459,
+          "reproduction_cost": 1.4624732258862185,
+          "intelligence": 0.9907958423485006,
+          "attack": 1.0343079342710442,
+          "defense": 0.5415891844555714,
+          "aggression": 0.21378864511876525
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49964638743646084,
+        "brain_weight_max": 0.4994388909997407
+      },
+      {
+        "id": "g_03fde24e",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          8,
+          0
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.7217829253896558,
+          "speed": 0.9343411657925307,
+          "metabolism": 0.7554159168056922,
+          "daily_nutrition_minimum": 0.9576342423044454,
+          "energy_capacity": 1.0237859195102395,
+          "mutation_rate": 0.10253539994883026,
+          "clone_energy_threshold": 1.0222987578322282,
+          "reproduction_cost": 1.405021319944963,
+          "intelligence": 0.9335459178253853,
+          "attack": 0.7860930133038878,
+          "defense": 0.9960427881058308,
+          "aggression": 0.15685312427125248
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4965790468252327,
+        "brain_weight_max": 0.4961539315652077
+      },
+      {
+        "id": "g_ca978f1d",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          1,
+          10
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.7749971656188184,
+          "speed": 0.6757484787368786,
+          "metabolism": 0.6406801975171814,
+          "daily_nutrition_minimum": 0.9736798744131531,
+          "energy_capacity": 1.0297831739364232,
+          "mutation_rate": 0.1907003096443724,
+          "clone_energy_threshold": 0.9233830668323022,
+          "reproduction_cost": 1.0670262520495308,
+          "intelligence": 0.8229185945624669,
+          "attack": 1.1604768113292097,
+          "defense": 1.0409997163986902,
+          "aggression": 0.7190905791880479
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49805141243459694,
+        "brain_weight_max": 0.49297975113700876
+      },
+      {
+        "id": "g_f677fb06",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          3,
+          11
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.9133971939853311,
+          "speed": 0.7617352080973614,
+          "metabolism": 0.724223060844783,
+          "daily_nutrition_minimum": 0.9751576274104143,
+          "energy_capacity": 0.9999726698743103,
+          "mutation_rate": 0.20316129392936827,
+          "clone_energy_threshold": 0.6137911568610325,
+          "reproduction_cost": 1.1998486630323226,
+          "intelligence": 0.7021256958176963,
+          "attack": 0.7238316337514827,
+          "defense": 0.8445055797351462,
+          "aggression": 0.43303365410641503
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.499426608628016,
+        "brain_weight_max": 0.4970990811277858
+      },
+      {
+        "id": "g_061cba48",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          8,
+          1
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.7130015807391532,
+          "speed": 0.821263690921928,
+          "metabolism": 0.6095121927185639,
+          "daily_nutrition_minimum": 0.952098231403671,
+          "energy_capacity": 0.9952909418851738,
+          "mutation_rate": 0.010893217750083126,
+          "clone_energy_threshold": 0.6954818037108833,
+          "reproduction_cost": 1.4907467961194751,
+          "intelligence": 1.0136560280240743,
+          "attack": 0.9865376185927108,
+          "defense": 0.736854198927787,
+          "aggression": 0.8793950725928671
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49943301833401255,
+        "brain_weight_max": 0.4936310692912921
+      },
+      {
+        "id": "g_22530aa4",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          11,
+          5
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.7970073447542495,
+          "speed": 0.6435919012544273,
+          "metabolism": 0.7872221883434019,
+          "daily_nutrition_minimum": 0.9883993551420435,
+          "energy_capacity": 0.9650577248452045,
+          "mutation_rate": 0.20784568565469144,
+          "clone_energy_threshold": 0.6589374570234007,
+          "reproduction_cost": 1.2162412225546866,
+          "intelligence": 0.5233529081401415,
+          "attack": 0.7845839437220676,
+          "defense": 0.5230184034188978,
+          "aggression": 0.45642441615967755
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49990708807777084,
+        "brain_weight_max": 0.49814497865733476
+      },
+      {
+        "id": "g_0c81a3cc",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          1,
+          1
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.8565568585215948,
+          "speed": 0.5400522175916826,
+          "metabolism": 0.8464241123467202,
+          "daily_nutrition_minimum": 0.9536581400252271,
+          "energy_capacity": 1.0237730349014647,
+          "mutation_rate": 0.023037648415214225,
+          "clone_energy_threshold": 0.7242850756310663,
+          "reproduction_cost": 0.8828919056592425,
+          "intelligence": 0.8462454798593688,
+          "attack": 0.6469246365419066,
+          "defense": 0.832003589132216,
+          "aggression": 0.46547929923368153
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4990218206754824,
+        "brain_weight_max": 0.49844349216782224
+      },
+      {
+        "id": "g_0ce06819",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          8,
+          9
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.7698461732211694,
+          "speed": 0.7497922329719933,
+          "metabolism": 0.9676881222404418,
+          "daily_nutrition_minimum": 0.9995231523873855,
+          "energy_capacity": 0.9722085516326668,
+          "mutation_rate": 0.11776104610956088,
+          "clone_energy_threshold": 0.8505270055223644,
+          "reproduction_cost": 1.0807978700065655,
+          "intelligence": 1.022201628319677,
+          "attack": 0.982359195574817,
+          "defense": 0.5853316706846138,
+          "aggression": 0.006683651255245399
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49934537411783897,
+        "brain_weight_max": 0.4961108632319713
+      },
+      {
+        "id": "g_eb536282",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          1,
+          2
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 1.0486167512033202,
+          "speed": 0.5328894120330583,
+          "metabolism": 0.9314517307629162,
+          "daily_nutrition_minimum": 0.952114846280039,
+          "energy_capacity": 1.011055840260423,
+          "mutation_rate": 0.13044064766984784,
+          "clone_energy_threshold": 0.9443075669877615,
+          "reproduction_cost": 0.973221646509603,
+          "intelligence": 0.9565720247392604,
+          "attack": 1.1162837473502707,
+          "defense": 1.029678786025705,
+          "aggression": 0.4147502207941722
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4969731098782497,
+        "brain_weight_max": 0.49803953877115337
+      },
+      {
+        "id": "g_a5e5178a",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          9,
+          11
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.9784286808836842,
+          "speed": 0.9227549727263096,
+          "metabolism": 0.5421870832239987,
+          "daily_nutrition_minimum": 0.9569971851797641,
+          "energy_capacity": 0.969354909028235,
+          "mutation_rate": 0.23431714304612616,
+          "clone_energy_threshold": 1.0415990173525898,
+          "reproduction_cost": 0.9640994711020081,
+          "intelligence": 0.7954967989633019,
+          "attack": 1.0740124922421517,
+          "defense": 0.9166541627569184,
+          "aggression": 0.5158161283752374
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4996566958536741,
+        "brain_weight_max": 0.4990481411686253
+      },
+      {
+        "id": "g_e6b31a27",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          1,
+          3
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.625318327996461,
+          "speed": 0.9605686701141196,
+          "metabolism": 0.9387864943538948,
+          "daily_nutrition_minimum": 0.9815310988459912,
+          "energy_capacity": 1.0349809656276667,
+          "mutation_rate": 0.10741412624419538,
+          "clone_energy_threshold": 0.5758448600553399,
+          "reproduction_cost": 0.7855746317515987,
+          "intelligence": 0.6836958730905512,
+          "attack": 0.8341370587216936,
+          "defense": 0.7532700953513147,
+          "aggression": 0.29053522974194823
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49494313405148116,
+        "brain_weight_max": 0.4964558724416116
+      },
+      {
+        "id": "g_72f0b90d",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          6,
+          5
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.8304318231641612,
+          "speed": 0.8413491412262106,
+          "metabolism": 0.6450183437863866,
+          "daily_nutrition_minimum": 0.9600506598352289,
+          "energy_capacity": 0.9838835476376101,
+          "mutation_rate": 0.06746126572017948,
+          "clone_energy_threshold": 0.5736878465569837,
+          "reproduction_cost": 1.4742703174934109,
+          "intelligence": 1.0441281456869351,
+          "attack": 1.2104260258056208,
+          "defense": 1.0552417399440532,
+          "aggression": 0.1959919421628981
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49934996744268534,
+        "brain_weight_max": 0.49602249683866506
+      },
+      {
+        "id": "g_5d5b0bd9",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          0,
+          2
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.810775468384054,
+          "speed": 0.8082293502482454,
+          "metabolism": 1.0295873295919722,
+          "daily_nutrition_minimum": 0.9720689714249514,
+          "energy_capacity": 0.9609909958263724,
+          "mutation_rate": 0.16239753645437832,
+          "clone_energy_threshold": 0.8575406223308397,
+          "reproduction_cost": 0.8530148895605081,
+          "intelligence": 0.8827699904075734,
+          "attack": 0.6670551206232769,
+          "defense": 0.6173565314579074,
+          "aggression": 0.7294575675540403
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4994720607161264,
+        "brain_weight_max": 0.4976962482012648
+      },
+      {
+        "id": "g_2de3153d",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          7,
+          6
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.7394921190954143,
+          "speed": 0.7085781862429732,
+          "metabolism": 0.7747269458717754,
+          "daily_nutrition_minimum": 0.97007316958083,
+          "energy_capacity": 1.0393629498842627,
+          "mutation_rate": 0.03495548682852252,
+          "clone_energy_threshold": 0.820567021968621,
+          "reproduction_cost": 1.1481287236887028,
+          "intelligence": 0.6441791322525562,
+          "attack": 0.9029252998073826,
+          "defense": 0.7219941448889913,
+          "aggression": 1.038262904963452
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49768317077027835,
+        "brain_weight_max": 0.4994017252122709
+      },
+      {
+        "id": "g_0ae689d6",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          10,
+          2
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.5457302371458397,
+          "speed": 0.8937576527470636,
+          "metabolism": 0.8786094614160924,
+          "daily_nutrition_minimum": 0.9619822963422158,
+          "energy_capacity": 1.014430974812184,
+          "mutation_rate": 0.23042660045780305,
+          "clone_energy_threshold": 1.0392216704802282,
+          "reproduction_cost": 1.0703430116344563,
+          "intelligence": 0.5205890117745021,
+          "attack": 0.8558257008308224,
+          "defense": 0.8049202994040097,
+          "aggression": 0.18383670674778
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4994552317538712,
+        "brain_weight_max": 0.4970158733763754
+      },
+      {
+        "id": "g_7adbf90e",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          1,
+          8
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.7538135204405441,
+          "speed": 0.594753279360515,
+          "metabolism": 0.9282807925271541,
+          "daily_nutrition_minimum": 0.9827174247993048,
+          "energy_capacity": 0.9671665177943167,
+          "mutation_rate": 0.03244580526797248,
+          "clone_energy_threshold": 0.612306621278038,
+          "reproduction_cost": 1.3597476950698053,
+          "intelligence": 0.8115043951026428,
+          "attack": 1.0574333044289579,
+          "defense": 0.7693899782316515,
+          "aggression": 0.07934903158128459
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4987775822328857,
+        "brain_weight_max": 0.4978306351660423
+      },
+      {
+        "id": "g_2f85f6a6",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          6,
+          10
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.8895281878918165,
+          "speed": 0.5254788522085374,
+          "metabolism": 0.8362154246060982,
+          "daily_nutrition_minimum": 0.9975530920654135,
+          "energy_capacity": 0.992388394478106,
+          "mutation_rate": 0.2077109532582189,
+          "clone_energy_threshold": 0.6318446056780904,
+          "reproduction_cost": 0.8567082105231292,
+          "intelligence": 0.8924414847157108,
+          "attack": 0.981395022230009,
+          "defense": 0.7879847466161759,
+          "aggression": 0.05551495281478014
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4988714072906092,
+        "brain_weight_max": 0.49997493816922023
+      },
+      {
+        "id": "g_0ffed184",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          8,
+          6
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.8428857770704121,
+          "speed": 0.8133009060710077,
+          "metabolism": 0.7054991115843297,
+          "daily_nutrition_minimum": 0.9726321781884081,
+          "energy_capacity": 0.9500570539427291,
+          "mutation_rate": 0.2161989943017928,
+          "clone_energy_threshold": 0.7391669807265993,
+          "reproduction_cost": 1.3620483968562775,
+          "intelligence": 0.7302827176563518,
+          "attack": 0.8713712785041926,
+          "defense": 0.7071311218255482,
+          "aggression": 0.4334224428147964
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4968597343128053,
+        "brain_weight_max": 0.4995025150393497
+      },
+      {
+        "id": "g_8baf1516",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          6,
+          8
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.6468549851564003,
+          "speed": 0.7124028898482775,
+          "metabolism": 0.7800578287624264,
+          "daily_nutrition_minimum": 0.9605637014012969,
+          "energy_capacity": 0.9896358046554379,
+          "mutation_rate": 0.16470690746313024,
+          "clone_energy_threshold": 0.8662295476797572,
+          "reproduction_cost": 0.7666898769368792,
+          "intelligence": 0.7225033343512696,
+          "attack": 1.0256322815536993,
+          "defense": 1.0059684910305977,
+          "aggression": 0.12625490967477346
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4967870965926341,
+        "brain_weight_max": 0.4980054057131905
+      },
+      {
+        "id": "g_6bae6340",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          9,
+          8
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.8647824969041069,
+          "speed": 0.9829990902728905,
+          "metabolism": 0.5806370145250512,
+          "daily_nutrition_minimum": 0.9666762969767027,
+          "energy_capacity": 1.012201373833575,
+          "mutation_rate": 0.21059802517383452,
+          "clone_energy_threshold": 0.82869112750313,
+          "reproduction_cost": 0.8032369907430539,
+          "intelligence": 0.6090517765551807,
+          "attack": 0.8632094349342001,
+          "defense": 0.6196813036649261,
+          "aggression": 0.0423305191052792
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4992308383296493,
+        "brain_weight_max": 0.4993391951289353
+      },
+      {
+        "id": "g_cf7415e8",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          4,
+          6
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.7570916791019899,
+          "speed": 0.6091719649871887,
+          "metabolism": 1.0165783948562126,
+          "daily_nutrition_minimum": 0.970708373519295,
+          "energy_capacity": 1.0225976567761839,
+          "mutation_rate": 0.1779624228955933,
+          "clone_energy_threshold": 0.5185734519751213,
+          "reproduction_cost": 1.0488193206590175,
+          "intelligence": 1.0107188829355371,
+          "attack": 1.047584942419878,
+          "defense": 0.5161179759170298,
+          "aggression": 0.8427877576283912
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4999145732840097,
+        "brain_weight_max": 0.4978021711720083
+      },
+      {
+        "id": "g_5c8bac02",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          2,
+          1
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.9182338157102119,
+          "speed": 0.982862020269001,
+          "metabolism": 0.5201563613876103,
+          "daily_nutrition_minimum": 0.95592108482386,
+          "energy_capacity": 0.9954681594566527,
+          "mutation_rate": 0.041669240986310356,
+          "clone_energy_threshold": 0.7645761998641094,
+          "reproduction_cost": 0.8600509274163081,
+          "intelligence": 0.8051603196500852,
+          "attack": 0.7907166754078823,
+          "defense": 0.8458163683062447,
+          "aggression": 0.24251615766509538
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49630645289376196,
+        "brain_weight_max": 0.49811154921204304
+      },
+      {
+        "id": "g_a9aa3883",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          7,
+          5
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.6982877574677826,
+          "speed": 0.8109152297373776,
+          "metabolism": 0.9567076200815241,
+          "daily_nutrition_minimum": 0.9678105691093078,
+          "energy_capacity": 1.0334839193332173,
+          "mutation_rate": 0.03210763812293112,
+          "clone_energy_threshold": 0.8785968236450852,
+          "reproduction_cost": 1.4979591093043703,
+          "intelligence": 1.0400100531272503,
+          "attack": 0.8032131420686448,
+          "defense": 0.9640222506190382,
+          "aggression": 0.590856578494726
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49751985838411206,
+        "brain_weight_max": 0.4984335906720301
+      },
+      {
+        "id": "g_c3978273",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          10,
+          10
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.622799958381169,
+          "speed": 0.6927629419491179,
+          "metabolism": 0.9158048066451705,
+          "daily_nutrition_minimum": 0.9748860940267663,
+          "energy_capacity": 1.0412726764077287,
+          "mutation_rate": 0.1641940981931123,
+          "clone_energy_threshold": 1.0324372341015609,
+          "reproduction_cost": 1.2552664372812217,
+          "intelligence": 0.6250394717273304,
+          "attack": 0.9187333653784329,
+          "defense": 0.9406720775051636,
+          "aggression": 0.7010161109507413
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49871117418319333,
+        "brain_weight_max": 0.4999237254708684
+      },
+      {
+        "id": "g_b9b2da97",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          1,
+          9
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.8125425885867756,
+          "speed": 0.9169717134982294,
+          "metabolism": 0.5625485481835739,
+          "daily_nutrition_minimum": 0.9593898609822882,
+          "energy_capacity": 0.9761550967556474,
+          "mutation_rate": 0.09870188372778488,
+          "clone_energy_threshold": 0.9769410982837523,
+          "reproduction_cost": 1.431072579122663,
+          "intelligence": 1.0117906508470471,
+          "attack": 0.7806503142225658,
+          "defense": 0.9701759949494735,
+          "aggression": 1.017579562101505
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49952953095991415,
+        "brain_weight_max": 0.49750090108550393
+      },
+      {
+        "id": "g_e61fc061",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          7,
+          7
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.6779023650122368,
+          "speed": 0.8112434427314296,
+          "metabolism": 0.7641497385179196,
+          "daily_nutrition_minimum": 0.9576146961874642,
+          "energy_capacity": 0.9822716072011973,
+          "mutation_rate": 0.15478278846015786,
+          "clone_energy_threshold": 0.7728030663661662,
+          "reproduction_cost": 0.9722893630616601,
+          "intelligence": 0.8019745425226729,
+          "attack": 0.6409707306631,
+          "defense": 0.8175149071256353,
+          "aggression": 1.0075715976145467
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49932424378544427,
+        "brain_weight_max": 0.49869820034646895
+      },
+      {
+        "id": "g_ec9d7658",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          4,
+          2
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.6544495042891303,
+          "speed": 0.5300532173385846,
+          "metabolism": 0.800020634537767,
+          "daily_nutrition_minimum": 0.957984153981841,
+          "energy_capacity": 0.9502922006685585,
+          "mutation_rate": 0.06640513813868257,
+          "clone_energy_threshold": 0.8616436630546875,
+          "reproduction_cost": 0.8767942303511987,
+          "intelligence": 0.9378518281864021,
+          "attack": 0.6303594654325001,
+          "defense": 0.9394404941320327,
+          "aggression": 0.7772436701270655
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4956372028708509,
+        "brain_weight_max": 0.49681684819655847
+      },
+      {
+        "id": "g_85e17c3c",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          6,
+          9
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.8416112857772204,
+          "speed": 0.6152476548531712,
+          "metabolism": 0.936695296824344,
+          "daily_nutrition_minimum": 0.956340827897356,
+          "energy_capacity": 1.0153705005578146,
+          "mutation_rate": 0.2160788198985987,
+          "clone_energy_threshold": 0.661730860555249,
+          "reproduction_cost": 1.0339100272840254,
+          "intelligence": 0.8703411519357642,
+          "attack": 0.8842904721089444,
+          "defense": 0.6070577805041565,
+          "aggression": 0.43061708622337297
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4991515256698664,
+        "brain_weight_max": 0.49919052222756943
+      },
+      {
+        "id": "g_89eea9ac",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          7,
+          2
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.8414585124537199,
+          "speed": 0.6075660904423779,
+          "metabolism": 0.6130437099811079,
+          "daily_nutrition_minimum": 0.9926907290134954,
+          "energy_capacity": 1.0087596663984204,
+          "mutation_rate": 0.08465175545065427,
+          "clone_energy_threshold": 0.9192125352101523,
+          "reproduction_cost": 1.1789547582624471,
+          "intelligence": 0.801252408626234,
+          "attack": 1.0373575860565305,
+          "defense": 0.5233998250025031,
+          "aggression": 0.05826152147643379
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4999484818233607,
+        "brain_weight_max": 0.49271636299480137
+      },
+      {
+        "id": "g_d1b2205f",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          8,
+          3
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.5550302001381846,
+          "speed": 0.752436217161544,
+          "metabolism": 0.7508466557845546,
+          "daily_nutrition_minimum": 0.968732214857014,
+          "energy_capacity": 0.9568521679588978,
+          "mutation_rate": 0.14742078961894423,
+          "clone_energy_threshold": 0.8783958137224259,
+          "reproduction_cost": 0.9742014990894721,
+          "intelligence": 0.9364059948828103,
+          "attack": 0.9530114891794652,
+          "defense": 0.5941704750303949,
+          "aggression": 0.21630909596229744
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4918933377144197,
+        "brain_weight_max": 0.4879533267493935
+      },
+      {
+        "id": "g_9eb29619",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          6,
+          11
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.5179620835182802,
+          "speed": 0.7054027561110148,
+          "metabolism": 0.7485456868943205,
+          "daily_nutrition_minimum": 0.9528491966028704,
+          "energy_capacity": 1.0073129425223655,
+          "mutation_rate": 0.027691326969092135,
+          "clone_energy_threshold": 0.6395070623646815,
+          "reproduction_cost": 1.44964444655169,
+          "intelligence": 0.7100927628773972,
+          "attack": 0.7474697013938203,
+          "defense": 1.0490105196351664,
+          "aggression": 0.2660385297083419
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49838056781770135,
+        "brain_weight_max": 0.49821436552660014
+      },
+      {
+        "id": "g_9731579e",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          4,
+          7
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.5625068892812592,
+          "speed": 0.7300574115825693,
+          "metabolism": 0.9507757436502986,
+          "daily_nutrition_minimum": 0.9698000976110768,
+          "energy_capacity": 1.0411442667736364,
+          "mutation_rate": 0.07206991879584007,
+          "clone_energy_threshold": 1.028000885072767,
+          "reproduction_cost": 0.9961941116737434,
+          "intelligence": 0.8143678362169275,
+          "attack": 1.0909696315196244,
+          "defense": 1.0009171451372618,
+          "aggression": 0.6658411329169877
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49637354849078463,
+        "brain_weight_max": 0.49491902285602973
+      },
+      {
+        "id": "g_cc145445",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          2,
+          2
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.9793181490930335,
+          "speed": 0.956699898589453,
+          "metabolism": 0.5173613938130257,
+          "daily_nutrition_minimum": 0.9576249790863167,
+          "energy_capacity": 1.0179039957975213,
+          "mutation_rate": 0.1615116278895624,
+          "clone_energy_threshold": 0.9466953234149588,
+          "reproduction_cost": 1.4400650128549164,
+          "intelligence": 0.9333924495938192,
+          "attack": 0.953212084782683,
+          "defense": 0.641665742633012,
+          "aggression": 0.60244083240034
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4992241303756727,
+        "brain_weight_max": 0.4976669154931934
+      },
+      {
+        "id": "g_06461bf3",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          0,
+          9
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.8405756676509267,
+          "speed": 0.7838869540072528,
+          "metabolism": 0.7693382293553941,
+          "daily_nutrition_minimum": 0.9884780940515467,
+          "energy_capacity": 1.022148392688761,
+          "mutation_rate": 0.2428411214058708,
+          "clone_energy_threshold": 0.9381605100943714,
+          "reproduction_cost": 0.8966740217151734,
+          "intelligence": 0.956818085517374,
+          "attack": 1.2325594079989834,
+          "defense": 0.9860475060340415,
+          "aggression": 0.3316394988583245
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49863643517699374,
+        "brain_weight_max": 0.4988788933669822
+      },
+      {
+        "id": "g_f6300953",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          3,
+          10
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.7586449279510383,
+          "speed": 0.5368214517629205,
+          "metabolism": 0.7299531637572219,
+          "daily_nutrition_minimum": 0.9654584058618056,
+          "energy_capacity": 1.043701782027891,
+          "mutation_rate": 0.20031205897411913,
+          "clone_energy_threshold": 0.8099804416354902,
+          "reproduction_cost": 1.3494905092014404,
+          "intelligence": 0.9395574805542481,
+          "attack": 0.5833678046202547,
+          "defense": 0.5912669412153283,
+          "aggression": 0.5785629350088863
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49738595268182806,
+        "brain_weight_max": 0.4960786956761537
+      },
+      {
+        "id": "g_17ded331",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          8,
+          11
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.776895858236838,
+          "speed": 0.8245264873603706,
+          "metabolism": 0.7502478131974053,
+          "daily_nutrition_minimum": 0.9996575398526185,
+          "energy_capacity": 1.002473663882184,
+          "mutation_rate": 0.235769987947888,
+          "clone_energy_threshold": 0.681853584656542,
+          "reproduction_cost": 0.9590855091589843,
+          "intelligence": 0.7819965768001254,
+          "attack": 1.1626082404623874,
+          "defense": 0.93234026736095,
+          "aggression": 1.014799973538032
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.497555540128791,
+        "brain_weight_max": 0.4994569455977532
+      },
+      {
+        "id": "g_1d947769",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          6,
+          6
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.8725848974786157,
+          "speed": 0.6510092869757469,
+          "metabolism": 0.6982549912242652,
+          "daily_nutrition_minimum": 0.9594127953488444,
+          "energy_capacity": 1.0324501593204432,
+          "mutation_rate": 0.03584617497223682,
+          "clone_energy_threshold": 0.8166430721273481,
+          "reproduction_cost": 1.1925669016471152,
+          "intelligence": 0.7822253207470766,
+          "attack": 0.5525777265654941,
+          "defense": 0.6236661549624067,
+          "aggression": 0.33698011385040605
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4967389129753723,
+        "brain_weight_max": 0.4986683336861708
+      },
+      {
+        "id": "g_f587a482",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          9,
+          6
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.8379775961861369,
+          "speed": 0.8329221099833632,
+          "metabolism": 0.7265641063482097,
+          "daily_nutrition_minimum": 0.950976434777827,
+          "energy_capacity": 1.0041142608451676,
+          "mutation_rate": 0.09654058678847167,
+          "clone_energy_threshold": 0.8954084538964419,
+          "reproduction_cost": 0.9024513264148336,
+          "intelligence": 1.0460129497070183,
+          "attack": 1.1217085602009158,
+          "defense": 0.8685547169935088,
+          "aggression": 0.37905746051924616
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49797093504934575,
+        "brain_weight_max": 0.4999888593078554
+      },
+      {
+        "id": "g_670af69a",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          2,
+          9
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.5233228361852906,
+          "speed": 0.9142738964509141,
+          "metabolism": 0.5674427641378401,
+          "daily_nutrition_minimum": 0.9760566896208293,
+          "energy_capacity": 0.9721610897890159,
+          "mutation_rate": 0.0620020038595322,
+          "clone_energy_threshold": 0.5720621806740822,
+          "reproduction_cost": 1.1578560345768025,
+          "intelligence": 0.8930568295964412,
+          "attack": 0.9961307462365889,
+          "defense": 0.5007235924693777,
+          "aggression": 0.8556685919657033
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49930822920270035,
+        "brain_weight_max": 0.4990947022513206
+      },
+      {
+        "id": "g_c4341bc0",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          9,
+          7
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.652145093172938,
+          "speed": 0.7903142047406617,
+          "metabolism": 0.7480079843889565,
+          "daily_nutrition_minimum": 0.9811110624790699,
+          "energy_capacity": 1.0342000295335532,
+          "mutation_rate": 0.12217676167814208,
+          "clone_energy_threshold": 0.5507291880535543,
+          "reproduction_cost": 1.3125039565137109,
+          "intelligence": 0.9104714327552319,
+          "attack": 1.093867583013218,
+          "defense": 0.6724504066927982,
+          "aggression": 0.3092174538716995
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49337125119170877,
+        "brain_weight_max": 0.4964428532592903
+      },
+      {
+        "id": "g_b375c7a2",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          4,
+          8
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.719519750828611,
+          "speed": 0.5474264132331884,
+          "metabolism": 0.620131768014222,
+          "daily_nutrition_minimum": 0.9554893691567242,
+          "energy_capacity": 0.96876032463609,
+          "mutation_rate": 0.12081297323743151,
+          "clone_energy_threshold": 0.7001535373108232,
+          "reproduction_cost": 1.2334558679996972,
+          "intelligence": 0.7865045087856495,
+          "attack": 0.7231968937066577,
+          "defense": 0.8831378762304694,
+          "aggression": 0.7348768496754788
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4986920451990462,
+        "brain_weight_max": 0.4983000147232952
+      },
+      {
+        "id": "g_69461a1f",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          1,
+          0
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.9618802027889182,
+          "speed": 0.7882692507710394,
+          "metabolism": 0.9348688858020435,
+          "daily_nutrition_minimum": 0.9621496616546024,
+          "energy_capacity": 1.027211096621995,
+          "mutation_rate": 0.1612346958662987,
+          "clone_energy_threshold": 0.9845633190503802,
+          "reproduction_cost": 0.852301794660965,
+          "intelligence": 0.7110397671021649,
+          "attack": 0.867984006948979,
+          "defense": 0.6058711251980816,
+          "aggression": 0.055075147285194886
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49562084658450156,
+        "brain_weight_max": 0.4942829530839675
+      },
+      {
+        "id": "g_7c688e1d",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          7,
+          4
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.7126457231672536,
+          "speed": 0.7893444433445285,
+          "metabolism": 0.7583216776210758,
+          "daily_nutrition_minimum": 0.9562097870474471,
+          "energy_capacity": 0.9850667939667369,
+          "mutation_rate": 0.19552510566013429,
+          "clone_energy_threshold": 0.9632943681935933,
+          "reproduction_cost": 1.2087255354978903,
+          "intelligence": 0.5338701023412165,
+          "attack": 0.7849746098298138,
+          "defense": 0.6448784394763252,
+          "aggression": 0.6724326309325277
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49677223274383675,
+        "brain_weight_max": 0.4983425248191604
+      },
+      {
+        "id": "g_cf52b7f4",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          8,
+          7
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 1.0270054614397277,
+          "speed": 0.5626228815641141,
+          "metabolism": 0.5388809958899324,
+          "daily_nutrition_minimum": 0.9773417025560006,
+          "energy_capacity": 0.9511484748213489,
+          "mutation_rate": 0.08808520718566071,
+          "clone_energy_threshold": 0.818340546616328,
+          "reproduction_cost": 0.804719486893457,
+          "intelligence": 0.9296282939818749,
+          "attack": 0.6929035869563648,
+          "defense": 0.659299969462405,
+          "aggression": 0.37694542290120703
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49954493408925515,
+        "brain_weight_max": 0.4990720509019375
+      },
+      {
+        "id": "g_952bc2ce",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          1,
+          4
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.6710196292558153,
+          "speed": 0.515699722554432,
+          "metabolism": 0.939489742780679,
+          "daily_nutrition_minimum": 0.9566783205400606,
+          "energy_capacity": 0.9847337428891364,
+          "mutation_rate": 0.09890514837472772,
+          "clone_energy_threshold": 0.6264944285453291,
+          "reproduction_cost": 1.0108596878750775,
+          "intelligence": 0.5307799080872195,
+          "attack": 0.6546906434875326,
+          "defense": 0.8817079709468894,
+          "aggression": 0.9795981750638061
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49805571089956335,
+        "brain_weight_max": 0.4963116015124248
+      },
+      {
+        "id": "g_820b337c",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          0,
+          4
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.6477672710288028,
+          "speed": 0.9105768274896415,
+          "metabolism": 1.0365455283614948,
+          "daily_nutrition_minimum": 0.9910907177764448,
+          "energy_capacity": 0.9905662315624787,
+          "mutation_rate": 0.16701662335821654,
+          "clone_energy_threshold": 0.5687554279235657,
+          "reproduction_cost": 1.1366870682119055,
+          "intelligence": 0.7385256368871925,
+          "attack": 1.2021583739823039,
+          "defense": 0.6521715273069106,
+          "aggression": 0.9345264324071725
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4997412964143191,
+        "brain_weight_max": 0.49768355021713884
+      },
+      {
+        "id": "g_d0fd6ecc",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          5,
+          3
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.5585329646692276,
+          "speed": 0.8007924032062359,
+          "metabolism": 0.6200646113872175,
+          "daily_nutrition_minimum": 0.9770203511232919,
+          "energy_capacity": 0.9872132995859141,
+          "mutation_rate": 0.019478148843523384,
+          "clone_energy_threshold": 0.5239788675561612,
+          "reproduction_cost": 0.7825405983227065,
+          "intelligence": 0.5329983935958208,
+          "attack": 0.8172467102019473,
+          "defense": 0.8614576805831318,
+          "aggression": 0.14753616794356555
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4950531092947371,
+        "brain_weight_max": 0.4968080417823101
+      },
+      {
+        "id": "g_ee8c3aa6",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          7,
+          9
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.7610402654192194,
+          "speed": 0.5388199490272076,
+          "metabolism": 0.5487935152164739,
+          "daily_nutrition_minimum": 0.9524511928365726,
+          "energy_capacity": 0.9892876999613021,
+          "mutation_rate": 0.13978459540303417,
+          "clone_energy_threshold": 1.0165381941690905,
+          "reproduction_cost": 1.3933554949607694,
+          "intelligence": 0.8117071814059958,
+          "attack": 1.1842693919886749,
+          "defense": 0.817005873629132,
+          "aggression": 0.9997349888459202
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49764149568186,
+        "brain_weight_max": 0.4912636856196525
+      },
+      {
+        "id": "g_d4576b15",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          11,
+          6
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 1.046254774264574,
+          "speed": 0.8378574659734536,
+          "metabolism": 0.8345494935580404,
+          "daily_nutrition_minimum": 0.9741037180182025,
+          "energy_capacity": 1.0205432856437995,
+          "mutation_rate": 0.09009025900547195,
+          "clone_energy_threshold": 0.8382648569075475,
+          "reproduction_cost": 1.0629229493643515,
+          "intelligence": 0.6717611057457518,
+          "attack": 1.0422621151491227,
+          "defense": 0.9262671414428951,
+          "aggression": 0.02285383220520275
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49907856390737027,
+        "brain_weight_max": 0.49764216002985595
+      },
+      {
+        "id": "g_24075c74",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          7,
+          1
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.8319978519509504,
+          "speed": 0.750248675627783,
+          "metabolism": 0.5879854663433679,
+          "daily_nutrition_minimum": 0.9861613946405773,
+          "energy_capacity": 1.04562002681593,
+          "mutation_rate": 0.06711012633027753,
+          "clone_energy_threshold": 0.7765317193769183,
+          "reproduction_cost": 0.8769362284391536,
+          "intelligence": 0.5021877515972716,
+          "attack": 1.0347815160108935,
+          "defense": 0.6869634965722132,
+          "aggression": 0.2903639731292158
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49813282639340073,
+        "brain_weight_max": 0.4997730574995717
+      },
+      {
+        "id": "g_69e55ab5",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          10,
+          3
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.6982919294462805,
+          "speed": 0.6708629927339292,
+          "metabolism": 0.653012619059036,
+          "daily_nutrition_minimum": 0.9921656215709285,
+          "energy_capacity": 1.0112916142971713,
+          "mutation_rate": 0.08639142192382614,
+          "clone_energy_threshold": 0.9936475365714015,
+          "reproduction_cost": 1.4158627405154898,
+          "intelligence": 1.0039858131220196,
+          "attack": 0.5641536466476258,
+          "defense": 0.9365188802186557,
+          "aggression": 0.053724257909262704
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4990236247551417,
+        "brain_weight_max": 0.4988555226869501
+      },
+      {
+        "id": "g_39832fbf",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          11,
+          7
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.8227655992808676,
+          "speed": 0.5588341883057593,
+          "metabolism": 0.9672229000911058,
+          "daily_nutrition_minimum": 0.9879069948800699,
+          "energy_capacity": 1.0123792712698416,
+          "mutation_rate": 0.21348767435674904,
+          "clone_energy_threshold": 0.7798901505907425,
+          "reproduction_cost": 1.4338471571832343,
+          "intelligence": 0.590532689109743,
+          "attack": 0.9330890362446203,
+          "defense": 0.8840490910561754,
+          "aggression": 0.06718037207235865
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49842788880347755,
+        "brain_weight_max": 0.4994078627233596
+      },
+      {
+        "id": "g_4acdd84c",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          0,
+          5
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.7992484131326782,
+          "speed": 0.559285013019984,
+          "metabolism": 0.9102287345180409,
+          "daily_nutrition_minimum": 0.9843914644132972,
+          "energy_capacity": 1.0355240527570242,
+          "mutation_rate": 0.05801862521757254,
+          "clone_energy_threshold": 0.6349700936806248,
+          "reproduction_cost": 1.4133842119818383,
+          "intelligence": 0.519875224940054,
+          "attack": 0.6644358320291698,
+          "defense": 0.6546382948837346,
+          "aggression": 0.8563579151167304
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4995123651274186,
+        "brain_weight_max": 0.4996500392890513
+      },
+      {
+        "id": "g_83d44c94",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          4,
+          4
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.586132204051213,
+          "speed": 0.6248568722403005,
+          "metabolism": 0.9168145552259874,
+          "daily_nutrition_minimum": 0.9922153195499421,
+          "energy_capacity": 0.9787127465574014,
+          "mutation_rate": 0.09632947117040544,
+          "clone_energy_threshold": 0.7651162732092707,
+          "reproduction_cost": 1.269891445350317,
+          "intelligence": 0.908017279089544,
+          "attack": 1.2431193016510367,
+          "defense": 0.7999914290127925,
+          "aggression": 0.18142072622033886
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49843509708961364,
+        "brain_weight_max": 0.4952807652566238
+      },
+      {
+        "id": "g_5a6ae3c6",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          11,
+          1
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.8035977357289045,
+          "speed": 0.5169584004169817,
+          "metabolism": 0.8523967985402938,
+          "daily_nutrition_minimum": 0.9793580495334339,
+          "energy_capacity": 0.9630123076038012,
+          "mutation_rate": 0.12461384538967088,
+          "clone_energy_threshold": 0.723375741249153,
+          "reproduction_cost": 1.418877066508006,
+          "intelligence": 0.842633801884756,
+          "attack": 0.5278533152873784,
+          "defense": 0.8709660352701201,
+          "aggression": 0.3256774744937655
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49990678187200976,
+        "brain_weight_max": 0.4957683198048942
+      },
+      {
+        "id": "g_550026bf",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          11,
+          0
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 1.0049625943221154,
+          "speed": 0.7720772856623259,
+          "metabolism": 0.7968143785078878,
+          "daily_nutrition_minimum": 0.9680435106302396,
+          "energy_capacity": 0.9513610965568599,
+          "mutation_rate": 0.1880041351910856,
+          "clone_energy_threshold": 0.9112223633052823,
+          "reproduction_cost": 1.4769797121995056,
+          "intelligence": 0.839389877539735,
+          "attack": 0.5406587332398393,
+          "defense": 0.6073224550923306,
+          "aggression": 0.4659907518254315
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4975693322343113,
+        "brain_weight_max": 0.4953280102719716
+      },
+      {
+        "id": "g_cb295e3d",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          6,
+          1
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.5405087112013912,
+          "speed": 0.827801392255266,
+          "metabolism": 0.5278986756413996,
+          "daily_nutrition_minimum": 0.9514690527600884,
+          "energy_capacity": 0.9828173251358597,
+          "mutation_rate": 0.0995093648651942,
+          "clone_energy_threshold": 0.9207187367381025,
+          "reproduction_cost": 0.7832634719728682,
+          "intelligence": 0.9776506814589621,
+          "attack": 0.8037542643454632,
+          "defense": 0.828760149843872,
+          "aggression": 1.002412614982832
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49945378540163354,
+        "brain_weight_max": 0.4985658934192849
+      },
+      {
+        "id": "g_2ba7e514",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          10,
+          11
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.5470534905641257,
+          "speed": 0.6842639444869425,
+          "metabolism": 0.655154349214033,
+          "daily_nutrition_minimum": 0.9808851019599193,
+          "energy_capacity": 0.9535781090258802,
+          "mutation_rate": 0.20937370619339749,
+          "clone_energy_threshold": 0.8415006647302534,
+          "reproduction_cost": 1.217239803884504,
+          "intelligence": 0.79602496978931,
+          "attack": 0.8437182110487063,
+          "defense": 0.6845484640102514,
+          "aggression": 0.38871230377938465
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4968865201075202,
+        "brain_weight_max": 0.496863326013962
+      },
+      {
+        "id": "g_f324a058",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          9,
+          9
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.5260543381578395,
+          "speed": 0.6257876795586158,
+          "metabolism": 0.976050594467256,
+          "daily_nutrition_minimum": 0.9891714074028807,
+          "energy_capacity": 0.9822446033639898,
+          "mutation_rate": 0.017031065457821633,
+          "clone_energy_threshold": 0.7718727017777471,
+          "reproduction_cost": 0.760426830949231,
+          "intelligence": 0.8782964889514602,
+          "attack": 1.1530324749117034,
+          "defense": 0.698282059668977,
+          "aggression": 1.0096143004776987
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4999137042766181,
+        "brain_weight_max": 0.49822602419317974
+      },
+      {
+        "id": "g_e99f77d2",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          3,
+          5
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.8760634621011544,
+          "speed": 0.611285226942395,
+          "metabolism": 0.5133631098431526,
+          "daily_nutrition_minimum": 0.9749349969345327,
+          "energy_capacity": 1.0055782310728836,
+          "mutation_rate": 0.21204738921411312,
+          "clone_energy_threshold": 0.616406030169296,
+          "reproduction_cost": 1.1430284967998676,
+          "intelligence": 1.0072904123857311,
+          "attack": 0.9818113508221212,
+          "defense": 0.6906240040245806,
+          "aggression": 0.9680649651810672
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49561694498636644,
+        "brain_weight_max": 0.49778742483312477
+      },
+      {
+        "id": "g_2070ee0a",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          10,
+          1
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.846746268330687,
+          "speed": 0.5712489638945442,
+          "metabolism": 0.9414454181582985,
+          "daily_nutrition_minimum": 0.9900885593222085,
+          "energy_capacity": 1.0285895772601192,
+          "mutation_rate": 0.05116716891296888,
+          "clone_energy_threshold": 0.7905891514069054,
+          "reproduction_cost": 0.9807690642564284,
+          "intelligence": 0.8359432762422521,
+          "attack": 0.9222883527545782,
+          "defense": 1.0060488109689456,
+          "aggression": 0.8627689268283104
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49593290204162066,
+        "brain_weight_max": 0.4968151427132633
+      },
+      {
+        "id": "g_59dd6bf4",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          4,
+          0
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.9907737021217741,
+          "speed": 0.5208335760081404,
+          "metabolism": 0.9718555716671543,
+          "daily_nutrition_minimum": 0.9770526961085334,
+          "energy_capacity": 1.0019391792856474,
+          "mutation_rate": 0.0549236649846688,
+          "clone_energy_threshold": 0.9040691110567334,
+          "reproduction_cost": 1.1411754383185067,
+          "intelligence": 0.9116738188925003,
+          "attack": 0.9324051021930272,
+          "defense": 0.99435577740929,
+          "aggression": 0.7866119006603787
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49993009156779,
+        "brain_weight_max": 0.4989293864245853
+      },
+      {
+        "id": "g_e06c1a0a",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          10,
+          9
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.576448952603539,
+          "speed": 0.6271031133947093,
+          "metabolism": 0.7270572129342954,
+          "daily_nutrition_minimum": 0.9546418011330147,
+          "energy_capacity": 1.0453934898848274,
+          "mutation_rate": 0.1564480507817352,
+          "clone_energy_threshold": 0.8110210428862967,
+          "reproduction_cost": 1.4553089001746087,
+          "intelligence": 0.6435889756520903,
+          "attack": 0.5425148884485144,
+          "defense": 0.7972645254907296,
+          "aggression": 0.27732223231534664
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4978093721350856,
+        "brain_weight_max": 0.49993018605287376
+      },
+      {
+        "id": "g_7123d4f5",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          10,
+          0
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.5270803383339491,
+          "speed": 0.6798668830566286,
+          "metabolism": 0.760984725583178,
+          "daily_nutrition_minimum": 0.9537226500727377,
+          "energy_capacity": 0.9912884701741215,
+          "mutation_rate": 0.1417072545009991,
+          "clone_energy_threshold": 0.8544288443074921,
+          "reproduction_cost": 1.4685319041146627,
+          "intelligence": 0.7283646704447743,
+          "attack": 1.1986170487945804,
+          "defense": 0.6388995226100831,
+          "aggression": 0.2589195698455624
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4991245921304579,
+        "brain_weight_max": 0.49880720143728097
+      },
+      {
+        "id": "g_e7fc49e1",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          3,
+          6
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.9242314353600114,
+          "speed": 0.5265247066742095,
+          "metabolism": 0.7279299158955966,
+          "daily_nutrition_minimum": 0.9532664556108004,
+          "energy_capacity": 0.9713805713339247,
+          "mutation_rate": 0.13831235761687835,
+          "clone_energy_threshold": 0.5346477944401917,
+          "reproduction_cost": 1.237952733065192,
+          "intelligence": 0.9829914789289769,
+          "attack": 0.8651281626210247,
+          "defense": 0.6400625766885921,
+          "aggression": 0.18962830990823068
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4995755561393024,
+        "brain_weight_max": 0.49981700623340264
+      },
+      {
+        "id": "g_36426178",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          3,
+          8
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.8337822218384612,
+          "speed": 0.6554309704442745,
+          "metabolism": 0.8020907883577006,
+          "daily_nutrition_minimum": 0.966784164753344,
+          "energy_capacity": 1.013579657276432,
+          "mutation_rate": 0.08003684218586446,
+          "clone_energy_threshold": 0.6021525888780928,
+          "reproduction_cost": 0.879295859397436,
+          "intelligence": 0.7526512492026526,
+          "attack": 1.1940377003317568,
+          "defense": 0.8068700309267394,
+          "aggression": 0.8763280268618762
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49920902725557414,
+        "brain_weight_max": 0.49916404804607184
+      },
+      {
+        "id": "g_cfad8c4a",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          11,
+          11
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.602978008325163,
+          "speed": 0.8103389391508758,
+          "metabolism": 1.039673657908752,
+          "daily_nutrition_minimum": 0.9642721614929743,
+          "energy_capacity": 0.9983496380436301,
+          "mutation_rate": 0.018920966395143485,
+          "clone_energy_threshold": 0.5744808289051152,
+          "reproduction_cost": 1.4334026575737842,
+          "intelligence": 0.5638490636995727,
+          "attack": 1.0194643533217886,
+          "defense": 0.7240934918141108,
+          "aggression": 0.6834203829683076
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49953786036238246,
+        "brain_weight_max": 0.495592845735206
+      },
+      {
+        "id": "g_c7f6458f",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          5,
+          8
+        ],
+        "heading": 1,
+        "traits": {
+          "vision": 0.8190118660305975,
+          "speed": 0.6814505465907263,
+          "metabolism": 0.706780172050097,
+          "daily_nutrition_minimum": 0.9952552524488684,
+          "energy_capacity": 0.950347611719241,
+          "mutation_rate": 0.05541260778951691,
+          "clone_energy_threshold": 0.8530662712135525,
+          "reproduction_cost": 0.779807459176042,
+          "intelligence": 0.5295645837907577,
+          "attack": 0.6844878842837527,
+          "defense": 1.030037334601318,
+          "aggression": 0.39555363399898585
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49802113536169956,
+        "brain_weight_max": 0.4997608882668285
+      },
+      {
+        "id": "g_e8ef04bd",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          11,
+          2
+        ],
+        "heading": 3,
+        "traits": {
+          "vision": 0.5480895606277191,
+          "speed": 0.9821333774175535,
+          "metabolism": 0.8050722498370534,
+          "daily_nutrition_minimum": 0.9500822773849249,
+          "energy_capacity": 0.9739368584936744,
+          "mutation_rate": 0.016471814052374814,
+          "clone_energy_threshold": 0.8123924381978149,
+          "reproduction_cost": 1.243716770718999,
+          "intelligence": 0.8693851543244447,
+          "attack": 1.2495573487740206,
+          "defense": 0.722915752172215,
+          "aggression": 0.5075775453982581
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4993242416808019,
+        "brain_weight_max": 0.49954254060469305
+      },
+      {
+        "id": "g_6adc0ab0",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          1,
+          7
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.8181098799713107,
+          "speed": 0.719017103439668,
+          "metabolism": 0.6824314016205933,
+          "daily_nutrition_minimum": 0.9942719900086397,
+          "energy_capacity": 0.9994875772786175,
+          "mutation_rate": 0.10545270447382499,
+          "clone_energy_threshold": 0.7773799555895884,
+          "reproduction_cost": 1.2815279217341997,
+          "intelligence": 0.6104879888570584,
+          "attack": 0.9961760452674803,
+          "defense": 0.9372965756320508,
+          "aggression": 0.8968558070446003
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49941349748845054,
+        "brain_weight_max": 0.49743436566778365
+      },
+      {
+        "id": "g_ba829862",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          5,
+          2
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.8782775425778796,
+          "speed": 0.759680931846705,
+          "metabolism": 0.6128887171339075,
+          "daily_nutrition_minimum": 0.9530774978760305,
+          "energy_capacity": 0.9752008948627873,
+          "mutation_rate": 0.12010101249341781,
+          "clone_energy_threshold": 0.803169262727373,
+          "reproduction_cost": 1.3528359487030661,
+          "intelligence": 0.6409897151312234,
+          "attack": 0.5168166610755368,
+          "defense": 0.8377400784117932,
+          "aggression": 0.7259294959643628
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4990278190693457,
+        "brain_weight_max": 0.4975560870810739
+      },
+      {
+        "id": "g_51c583ee",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          7,
+          0
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.7135472692602893,
+          "speed": 0.8141831499096542,
+          "metabolism": 0.870164665180797,
+          "daily_nutrition_minimum": 0.9884027186710144,
+          "energy_capacity": 0.9835806316996166,
+          "mutation_rate": 0.13984194490880353,
+          "clone_energy_threshold": 0.6393801502875368,
+          "reproduction_cost": 1.2520814725267004,
+          "intelligence": 0.5696332325755167,
+          "attack": 0.7976900539363455,
+          "defense": 0.8308129559231671,
+          "aggression": 0.27760643307715355
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4989302126878874,
+        "brain_weight_max": 0.49827762495444683
+      },
+      {
+        "id": "g_cce5dc31",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          10,
+          8
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 1.0197573840223328,
+          "speed": 0.5831873242692902,
+          "metabolism": 0.6664813973699794,
+          "daily_nutrition_minimum": 0.9742382320764706,
+          "energy_capacity": 0.9910167020145881,
+          "mutation_rate": 0.14714655214056904,
+          "clone_energy_threshold": 0.5774081172729713,
+          "reproduction_cost": 1.2555319824094848,
+          "intelligence": 0.5179331367383367,
+          "attack": 1.1922839835625356,
+          "defense": 0.575782318075588,
+          "aggression": 0.993921623954301
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49546958701348054,
+        "brain_weight_max": 0.4999944223516961
+      },
+      {
+        "id": "g_b0105e4e",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          6,
+          3
+        ],
+        "heading": 0,
+        "traits": {
+          "vision": 0.574067138459785,
+          "speed": 0.5513393086290901,
+          "metabolism": 0.8584455441581853,
+          "daily_nutrition_minimum": 0.9728131723881532,
+          "energy_capacity": 1.0115343061181126,
+          "mutation_rate": 0.023116317034866513,
+          "clone_energy_threshold": 0.6894178414907675,
+          "reproduction_cost": 0.9383557182636866,
+          "intelligence": 0.9932868059345721,
+          "attack": 0.9477497782830488,
+          "defense": 1.0678608310362838,
+          "aggression": 0.25315749051332004
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.49959128601070013,
+        "brain_weight_max": 0.49921752043175716
+      },
+      {
+        "id": "g_2d0ad224",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          3,
+          2
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.9159957623695013,
+          "speed": 0.6226194571280317,
+          "metabolism": 0.8980618062092547,
+          "daily_nutrition_minimum": 0.9521913646284439,
+          "energy_capacity": 1.0353680820021114,
+          "mutation_rate": 0.035169472527184796,
+          "clone_energy_threshold": 0.6489746204835003,
+          "reproduction_cost": 1.443011818113225,
+          "intelligence": 0.7073369528947225,
+          "attack": 1.1893016864844952,
+          "defense": 1.0579261746322177,
+          "aggression": 0.9260042820982783
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4999417896648942,
+        "brain_weight_max": 0.49355364857017003
+      },
+      {
+        "id": "g_21f110f3",
+        "energy": 100.0,
+        "age": 0,
+        "pos": [
+          7,
+          8
+        ],
+        "heading": 2,
+        "traits": {
+          "vision": 0.765284902520964,
+          "speed": 0.8228530463348706,
+          "metabolism": 0.853380713682447,
+          "daily_nutrition_minimum": 0.9808454739277856,
+          "energy_capacity": 0.9654302682460552,
+          "mutation_rate": 0.09068886191441741,
+          "clone_energy_threshold": 0.6189989867918748,
+          "reproduction_cost": 1.4248087691450562,
+          "intelligence": 0.5111497356172957,
+          "attack": 0.5063331968552827,
+          "defense": 0.5837303223093351,
+          "aggression": 0.8366352118836681
+        },
+        "brain_weight_count": 488,
+        "brain_weight_min": -0.4993569736854886,
+        "brain_weight_max": 0.499408611152372
+      }
+    ],
+    "grid": [
+      {
+        "pos": [
+          0,
+          0
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9263388220258406,
+        "visibility": 0.2699019772628977
+      },
+      {
+        "pos": [
+          0,
+          1
+        ],
+        "food_units": 3,
+        "fertility": 0.45232322608675374,
+        "movement_speed": 0.9362353701508042,
+        "visibility": 0.4153304665305225
+      },
+      {
+        "pos": [
+          0,
+          2
+        ],
+        "food_units": 3,
+        "fertility": 0.681956893064069,
+        "movement_speed": 0.8016246899195153,
+        "visibility": 0.8543644388746059
+      },
+      {
+        "pos": [
+          0,
+          3
+        ],
+        "food_units": 2,
+        "fertility": 0.17251433966655946,
+        "movement_speed": 0.8388698749529454,
+        "visibility": 0.9679098041550859
+      },
+      {
+        "pos": [
+          0,
+          4
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.824179094208366,
+        "visibility": 0.8856207747605949
+      },
+      {
+        "pos": [
+          0,
+          5
+        ],
+        "food_units": 2,
+        "fertility": 0.1352923149447485,
+        "movement_speed": 0.9824329466734545,
+        "visibility": 0.6521710685910256
+      },
+      {
+        "pos": [
+          0,
+          6
+        ],
+        "food_units": 2,
+        "fertility": 0.9279899109582517,
+        "movement_speed": 1.0073511660632488,
+        "visibility": 0.7138898142731845
+      },
+      {
+        "pos": [
+          0,
+          7
+        ],
+        "food_units": 2,
+        "fertility": 1.576502217850605,
+        "movement_speed": 0.8173887872059353,
+        "visibility": 0.7459474889257827
+      },
+      {
+        "pos": [
+          0,
+          8
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8581977215902576,
+        "visibility": 0.3257510720572968
+      },
+      {
+        "pos": [
+          0,
+          9
+        ],
+        "food_units": 1,
+        "fertility": 1.0755785272605325,
+        "movement_speed": 0.8912080447425211,
+        "visibility": 0.527635725337662
+      },
+      {
+        "pos": [
+          0,
+          10
+        ],
+        "food_units": 3,
+        "fertility": 1.0196154782333258,
+        "movement_speed": 1.0341636469281235,
+        "visibility": 0.7360265389349452
+      },
+      {
+        "pos": [
+          0,
+          11
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9822816994875874,
+        "visibility": 0.3725518703214463
+      },
+      {
+        "pos": [
+          1,
+          0
+        ],
+        "food_units": 3,
+        "fertility": 0.5256095477203617,
+        "movement_speed": 0.9599999399635233,
+        "visibility": 0.6677123078309847
+      },
+      {
+        "pos": [
+          1,
+          1
+        ],
+        "food_units": 1,
+        "fertility": 1.290022823226231,
+        "movement_speed": 0.9939999778865612,
+        "visibility": 0.4217860539730783
+      },
+      {
+        "pos": [
+          1,
+          2
+        ],
+        "food_units": 3,
+        "fertility": 1.4034245260915437,
+        "movement_speed": 0.8669352189939257,
+        "visibility": 0.4082371326897448
+      },
+      {
+        "pos": [
+          1,
+          3
+        ],
+        "food_units": 3,
+        "fertility": 0.7395744456139641,
+        "movement_speed": 0.8531566360135352,
+        "visibility": 0.624423444619208
+      },
+      {
+        "pos": [
+          1,
+          4
+        ],
+        "food_units": 3,
+        "fertility": 0.4277591575514671,
+        "movement_speed": 0.8349075798813766,
+        "visibility": 0.808741736568705
+      },
+      {
+        "pos": [
+          1,
+          5
+        ],
+        "food_units": 2,
+        "fertility": 0.3587200070600805,
+        "movement_speed": 0.9071084568236449,
+        "visibility": 0.6876496937092422
+      },
+      {
+        "pos": [
+          1,
+          6
+        ],
+        "food_units": 1,
+        "fertility": 1.3791536263699986,
+        "movement_speed": 0.834582936222714,
+        "visibility": 0.6201368761672232
+      },
+      {
+        "pos": [
+          1,
+          7
+        ],
+        "food_units": 2,
+        "fertility": 0.9582903588638384,
+        "movement_speed": 0.9568615104257725,
+        "visibility": 0.8440595232722231
+      },
+      {
+        "pos": [
+          1,
+          8
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8954048216266343,
+        "visibility": 0.9970910351800726
+      },
+      {
+        "pos": [
+          1,
+          9
+        ],
+        "food_units": 3,
+        "fertility": 0.19213727134406178,
+        "movement_speed": 1.0151949255586246,
+        "visibility": 0.2586107664571147
+      },
+      {
+        "pos": [
+          1,
+          10
+        ],
+        "food_units": 3,
+        "fertility": 0.5508790021193619,
+        "movement_speed": 0.9342425826021988,
+        "visibility": 0.45011889246440706
+      },
+      {
+        "pos": [
+          1,
+          11
+        ],
+        "food_units": 3,
+        "fertility": 1.4026061752013286,
+        "movement_speed": 0.9086913126672763,
+        "visibility": 0.5902927797469049
+      },
+      {
+        "pos": [
+          2,
+          0
+        ],
+        "food_units": 3,
+        "fertility": 1.4610782645582647,
+        "movement_speed": 1.0429720247175287,
+        "visibility": 0.8214716492890485
+      },
+      {
+        "pos": [
+          2,
+          1
+        ],
+        "food_units": 3,
+        "fertility": 0.9782626361866941,
+        "movement_speed": 0.9563250483916044,
+        "visibility": 0.8812520111293503
+      },
+      {
+        "pos": [
+          2,
+          2
+        ],
+        "food_units": 3,
+        "fertility": 1.4704046560891666,
+        "movement_speed": 0.893478463147787,
+        "visibility": 0.37116177681486506
+      },
+      {
+        "pos": [
+          2,
+          3
+        ],
+        "food_units": 2,
+        "fertility": 1.407167785738863,
+        "movement_speed": 0.8810390142511684,
+        "visibility": 0.2646075567893742
+      },
+      {
+        "pos": [
+          2,
+          4
+        ],
+        "food_units": 1,
+        "fertility": 1.4060352627344246,
+        "movement_speed": 1.0016937011992821,
+        "visibility": 0.4295892327535441
+      },
+      {
+        "pos": [
+          2,
+          5
+        ],
+        "food_units": 1,
+        "fertility": 1.5649953449469614,
+        "movement_speed": 0.8196892620728415,
+        "visibility": 0.7989306961334708
+      },
+      {
+        "pos": [
+          2,
+          6
+        ],
+        "food_units": 2,
+        "fertility": 1.5154894007309356,
+        "movement_speed": 0.991458607326747,
+        "visibility": 0.3462935983748221
+      },
+      {
+        "pos": [
+          2,
+          7
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8662641572350148,
+        "visibility": 0.9043247808139431
+      },
+      {
+        "pos": [
+          2,
+          8
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9348240221948646,
+        "visibility": 0.7974483018174822
+      },
+      {
+        "pos": [
+          2,
+          9
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 1.0487873391652238,
+        "visibility": 0.7374085432295902
+      },
+      {
+        "pos": [
+          2,
+          10
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8302510489670665,
+        "visibility": 0.41852300277366805
+      },
+      {
+        "pos": [
+          2,
+          11
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8575286831491443,
+        "visibility": 0.41516303833866963
+      },
+      {
+        "pos": [
+          3,
+          0
+        ],
+        "food_units": 2,
+        "fertility": 0.12266318632295897,
+        "movement_speed": 0.8572354459527887,
+        "visibility": 0.9290650097545959
+      },
+      {
+        "pos": [
+          3,
+          1
+        ],
+        "food_units": 3,
+        "fertility": 0.22037583947278977,
+        "movement_speed": 0.8696193159911367,
+        "visibility": 0.614060874362868
+      },
+      {
+        "pos": [
+          3,
+          2
+        ],
+        "food_units": 1,
+        "fertility": 1.2575448846222979,
+        "movement_speed": 1.0205957687851845,
+        "visibility": 0.6821587372906749
+      },
+      {
+        "pos": [
+          3,
+          3
+        ],
+        "food_units": 3,
+        "fertility": 0.6953713800261403,
+        "movement_speed": 0.9017649903714842,
+        "visibility": 0.32074434736891166
+      },
+      {
+        "pos": [
+          3,
+          4
+        ],
+        "food_units": 1,
+        "fertility": 1.0806496301963495,
+        "movement_speed": 0.9027755690124346,
+        "visibility": 0.8978775612772024
+      },
+      {
+        "pos": [
+          3,
+          5
+        ],
+        "food_units": 3,
+        "fertility": 0.5494911425779915,
+        "movement_speed": 0.9615449378237462,
+        "visibility": 0.29545950555776024
+      },
+      {
+        "pos": [
+          3,
+          6
+        ],
+        "food_units": 3,
+        "fertility": 0.7232955410546797,
+        "movement_speed": 0.827317258061201,
+        "visibility": 0.3936925541062405
+      },
+      {
+        "pos": [
+          3,
+          7
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8458720089468084,
+        "visibility": 0.5969710513007256
+      },
+      {
+        "pos": [
+          3,
+          8
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 1.0139917231170932,
+        "visibility": 0.3234315461512003
+      },
+      {
+        "pos": [
+          3,
+          9
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8036894641239127,
+        "visibility": 0.3199470821378769
+      },
+      {
+        "pos": [
+          3,
+          10
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9203396044927599,
+        "visibility": 0.8984877955226616
+      },
+      {
+        "pos": [
+          3,
+          11
+        ],
+        "food_units": 2,
+        "fertility": 0.4635462740256033,
+        "movement_speed": 1.0463272109449315,
+        "visibility": 0.44890229362911394
+      },
+      {
+        "pos": [
+          4,
+          0
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 1.0393294102149184,
+        "visibility": 0.9965670171195353
+      },
+      {
+        "pos": [
+          4,
+          1
+        ],
+        "food_units": 1,
+        "fertility": 0.9308966623978474,
+        "movement_speed": 0.8386992063185161,
+        "visibility": 0.4725308691209231
+      },
+      {
+        "pos": [
+          4,
+          2
+        ],
+        "food_units": 1,
+        "fertility": 0.9388423751897643,
+        "movement_speed": 0.815239392869129,
+        "visibility": 0.48520360732729695
+      },
+      {
+        "pos": [
+          4,
+          3
+        ],
+        "food_units": 1,
+        "fertility": 1.537638456206376,
+        "movement_speed": 1.0298467827080189,
+        "visibility": 0.648344601452906
+      },
+      {
+        "pos": [
+          4,
+          4
+        ],
+        "food_units": 1,
+        "fertility": 1.0835879602305034,
+        "movement_speed": 1.0128356363360305,
+        "visibility": 0.30139099952784426
+      },
+      {
+        "pos": [
+          4,
+          5
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9009438878295695,
+        "visibility": 0.9561970954218171
+      },
+      {
+        "pos": [
+          4,
+          6
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8099354155722661,
+        "visibility": 0.3114875541211566
+      },
+      {
+        "pos": [
+          4,
+          7
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8790924614941819,
+        "visibility": 0.4455742717027246
+      },
+      {
+        "pos": [
+          4,
+          8
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8664036281328384,
+        "visibility": 0.3481587115955923
+      },
+      {
+        "pos": [
+          4,
+          9
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 1.0322545829263785,
+        "visibility": 0.9518007155836175
+      },
+      {
+        "pos": [
+          4,
+          10
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9407484114097365,
+        "visibility": 0.32498593669344134
+      },
+      {
+        "pos": [
+          4,
+          11
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8331141425916169,
+        "visibility": 0.5117566262233864
+      },
+      {
+        "pos": [
+          5,
+          0
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8712468478041642,
+        "visibility": 0.5786384297557824
+      },
+      {
+        "pos": [
+          5,
+          1
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 1.0459633275628706,
+        "visibility": 0.8553249574488567
+      },
+      {
+        "pos": [
+          5,
+          2
+        ],
+        "food_units": 1,
+        "fertility": 1.5028987062440953,
+        "movement_speed": 0.9386505706224195,
+        "visibility": 0.948817029577058
+      },
+      {
+        "pos": [
+          5,
+          3
+        ],
+        "food_units": 3,
+        "fertility": 0.8896255890068573,
+        "movement_speed": 0.866116480371782,
+        "visibility": 0.9172845302542818
+      },
+      {
+        "pos": [
+          5,
+          4
+        ],
+        "food_units": 2,
+        "fertility": 0.3337197266006502,
+        "movement_speed": 0.8704390678644736,
+        "visibility": 0.4079722411052073
+      },
+      {
+        "pos": [
+          5,
+          5
+        ],
+        "food_units": 2,
+        "fertility": 1.449485020816124,
+        "movement_speed": 1.0132282038479743,
+        "visibility": 0.6290567935734904
+      },
+      {
+        "pos": [
+          5,
+          6
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8126997234156327,
+        "visibility": 0.7257133354818956
+      },
+      {
+        "pos": [
+          5,
+          7
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9927798057549069,
+        "visibility": 0.7278350329760347
+      },
+      {
+        "pos": [
+          5,
+          8
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9379201052815979,
+        "visibility": 0.5707651892355095
+      },
+      {
+        "pos": [
+          5,
+          9
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 1.0207765983250359,
+        "visibility": 0.9279464286699198
+      },
+      {
+        "pos": [
+          5,
+          10
+        ],
+        "food_units": 1,
+        "fertility": 0.07650788448848396,
+        "movement_speed": 0.9456273916224486,
+        "visibility": 0.361070339175612
+      },
+      {
+        "pos": [
+          5,
+          11
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 1.0247453721856474,
+        "visibility": 0.8470917286660313
+      },
+      {
+        "pos": [
+          6,
+          0
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9705166720776441,
+        "visibility": 0.7502000579766572
+      },
+      {
+        "pos": [
+          6,
+          1
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 1.018678180885273,
+        "visibility": 0.9803777669779667
+      },
+      {
+        "pos": [
+          6,
+          2
+        ],
+        "food_units": 1,
+        "fertility": 1.4114517654146859,
+        "movement_speed": 0.8591843330573397,
+        "visibility": 0.371876325325329
+      },
+      {
+        "pos": [
+          6,
+          3
+        ],
+        "food_units": 2,
+        "fertility": 1.285553870910051,
+        "movement_speed": 0.8448401658545518,
+        "visibility": 0.9433654714311592
+      },
+      {
+        "pos": [
+          6,
+          4
+        ],
+        "food_units": 1,
+        "fertility": 1.2619254695253992,
+        "movement_speed": 0.983764384706969,
+        "visibility": 0.43612543083805055
+      },
+      {
+        "pos": [
+          6,
+          5
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8956354306492336,
+        "visibility": 0.27904345574933986
+      },
+      {
+        "pos": [
+          6,
+          6
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 1.0296129753073737,
+        "visibility": 0.512243818334439
+      },
+      {
+        "pos": [
+          6,
+          7
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8482824470819272,
+        "visibility": 0.4961964633982799
+      },
+      {
+        "pos": [
+          6,
+          8
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8877865322706882,
+        "visibility": 0.6320542566460281
+      },
+      {
+        "pos": [
+          6,
+          9
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8827874670536018,
+        "visibility": 0.27070040133972695
+      },
+      {
+        "pos": [
+          6,
+          10
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 1.0458876432207718,
+        "visibility": 0.278692898014947
+      },
+      {
+        "pos": [
+          6,
+          11
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9966070445509205,
+        "visibility": 0.5772954129029559
+      },
+      {
+        "pos": [
+          7,
+          0
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9441470108741499,
+        "visibility": 0.4410418796039365
+      },
+      {
+        "pos": [
+          7,
+          1
+        ],
+        "food_units": 3,
+        "fertility": 1.50501836143211,
+        "movement_speed": 1.0313937913747706,
+        "visibility": 0.653838997819594
+      },
+      {
+        "pos": [
+          7,
+          2
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9676571261082499,
+        "visibility": 0.5231661038359481
+      },
+      {
+        "pos": [
+          7,
+          3
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8825500090106492,
+        "visibility": 0.4854367337937697
+      },
+      {
+        "pos": [
+          7,
+          4
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9267806260088174,
+        "visibility": 0.7501696780792972
+      },
+      {
+        "pos": [
+          7,
+          5
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9386031194166985,
+        "visibility": 0.3938800697426106
+      },
+      {
+        "pos": [
+          7,
+          6
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9870336400397226,
+        "visibility": 0.38052050740745796
+      },
+      {
+        "pos": [
+          7,
+          7
+        ],
+        "food_units": 1,
+        "fertility": 0.693522158483837,
+        "movement_speed": 1.0084312923260144,
+        "visibility": 0.47790621195126537
+      },
+      {
+        "pos": [
+          7,
+          8
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9516653926199408,
+        "visibility": 0.49168692230240363
+      },
+      {
+        "pos": [
+          7,
+          9
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9277934992186468,
+        "visibility": 0.8453015493295015
+      },
+      {
+        "pos": [
+          7,
+          10
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.870946601248257,
+        "visibility": 0.7478903772287491
+      },
+      {
+        "pos": [
+          7,
+          11
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 1.0379999156131188,
+        "visibility": 0.426151448895013
+      },
+      {
+        "pos": [
+          8,
+          0
+        ],
+        "food_units": 2,
+        "fertility": 0.9819256171664814,
+        "movement_speed": 0.8368384905614432,
+        "visibility": 0.2846602885695688
+      },
+      {
+        "pos": [
+          8,
+          1
+        ],
+        "food_units": 3,
+        "fertility": 0.9253167300608159,
+        "movement_speed": 0.8182070572961423,
+        "visibility": 0.5608307582482895
+      },
+      {
+        "pos": [
+          8,
+          2
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9740885626226263,
+        "visibility": 0.6207828767578277
+      },
+      {
+        "pos": [
+          8,
+          3
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8013862045345079,
+        "visibility": 0.8132233574638547
+      },
+      {
+        "pos": [
+          8,
+          4
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8439716704266329,
+        "visibility": 0.9684745317096548
+      },
+      {
+        "pos": [
+          8,
+          5
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8622995699149929,
+        "visibility": 0.8862522605137448
+      },
+      {
+        "pos": [
+          8,
+          6
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9668944331465883,
+        "visibility": 0.990919339799836
+      },
+      {
+        "pos": [
+          8,
+          7
+        ],
+        "food_units": 3,
+        "fertility": 1.428312271182219,
+        "movement_speed": 1.0228564814526093,
+        "visibility": 0.7094892420713221
+      },
+      {
+        "pos": [
+          8,
+          8
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 1.0076422924303539,
+        "visibility": 0.6609039629581213
+      },
+      {
+        "pos": [
+          8,
+          9
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.912517439311727,
+        "visibility": 0.8138325898753836
+      },
+      {
+        "pos": [
+          8,
+          10
+        ],
+        "food_units": 2,
+        "fertility": 0.7093974232911954,
+        "movement_speed": 0.9303249532069956,
+        "visibility": 0.7200613277363359
+      },
+      {
+        "pos": [
+          8,
+          11
+        ],
+        "food_units": 2,
+        "fertility": 1.4299126641366038,
+        "movement_speed": 0.8714320377157881,
+        "visibility": 0.45378633031163845
+      },
+      {
+        "pos": [
+          9,
+          0
+        ],
+        "food_units": 3,
+        "fertility": 0.2529603738576653,
+        "movement_speed": 0.8345935153790389,
+        "visibility": 0.42344610979614006
+      },
+      {
+        "pos": [
+          9,
+          1
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8160572126784695,
+        "visibility": 0.5556995272499401
+      },
+      {
+        "pos": [
+          9,
+          2
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8517085973786026,
+        "visibility": 0.5651076383300693
+      },
+      {
+        "pos": [
+          9,
+          3
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 1.0141830080759835,
+        "visibility": 0.8241959320885521
+      },
+      {
+        "pos": [
+          9,
+          4
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8879397006679562,
+        "visibility": 0.8151063437945394
+      },
+      {
+        "pos": [
+          9,
+          5
+        ],
+        "food_units": 1,
+        "fertility": 0.7862848693048983,
+        "movement_speed": 0.9365330774334598,
+        "visibility": 0.702439441705931
+      },
+      {
+        "pos": [
+          9,
+          6
+        ],
+        "food_units": 2,
+        "fertility": 1.0735090567904382,
+        "movement_speed": 0.9089589940116591,
+        "visibility": 0.27176861496003646
+      },
+      {
+        "pos": [
+          9,
+          7
+        ],
+        "food_units": 2,
+        "fertility": 1.4720711768636718,
+        "movement_speed": 0.9010791672844093,
+        "visibility": 0.3737835484026316
+      },
+      {
+        "pos": [
+          9,
+          8
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.9555642402435163,
+        "visibility": 0.2702248389288533
+      },
+      {
+        "pos": [
+          9,
+          9
+        ],
+        "food_units": 1,
+        "fertility": 1.3882936553962568,
+        "movement_speed": 0.8067755115850781,
+        "visibility": 0.7320622360070018
+      },
+      {
+        "pos": [
+          9,
+          10
+        ],
+        "food_units": 1,
+        "fertility": 0.7329719267762066,
+        "movement_speed": 0.8125711583721569,
+        "visibility": 0.5343278981411047
+      },
+      {
+        "pos": [
+          9,
+          11
+        ],
+        "food_units": 2,
+        "fertility": 0.41111173553398517,
+        "movement_speed": 0.9903074269735068,
+        "visibility": 0.5343446616731022
+      },
+      {
+        "pos": [
+          10,
+          0
+        ],
+        "food_units": 1,
+        "fertility": 1.5998534473296429,
+        "movement_speed": 0.9175767090532618,
+        "visibility": 0.811768195812138
+      },
+      {
+        "pos": [
+          10,
+          1
+        ],
+        "food_units": 3,
+        "fertility": 0.07401043868981884,
+        "movement_speed": 0.8560555414299371,
+        "visibility": 0.30146377783957706
+      },
+      {
+        "pos": [
+          10,
+          2
+        ],
+        "food_units": 1,
+        "fertility": 0.9979236939719911,
+        "movement_speed": 1.0374029331789973,
+        "visibility": 0.3995205117718997
+      },
+      {
+        "pos": [
+          10,
+          3
+        ],
+        "food_units": 0,
+        "fertility": 0.0,
+        "movement_speed": 0.8315552437185516,
+        "visibility": 0.752094133464933
+      },
+      {
+        "pos": [
+          10,
+          4
+        ],
+        "food_units": 1,
+        "fertility": 0.973369381170895,
+        "movement_speed": 0.9748662428115378,
+        "visibility": 0.8251735737671806
+      },
+      {
+        "pos": [
+          10,
+          5
+        ],
+        "food_units": 1,
+        "fertility": 1.5439060291241995,
+        "movement_speed": 0.9869814129888215,
+        "visibility": 0.3358996535341733
+      },
+      {
+        "pos": [
+          10,
+          6
+        ],
+        "food_units": 3,
+        "fertility": 1.08698218609215,
+        "movement_speed": 0.9446711831273109,
+        "visibility": 0.9466653763053412
+      },
+      {
+        "pos": [
+          10,
+          7
+        ],
+        "food_units": 1,
+        "fertility": 0.13083439977046535,
+        "movement_speed": 0.8938267398563297,
+        "visibility": 0.9561029489059822
+      },
+      {
+        "pos": [
+          10,
+          8
+        ],
+        "food_units": 3,
+        "fertility": 1.2382446070724462,
+        "movement_speed": 1.0076429084450798,
+        "visibility": 0.4321370354028491
+      },
+      {
+        "pos": [
+          10,
+          9
+        ],
+        "food_units": 3,
+        "fertility": 1.2543902007140213,
+        "movement_speed": 0.9710647597916641,
+        "visibility": 0.8541459727346248
+      },
+      {
+        "pos": [
+          10,
+          10
+        ],
+        "food_units": 1,
+        "fertility": 0.8144776555865539,
+        "movement_speed": 0.9331863113276251,
+        "visibility": 0.7461410055155169
+      },
+      {
+        "pos": [
+          10,
+          11
+        ],
+        "food_units": 2,
+        "fertility": 0.17780680432395776,
+        "movement_speed": 0.8031630375414633,
+        "visibility": 0.5650440556313707
+      },
+      {
+        "pos": [
+          11,
+          0
+        ],
+        "food_units": 2,
+        "fertility": 1.1346207434926623,
+        "movement_speed": 0.890547009623768,
+        "visibility": 0.9186812611038273
+      },
+      {
+        "pos": [
+          11,
+          1
+        ],
+        "food_units": 3,
+        "fertility": 0.43943101025596737,
+        "movement_speed": 0.8440342402715149,
+        "visibility": 0.6413100602038599
+      },
+      {
+        "pos": [
+          11,
+          2
+        ],
+        "food_units": 2,
+        "fertility": 0.702563443876192,
+        "movement_speed": 1.0299044142256917,
+        "visibility": 0.830981087778681
+      },
+      {
+        "pos": [
+          11,
+          3
+        ],
+        "food_units": 1,
+        "fertility": 1.3308623200360594,
+        "movement_speed": 0.9481186547659255,
+        "visibility": 0.49172843723583864
+      },
+      {
+        "pos": [
+          11,
+          4
+        ],
+        "food_units": 2,
+        "fertility": 0.9160609350385324,
+        "movement_speed": 0.8697320622981176,
+        "visibility": 0.5881015001453278
+      },
+      {
+        "pos": [
+          11,
+          5
+        ],
+        "food_units": 2,
+        "fertility": 0.29912537288073,
+        "movement_speed": 0.8947473260320661,
+        "visibility": 0.27152499832756716
+      },
+      {
+        "pos": [
+          11,
+          6
+        ],
+        "food_units": 2,
+        "fertility": 1.4097087678155784,
+        "movement_speed": 0.8887062415440239,
+        "visibility": 0.44376430664400857
+      },
+      {
+        "pos": [
+          11,
+          7
+        ],
+        "food_units": 3,
+        "fertility": 1.5174194986654796,
+        "movement_speed": 1.0200268363138076,
+        "visibility": 0.6668432709396879
+      },
+      {
+        "pos": [
+          11,
+          8
+        ],
+        "food_units": 3,
+        "fertility": 1.2154817990371216,
+        "movement_speed": 0.86033901259317,
+        "visibility": 0.5548210935028894
+      },
+      {
+        "pos": [
+          11,
+          9
+        ],
+        "food_units": 2,
+        "fertility": 1.270763260330385,
+        "movement_speed": 0.9190232776960412,
+        "visibility": 0.783881804854542
+      },
+      {
+        "pos": [
+          11,
+          10
+        ],
+        "food_units": 1,
+        "fertility": 0.4968675879068406,
+        "movement_speed": 0.8735588953301243,
+        "visibility": 0.5533008465084461
+      },
+      {
+        "pos": [
+          11,
+          11
+        ],
+        "food_units": 2,
+        "fertility": 0.6865510622012915,
+        "movement_speed": 0.8922551126652593,
+        "visibility": 0.6651047162576872
+      }
+    ]
+  },
+  "population_curve": {
+    "1": {
+      "alive": 95,
+      "food": 165,
+      "avg_energy": 99.8778
+    },
+    "2": {
+      "alive": 88,
+      "food": 161,
+      "avg_energy": 99.6148
+    },
+    "3": {
+      "alive": 87,
+      "food": 159,
+      "avg_energy": 99.548
+    },
+    "4": {
+      "alive": 86,
+      "food": 150,
+      "avg_energy": 99.4608
+    },
+    "5": {
+      "alive": 84,
+      "food": 146,
+      "avg_energy": 99.3597
+    },
+    "6": {
+      "alive": 82,
+      "food": 142,
+      "avg_energy": 99.1977
+    },
+    "7": {
+      "alive": 77,
+      "food": 140,
+      "avg_energy": 99.2913
+    },
+    "8": {
+      "alive": 77,
+      "food": 131,
+      "avg_energy": 99.271
+    },
+    "9": {
+      "alive": 73,
+      "food": 129,
+      "avg_energy": 99.197
+    },
+    "10": {
+      "alive": 71,
+      "food": 128,
+      "avg_energy": 99.0367
+    },
+    "11": {
+      "alive": 69,
+      "food": 123,
+      "avg_energy": 99.0144
+    },
+    "12": {
+      "alive": 69,
+      "food": 119,
+      "avg_energy": 99.0306
+    },
+    "13": {
+      "alive": 68,
+      "food": 117,
+      "avg_energy": 99.0393
+    },
+    "14": {
+      "alive": 68,
+      "food": 118,
+      "avg_energy": 98.9149
+    },
+    "15": {
+      "alive": 68,
+      "food": 116,
+      "avg_energy": 98.864
+    },
+    "16": {
+      "alive": 68,
+      "food": 113,
+      "avg_energy": 98.8555
+    },
+    "17": {
+      "alive": 65,
+      "food": 110,
+      "avg_energy": 98.9806
+    },
+    "18": {
+      "alive": 63,
+      "food": 108,
+      "avg_energy": 98.8846
+    },
+    "19": {
+      "alive": 62,
+      "food": 106,
+      "avg_energy": 97.8954
+    },
+    "20": {
+      "alive": 59,
+      "food": 105,
+      "avg_energy": 97.2403
+    },
+    "21": {
+      "alive": 59,
+      "food": 103,
+      "avg_energy": 97.1633
+    },
+    "22": {
+      "alive": 56,
+      "food": 104,
+      "avg_energy": 97.0455
+    },
+    "23": {
+      "alive": 56,
+      "food": 103,
+      "avg_energy": 97.0455
+    },
+    "24": {
+      "alive": 55,
+      "food": 104,
+      "avg_energy": 96.9673
+    },
+    "25": {
+      "alive": 54,
+      "food": 104,
+      "avg_energy": 96.9092
+    },
+    "26": {
+      "alive": 53,
+      "food": 104,
+      "avg_energy": 96.8345
+    },
+    "27": {
+      "alive": 52,
+      "food": 102,
+      "avg_energy": 96.8194
+    },
+    "28": {
+      "alive": 52,
+      "food": 101,
+      "avg_energy": 94.987
+    },
+    "29": {
+      "alive": 51,
+      "food": 100,
+      "avg_energy": 94.8225
+    },
+    "30": {
+      "alive": 51,
+      "food": 98,
+      "avg_energy": 94.8344
+    },
+    "31": {
+      "alive": 51,
+      "food": 99,
+      "avg_energy": 94.7249
+    },
+    "32": {
+      "alive": 49,
+      "food": 99,
+      "avg_energy": 96.3167
+    },
+    "33": {
+      "alive": 49,
+      "food": 97,
+      "avg_energy": 96.9091
+    },
+    "34": {
+      "alive": 48,
+      "food": 97,
+      "avg_energy": 96.8285
+    },
+    "35": {
+      "alive": 47,
+      "food": 95,
+      "avg_energy": 96.8226
+    },
+    "36": {
+      "alive": 47,
+      "food": 93,
+      "avg_energy": 96.7179
+    },
+    "37": {
+      "alive": 47,
+      "food": 91,
+      "avg_energy": 96.7356
+    },
+    "38": {
+      "alive": 46,
+      "food": 91,
+      "avg_energy": 96.8486
+    },
+    "39": {
+      "alive": 46,
+      "food": 87,
+      "avg_energy": 96.8936
+    },
+    "40": {
+      "alive": 46,
+      "food": 87,
+      "avg_energy": 96.7891
+    },
+    "41": {
+      "alive": 46,
+      "food": 86,
+      "avg_energy": 96.7174
+    },
+    "42": {
+      "alive": 46,
+      "food": 85,
+      "avg_energy": 95.3131
+    },
+    "43": {
+      "alive": 45,
+      "food": 84,
+      "avg_energy": 95.2542
+    },
+    "44": {
+      "alive": 45,
+      "food": 85,
+      "avg_energy": 95.1518
+    },
+    "45": {
+      "alive": 42,
+      "food": 85,
+      "avg_energy": 96.4825
+    },
+    "46": {
+      "alive": 41,
+      "food": 83,
+      "avg_energy": 96.5656
+    },
+    "47": {
+      "alive": 39,
+      "food": 83,
+      "avg_energy": 97.7368
+    },
+    "48": {
+      "alive": 39,
+      "food": 81,
+      "avg_energy": 97.6443
+    },
+    "49": {
+      "alive": 39,
+      "food": 79,
+      "avg_energy": 97.5581
+    },
+    "50": {
+      "alive": 39,
+      "food": 80,
+      "avg_energy": 97.44
+    },
+    "51": {
+      "alive": 38,
+      "food": 79,
+      "avg_energy": 97.4905
+    },
+    "52": {
+      "alive": 38,
+      "food": 78,
+      "avg_energy": 97.5646
+    },
+    "53": {
+      "alive": 38,
+      "food": 78,
+      "avg_energy": 97.4473
+    },
+    "54": {
+      "alive": 38,
+      "food": 77,
+      "avg_energy": 97.3667
+    },
+    "55": {
+      "alive": 38,
+      "food": 76,
+      "avg_energy": 97.6211
+    },
+    "56": {
+      "alive": 37,
+      "food": 76,
+      "avg_energy": 97.4957
+    },
+    "57": {
+      "alive": 36,
+      "food": 76,
+      "avg_energy": 97.4423
+    },
+    "58": {
+      "alive": 36,
+      "food": 75,
+      "avg_energy": 95.9509
+    },
+    "59": {
+      "alive": 36,
+      "food": 73,
+      "avg_energy": 96.0208
+    },
+    "60": {
+      "alive": 35,
+      "food": 72,
+      "avg_energy": 93.4121
+    },
+    "61": {
+      "alive": 34,
+      "food": 72,
+      "avg_energy": 96.0527
+    },
+    "62": {
+      "alive": 34,
+      "food": 73,
+      "avg_energy": 95.9468
+    },
+    "63": {
+      "alive": 32,
+      "food": 71,
+      "avg_energy": 96.0136
+    },
+    "64": {
+      "alive": 31,
+      "food": 71,
+      "avg_energy": 95.7199
+    },
+    "65": {
+      "alive": 31,
+      "food": 70,
+      "avg_energy": 95.7377
+    },
+    "66": {
+      "alive": 31,
+      "food": 70,
+      "avg_energy": 95.6457
+    },
+    "67": {
+      "alive": 31,
+      "food": 70,
+      "avg_energy": 95.5799
+    },
+    "68": {
+      "alive": 31,
+      "food": 70,
+      "avg_energy": 95.4549
+    },
+    "69": {
+      "alive": 31,
+      "food": 70,
+      "avg_energy": 95.3373
+    },
+    "70": {
+      "alive": 31,
+      "food": 69,
+      "avg_energy": 95.2448
+    },
+    "71": {
+      "alive": 31,
+      "food": 70,
+      "avg_energy": 95.1457
+    },
+    "72": {
+      "alive": 31,
+      "food": 70,
+      "avg_energy": 95.0539
+    },
+    "73": {
+      "alive": 31,
+      "food": 70,
+      "avg_energy": 94.9629
+    },
+    "74": {
+      "alive": 31,
+      "food": 69,
+      "avg_energy": 94.9632
+    },
+    "75": {
+      "alive": 31,
+      "food": 67,
+      "avg_energy": 95.0533
+    },
+    "76": {
+      "alive": 29,
+      "food": 67,
+      "avg_energy": 94.9159
+    },
+    "77": {
+      "alive": 29,
+      "food": 67,
+      "avg_energy": 94.8339
+    },
+    "78": {
+      "alive": 29,
+      "food": 67,
+      "avg_energy": 94.7424
+    },
+    "79": {
+      "alive": 28,
+      "food": 66,
+      "avg_energy": 94.7562
+    },
+    "80": {
+      "alive": 28,
+      "food": 66,
+      "avg_energy": 94.6634
+    },
+    "81": {
+      "alive": 28,
+      "food": 66,
+      "avg_energy": 94.5591
+    },
+    "82": {
+      "alive": 27,
+      "food": 65,
+      "avg_energy": 94.7046
+    },
+    "83": {
+      "alive": 26,
+      "food": 67,
+      "avg_energy": 94.5645
+    },
+    "84": {
+      "alive": 26,
+      "food": 66,
+      "avg_energy": 94.7046
+    },
+    "85": {
+      "alive": 26,
+      "food": 66,
+      "avg_energy": 94.5993
+    },
+    "86": {
+      "alive": 25,
+      "food": 66,
+      "avg_energy": 94.398
+    },
+    "87": {
+      "alive": 23,
+      "food": 66,
+      "avg_energy": 94.5554
+    },
+    "88": {
+      "alive": 23,
+      "food": 66,
+      "avg_energy": 94.4264
+    },
+    "89": {
+      "alive": 23,
+      "food": 65,
+      "avg_energy": 94.3322
+    },
+    "90": {
+      "alive": 22,
+      "food": 65,
+      "avg_energy": 94.3658
+    },
+    "91": {
+      "alive": 22,
+      "food": 64,
+      "avg_energy": 94.4709
+    },
+    "92": {
+      "alive": 22,
+      "food": 63,
+      "avg_energy": 94.4132
+    },
+    "93": {
+      "alive": 22,
+      "food": 65,
+      "avg_energy": 94.3096
+    },
+    "94": {
+      "alive": 22,
+      "food": 64,
+      "avg_energy": 94.2104
+    },
+    "95": {
+      "alive": 22,
+      "food": 64,
+      "avg_energy": 94.1299
+    },
+    "96": {
+      "alive": 21,
+      "food": 63,
+      "avg_energy": 94.2445
+    },
+    "97": {
+      "alive": 21,
+      "food": 65,
+      "avg_energy": 94.1296
+    },
+    "98": {
+      "alive": 21,
+      "food": 65,
+      "avg_energy": 93.9964
+    },
+    "99": {
+      "alive": 21,
+      "food": 67,
+      "avg_energy": 93.873
+    },
+    "100": {
+      "alive": 21,
+      "food": 67,
+      "avg_energy": 89.3444
+    },
+    "101": {
+      "alive": 22,
+      "food": 67,
+      "avg_energy": 76.3302
+    },
+    "102": {
+      "alive": 22,
+      "food": 67,
+      "avg_energy": 76.2803
+    },
+    "103": {
+      "alive": 23,
+      "food": 64,
+      "avg_energy": 74.3277
+    },
+    "104": {
+      "alive": 25,
+      "food": 64,
+      "avg_energy": 69.6304
+    },
+    "105": {
+      "alive": 25,
+      "food": 63,
+      "avg_energy": 67.0727
+    },
+    "106": {
+      "alive": 24,
+      "food": 62,
+      "avg_energy": 68.5728
+    },
+    "107": {
+      "alive": 25,
+      "food": 63,
+      "avg_energy": 65.8395
+    },
+    "108": {
+      "alive": 25,
+      "food": 62,
+      "avg_energy": 65.7547
+    },
+    "109": {
+      "alive": 26,
+      "food": 61,
+      "avg_energy": 63.1683
+    },
+    "110": {
+      "alive": 26,
+      "food": 62,
+      "avg_energy": 61.9487
+    },
+    "111": {
+      "alive": 28,
+      "food": 62,
+      "avg_energy": 54.7194
+    },
+    "112": {
+      "alive": 28,
+      "food": 61,
+      "avg_energy": 54.4767
+    },
+    "113": {
+      "alive": 27,
+      "food": 61,
+      "avg_energy": 52.0912
+    },
+    "114": {
+      "alive": 28,
+      "food": 61,
+      "avg_energy": 50.1539
+    },
+    "115": {
+      "alive": 28,
+      "food": 58,
+      "avg_energy": 53.623
+    },
+    "116": {
+      "alive": 28,
+      "food": 58,
+      "avg_energy": 53.5192
+    },
+    "117": {
+      "alive": 27,
+      "food": 58,
+      "avg_energy": 54.8904
+    },
+    "118": {
+      "alive": 26,
+      "food": 58,
+      "avg_energy": 54.9062
+    },
+    "119": {
+      "alive": 26,
+      "food": 58,
+      "avg_energy": 54.8062
+    },
+    "120": {
+      "alive": 26,
+      "food": 57,
+      "avg_energy": 55.4419
+    },
+    "121": {
+      "alive": 26,
+      "food": 56,
+      "avg_energy": 56.6114
+    },
+    "122": {
+      "alive": 26,
+      "food": 60,
+      "avg_energy": 56.5137
+    },
+    "123": {
+      "alive": 26,
+      "food": 60,
+      "avg_energy": 56.4003
+    },
+    "124": {
+      "alive": 26,
+      "food": 60,
+      "avg_energy": 56.3077
+    },
+    "125": {
+      "alive": 26,
+      "food": 59,
+      "avg_energy": 57.2141
+    },
+    "126": {
+      "alive": 26,
+      "food": 58,
+      "avg_energy": 58.3987
+    },
+    "127": {
+      "alive": 26,
+      "food": 58,
+      "avg_energy": 59.5942
+    },
+    "128": {
+      "alive": 25,
+      "food": 58,
+      "avg_energy": 60.5558
+    },
+    "129": {
+      "alive": 24,
+      "food": 57,
+      "avg_energy": 61.4081
+    },
+    "130": {
+      "alive": 23,
+      "food": 57,
+      "avg_energy": 62.9593
+    },
+    "131": {
+      "alive": 21,
+      "food": 57,
+      "avg_energy": 60.208
+    },
+    "132": {
+      "alive": 20,
+      "food": 56,
+      "avg_energy": 60.7886
+    },
+    "133": {
+      "alive": 20,
+      "food": 57,
+      "avg_energy": 60.6723
+    },
+    "134": {
+      "alive": 19,
+      "food": 56,
+      "avg_energy": 60.5413
+    },
+    "135": {
+      "alive": 19,
+      "food": 56,
+      "avg_energy": 60.4444
+    },
+    "136": {
+      "alive": 19,
+      "food": 56,
+      "avg_energy": 61.8879
+    },
+    "137": {
+      "alive": 19,
+      "food": 58,
+      "avg_energy": 63.5419
+    },
+    "138": {
+      "alive": 19,
+      "food": 59,
+      "avg_energy": 63.4511
+    },
+    "139": {
+      "alive": 19,
+      "food": 60,
+      "avg_energy": 65.1041
+    },
+    "140": {
+      "alive": 19,
+      "food": 61,
+      "avg_energy": 64.9843
+    },
+    "141": {
+      "alive": 17,
+      "food": 60,
+      "avg_energy": 65.9084
+    },
+    "142": {
+      "alive": 17,
+      "food": 60,
+      "avg_energy": 67.7537
+    },
+    "143": {
+      "alive": 17,
+      "food": 60,
+      "avg_energy": 67.6327
+    },
+    "144": {
+      "alive": 17,
+      "food": 58,
+      "avg_energy": 69.9208
+    },
+    "145": {
+      "alive": 17,
+      "food": 58,
+      "avg_energy": 69.8296
+    },
+    "146": {
+      "alive": 17,
+      "food": 57,
+      "avg_energy": 69.7519
+    },
+    "147": {
+      "alive": 17,
+      "food": 57,
+      "avg_energy": 69.6416
+    },
+    "148": {
+      "alive": 17,
+      "food": 57,
+      "avg_energy": 69.551
+    },
+    "149": {
+      "alive": 17,
+      "food": 58,
+      "avg_energy": 69.4462
+    },
+    "150": {
+      "alive": 17,
+      "food": 58,
+      "avg_energy": 69.3236
+    },
+    "151": {
+      "alive": 17,
+      "food": 58,
+      "avg_energy": 69.2067
+    },
+    "152": {
+      "alive": 17,
+      "food": 58,
+      "avg_energy": 69.0801
+    },
+    "153": {
+      "alive": 17,
+      "food": 60,
+      "avg_energy": 67.8534
+    },
+    "154": {
+      "alive": 17,
+      "food": 61,
+      "avg_energy": 67.7362
+    },
+    "155": {
+      "alive": 16,
+      "food": 61,
+      "avg_energy": 69.2349
+    },
+    "156": {
+      "alive": 17,
+      "food": 61,
+      "avg_energy": 65.0569
+    },
+    "157": {
+      "alive": 17,
+      "food": 63,
+      "avg_energy": 64.9649
+    },
+    "158": {
+      "alive": 17,
+      "food": 62,
+      "avg_energy": 65.0136
+    },
+    "159": {
+      "alive": 17,
+      "food": 62,
+      "avg_energy": 66.8378
+    },
+    "160": {
+      "alive": 17,
+      "food": 64,
+      "avg_energy": 68.7266
+    },
+    "161": {
+      "alive": 17,
+      "food": 63,
+      "avg_energy": 68.728
+    },
+    "162": {
+      "alive": 17,
+      "food": 63,
+      "avg_energy": 68.6327
+    },
+    "163": {
+      "alive": 17,
+      "food": 62,
+      "avg_energy": 70.0694
+    },
+    "164": {
+      "alive": 17,
+      "food": 62,
+      "avg_energy": 69.9894
+    },
+    "165": {
+      "alive": 17,
+      "food": 62,
+      "avg_energy": 69.8537
+    },
+    "166": {
+      "alive": 17,
+      "food": 64,
+      "avg_energy": 69.7536
+    },
+    "167": {
+      "alive": 17,
+      "food": 63,
+      "avg_energy": 69.8653
+    },
+    "168": {
+      "alive": 17,
+      "food": 63,
+      "avg_energy": 69.7617
+    },
+    "169": {
+      "alive": 17,
+      "food": 63,
+      "avg_energy": 69.6354
+    },
+    "170": {
+      "alive": 17,
+      "food": 63,
+      "avg_energy": 69.5089
+    },
+    "171": {
+      "alive": 17,
+      "food": 62,
+      "avg_energy": 69.4416
+    },
+    "172": {
+      "alive": 17,
+      "food": 61,
+      "avg_energy": 71.2713
+    },
+    "173": {
+      "alive": 17,
+      "food": 61,
+      "avg_energy": 71.1869
+    },
+    "174": {
+      "alive": 17,
+      "food": 62,
+      "avg_energy": 71.1071
+    },
+    "175": {
+      "alive": 17,
+      "food": 62,
+      "avg_energy": 71.0179
+    },
+    "176": {
+      "alive": 16,
+      "food": 61,
+      "avg_energy": 72.1487
+    },
+    "177": {
+      "alive": 16,
+      "food": 61,
+      "avg_energy": 72.0472
+    },
+    "178": {
+      "alive": 16,
+      "food": 60,
+      "avg_energy": 72.6041
+    },
+    "179": {
+      "alive": 16,
+      "food": 60,
+      "avg_energy": 72.4996
+    },
+    "180": {
+      "alive": 16,
+      "food": 60,
+      "avg_energy": 72.4225
+    },
+    "181": {
+      "alive": 15,
+      "food": 61,
+      "avg_energy": 71.3926
+    },
+    "182": {
+      "alive": 16,
+      "food": 59,
+      "avg_energy": 68.9935
+    },
+    "183": {
+      "alive": 16,
+      "food": 59,
+      "avg_energy": 68.8783
+    },
+    "184": {
+      "alive": 16,
+      "food": 60,
+      "avg_energy": 68.7746
+    },
+    "185": {
+      "alive": 15,
+      "food": 60,
+      "avg_energy": 67.4324
+    },
+    "186": {
+      "alive": 15,
+      "food": 60,
+      "avg_energy": 67.3397
+    },
+    "187": {
+      "alive": 15,
+      "food": 61,
+      "avg_energy": 67.2625
+    },
+    "188": {
+      "alive": 15,
+      "food": 61,
+      "avg_energy": 67.1499
+    },
+    "189": {
+      "alive": 15,
+      "food": 61,
+      "avg_energy": 67.2747
+    },
+    "190": {
+      "alive": 15,
+      "food": 60,
+      "avg_energy": 69.3673
+    },
+    "191": {
+      "alive": 15,
+      "food": 59,
+      "avg_energy": 71.4781
+    },
+    "192": {
+      "alive": 15,
+      "food": 59,
+      "avg_energy": 71.3518
+    },
+    "193": {
+      "alive": 15,
+      "food": 58,
+      "avg_energy": 73.4771
+    },
+    "194": {
+      "alive": 15,
+      "food": 58,
+      "avg_energy": 73.366
+    },
+    "195": {
+      "alive": 15,
+      "food": 59,
+      "avg_energy": 73.2385
+    },
+    "196": {
+      "alive": 15,
+      "food": 59,
+      "avg_energy": 73.1367
+    },
+    "197": {
+      "alive": 15,
+      "food": 61,
+      "avg_energy": 72.9955
+    },
+    "198": {
+      "alive": 15,
+      "food": 61,
+      "avg_energy": 73.2049
+    },
+    "199": {
+      "alive": 15,
+      "food": 61,
+      "avg_energy": 73.1115
+    },
+    "200": {
+      "alive": 15,
+      "food": 62,
+      "avg_energy": 72.9895
+    }
+  }
+}
