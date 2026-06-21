@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from simulation import Environment  # pylint: disable=wrong-import-position
+from simulation import Environment  # noqa: E402  # pylint: disable=wrong-import-position
 
 
 def _dump_agent(agent):
