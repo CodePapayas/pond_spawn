@@ -11,7 +11,7 @@ import random as r
 
 import torch as t
 
-from controllers.agent import CHILDHOOD_TICKS, Agent
+from controllers.agent import CHILDHOOD_TICKS, Agent, create_death_range
 from controllers.genome import Genome
 from controllers.landscape import Biome
 
@@ -54,10 +54,7 @@ class Environment:
             t.cuda.manual_seed_all(seed)
             t.backends.cudnn.deterministic = True
             t.backends.cudnn.benchmark = False
-            from controllers.agent import Agent as _Agent
-            from controllers.agent import create_death_range
-
-            _Agent.death_range = create_death_range()
+            Agent.death_range = create_death_range()
 
         self.grid_size = grid_size
         self.grid = [[None for _ in range(grid_size)] for _ in range(grid_size)]
