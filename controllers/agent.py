@@ -149,7 +149,7 @@ class Agent:  # pylint: disable=too-many-public-methods,too-many-instance-attrib
         Use the brain to make a decision based on perception.
 
         Uses hard-coded survival rules for critical situations, otherwise
-        uses winner-takes-all neural network decision.
+        uses softmax-sampled neural network decision.
 
         Critical survival rules:
         - Low energy + no food -> MOVE (search for food)
@@ -268,7 +268,7 @@ class Agent:  # pylint: disable=too-many-public-methods,too-many-instance-attrib
 
         if energy_needed > 0:
             # Consume 1 food unit (provides energy)
-            food_energy_value = 33.3  # Each food unit provides 40 energy
+            food_energy_value = 33.3  # Each food unit provides 33.3 energy
             energy_gained = min(food_energy_value, energy_needed)
 
             self.add_energy(energy_gained)
@@ -338,7 +338,7 @@ class Agent:  # pylint: disable=too-many-public-methods,too-many-instance-attrib
 
         Reproduction rules:
         - Requires minimum energy threshold (40 energy)
-        - Costs 40% of current energy
+        - Costs 50% of current energy (× reproduction_cost trait)
         - Creates a mutated offspring at nearby position
         - Offspring gets the energy cost as starting energy
 

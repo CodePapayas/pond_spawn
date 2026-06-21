@@ -37,6 +37,7 @@ class Environment:
         self,
         grid_size=12,
         num_agents=POPULATION,
+        seed=None,
     ):
         """
         Initialize the simulation environment.
@@ -44,7 +45,20 @@ class Environment:
         Args:
             grid_size (int): Size of the square grid (grid_size x grid_size)
             num_agents (int): Number of agents to spawn initially
+            seed (int | None): RNG seed for deterministic runs. When set, also
+                regenerates Agent.death_range so the full run is reproducible.
         """
+        if seed is not None:
+            r.seed(seed)
+            t.manual_seed(seed)
+            t.cuda.manual_seed_all(seed)
+            t.backends.cudnn.deterministic = True
+            t.backends.cudnn.benchmark = False
+            from controllers.agent import Agent as _Agent
+            from controllers.agent import create_death_range
+
+            _Agent.death_range = create_death_range()
+
         self.grid_size = grid_size
         self.grid = [[None for _ in range(grid_size)] for _ in range(grid_size)]
         self.position_map = {}
@@ -484,10 +498,11 @@ class Environment:
                     output = agent.brain(perception)
                 batch_outputs.append(output)
 
-            # Stack and get argmax for all
+            # Stack and softmax-sample an action for all
             if batch_outputs:
                 stacked_outputs = t.cat(batch_outputs, dim=0)
-                brain_actions = t.argmax(stacked_outputs, dim=1).cpu().tolist()
+                probs = t.softmax(stacked_outputs, dim=1)
+                brain_actions = t.multinomial(probs, num_samples=1).squeeze(1).cpu().tolist()
 
                 # Fill in the brain decisions
                 for i, idx in enumerate(batch_indices_for_brain):

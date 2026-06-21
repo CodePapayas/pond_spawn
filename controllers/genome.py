@@ -130,6 +130,9 @@ class Genome:
 
         # Mutate traits
         for _trait, info in new_genome.traits.items():
+            # Locked traits never mutate
+            if not info.get("mutable", True):
+                continue
             # Each trait has a chance equal to mutation_rate to mutate
             if r.random() < mutation_rate:
                 # Mutation factor scales with mutation_rate
