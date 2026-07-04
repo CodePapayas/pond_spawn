@@ -1,5 +1,16 @@
 # RULES.md
 
+> **Canonical implementation: Rust `pond_core`.** These rules were refactored
+> from the original Python sim to the Rust engine (see
+> [`REFACTOR_RUST_BEVY.md`](REFACTOR_RUST_BEVY.md) and
+> [`pond_core/README.md`](pond_core/README.md)). Where a mechanic differs
+> between the two, **`pond_core` is authoritative** and the difference is
+> tagged inline below. The biggest refactor change: discrete tile actions
+> (MOVE/TURN/EAT/…) became **continuous-space steering forces + sigmoid trigger
+> gates**. The action table below describes the legacy Python output surface;
+> the Rust output contract is in the [Neural Network](#neural-network-brain)
+> section and in `pond_core/README.md`.
+
 ## World
 
 - Grid: Square grid, default 12x12
@@ -58,6 +69,18 @@
 | Sleep | Gain `0.15 × metabolism` |
 | Nothing | `0.005 × metabolism`; agent skips next tick |
 
+### Discrete Trigger Exclusivity (Rust `pond_core`)
+- EAT, REPRODUCE, and SLEEP gates are mutually exclusive per tick: only the
+  highest-value gate above 0.5 fires. An agent cannot sleep for free while also
+  eating/reproducing/moving at full speed in the same tick.
+
+### Eat Crowding & Cooldown (Rust `pond_core`)
+- A tile that was just eaten from cannot be eaten from again for **8 ticks**
+  (`EAT_COOLDOWN_TICKS`), independent of food regen — stops a single parked
+  agent draining one tile every tick.
+- Agents eating the same tile in the same tick split that tile's food value:
+  `share = 33.3 / (1 + prior_claims_this_tick)`.
+
 ### Reproduction
 - Minimum age: 100 ticks (no upper age limit — cooldown and cap govern timing)
 - Cost: 50% of energy × `reproduction_cost` trait; paid before outcome is resolved
@@ -80,12 +103,11 @@ Two combat paths exist:
 - Triggers when 2+ agents occupy the same tile
 - Attacker must have `aggression >= 0.80` to initiate
 - Each eligible attacker picks one random co-tile target per step
-- Outcome based on `attack` vs `defense` ratio:
-  | Condition | Result |
-  |-----------|--------|
-  | `attack > defense × 0.66` | attacker wins (guaranteed) |
-  | `attack > defense × 0.33` | 50/50 coin-flip |
-  | `attack ≤ defense × 0.33` | defender wins (guaranteed) |
+- Outcome is probabilistic, scaling continuously with `attack` vs effective `defense`:
+  `p_win = attack / (attack + defense)`
+  (previous fixed thresholds — defender wins iff `attack <= defense × 0.33` — were
+  unreachable for adult agents given trait bounds, making combat a guaranteed win
+  above `attack` 0.706 and a coinflip below it)
 - Winner gains **12.5% of loser's current energy** (capped at capacity)
 - Loser dies ("Killed in combat")
 - Initiating attack costs `0.2 × metabolism` energy
@@ -104,23 +126,36 @@ Two combat paths exist:
 | vision | 0.5 | 1.05 | ✓ |
 | speed | 0.5 | 1.0 | ✓ |
 | metabolism | 0.5 | 1.05 | ✓ |
-| daily_nutrition_minimum | 0.95 | 1.0 | ✓ |
 | energy_capacity | 0.95 | 1.05 | ✗ |
 | mutation_rate | 0.01 | 0.25 | ✗ |
-| clone_energy_threshold | 0.5 | 1.05 | ✓ |
 | reproduction_cost | 0.75 | 1.50 | ✓ |
-| intelligence | 0.5 | 1.05 | ✓ |
 | attack | 0.5 | 1.25 | ✓ |
 | defense | 0.5 | 1.07 | ✓ |
 | aggression | 0.0 | 1.05 | ✓ |
+
+`daily_nutrition_minimum` and `clone_energy_threshold` removed (Rust `pond_core`) —
+generated and mutated but never read anywhere, pure mutation drift + wasted RNG
+draws. `intelligence` disabled (Rust `pond_core`) for the same reason but kept as a
+commented-out TODO in `genome.rs` since it's planned to be wired into
+decision-making later.
 
 ## Neural Network (Brain)
 
 - Architecture: `5 → 12 → 12 → 12 → 8` (4 linear layers, width 12, 8 outputs)
 - Activations: ReLU between each linear layer
-- Defined in `brains/brain.json`
-- Weights loaded from genome
-- Softmax sampling output selection (multinomial draw over softmax probabilities)
+- Weights loaded from genome (488 total; hand-rolled MLP in `pond_core/src/brain.rs`)
+
+**Output selection differs between implementations (refactor change):**
+
+- **Legacy Python:** softmax over the 8 logits, then a multinomial sample picks
+  one discrete action (decision D1).
+- **Rust `pond_core` (canonical):** the 8 logits are passed through
+  element-wise **sigmoid** to independent `[0,1]` gates. Outputs 0–2 are
+  continuous steering-force weights (seek / wander / separate), 4/5/7 are
+  discrete triggers that fire when the gate `> 0.5` (eat / reproduce / sleep,
+  mutually exclusive — only the highest fires per tick), and 3/6 (flee /
+  attack) are dormant. No softmax, no multinomial sample. See the input/output
+  contract in [`pond_core/README.md`](pond_core/README.md).
 
 ## Mutation
 

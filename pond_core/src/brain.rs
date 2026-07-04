@@ -44,6 +44,16 @@ fn relu_inplace<const N: usize>(x: &mut [f32; N]) {
 /// Forward pass: 5 → 12 (ReLU) → 12 (ReLU) → 12 (ReLU) → 8 logits.
 /// Returns raw logits; caller applies softmax + multinomial for action selection.
 pub fn forward(weights: &[f32; WEIGHT_COUNT], input: [f32; 5]) -> [f32; 8] {
+    forward_traced(weights, input).3
+}
+
+/// Same forward pass, but returns every layer's post-activation values.
+/// Shares the exact code path with `forward` (which delegates here) so the
+/// inspector can never drift from what the sim actually computes.
+pub fn forward_traced(
+    weights: &[f32; WEIGHT_COUNT],
+    input: [f32; 5],
+) -> ([f32; 12], [f32; 12], [f32; 12], [f32; 8]) {
     let mut h0 = [0f32; 12];
     linear::<5, 12>(&input, &weights[L0_W..L0_B], &weights[L0_B..L1_W], &mut h0);
     relu_inplace(&mut h0);
@@ -58,7 +68,7 @@ pub fn forward(weights: &[f32; WEIGHT_COUNT], input: [f32; 5]) -> [f32; 8] {
 
     let mut logits = [0f32; 8];
     linear::<12, 8>(&h2, &weights[L3_W..L3_B], &weights[L3_B..WEIGHT_COUNT], &mut logits);
-    logits
+    (h0, h1, h2, logits)
 }
 
 /// Initialize weights matching `Brain.initial_weights()` in brain.py.
@@ -81,6 +91,14 @@ pub fn initial_weights(rng: &mut impl Rng) -> Vec<f32> {
 }
 
 /// Softmax over a fixed-size slice (numerically stable).
+///
+/// Dead in the live sim: the continuous-space physics refactor (Pass A)
+/// replaced discrete softmax-sampled action selection with independent
+/// sigmoid gates (`sigmoid_outputs`), because steering needs several
+/// simultaneous continuous force weights, not one mutually-exclusive action
+/// drawn from a probability simplex. Kept for the Python-parity golden harness
+/// and possible future argmax/discrete-mode experiments.
+#[allow(dead_code)]
 pub fn softmax(logits: [f32; 8]) -> [f32; 8] {
     let max = logits.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let mut exps = [0f32; 8];
@@ -96,6 +114,10 @@ pub fn softmax(logits: [f32; 8]) -> [f32; 8] {
 }
 
 /// Multinomial sample from a probability distribution (softmax output).
+///
+/// Dead in the live sim alongside [`softmax`] — see its note. The sigmoid-gate
+/// steering path never samples a single action.
+#[allow(dead_code)]
 pub fn sample_action(probs: [f32; 8], rng: &mut impl Rng) -> usize {
     let roll: f32 = rng.gen();
     let mut cumsum = 0.0f32;

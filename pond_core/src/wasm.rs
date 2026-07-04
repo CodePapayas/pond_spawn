@@ -1,5 +1,6 @@
 use wasm_bindgen::prelude::*;
 
+use crate::morphology::MorphParams;
 use crate::spatial::SpatialHashGrid;
 use crate::world::{World, MAX_SPEED, DT};
 
@@ -8,7 +9,7 @@ use crate::world::{World, MAX_SPEED, DT};
 // get_state() returns a flat Float32Array with this layout:
 //
 //   [0..HEADER_LEN]                          — sim-wide header (6 floats)
-//   [HEADER_LEN .. HEADER_LEN + n*AGENT_STRIDE] — per-agent data (12 floats each)
+//   [HEADER_LEN .. HEADER_LEN + n*AGENT_STRIDE] — per-agent data (AGENT_STRIDE floats each)
 //   [above + gs*gs*TILE_STRIDE]              — per-tile data (3 floats each)
 
 #[wasm_bindgen]
@@ -19,7 +20,7 @@ pub fn state_agent_stride() -> u32 { AGENT_STRIDE as u32 }
 pub fn state_tile_stride() -> u32 { TILE_STRIDE as u32 }
 
 const HEADER_LEN: usize = 6;
-const AGENT_STRIDE: usize = 12;
+const AGENT_STRIDE: usize = 18;
 const TILE_STRIDE: usize = 3;
 
 // Header field indices
@@ -41,8 +42,15 @@ const A_VEL_Y: usize = 6;
 const A_GENOME_CLUSTER: usize = 7;
 const A_BRAIN_CLUSTER: usize = 8;
 const A_AGE_NORM: usize = 9;
-const A_AGGRESSION: usize = 10;
-const A_SPEED: usize = 11;     // genome speed trait (for morphology)
+const A_ID: usize = 10;       // stable agent id — swap_remove reshuffles array slots, id doesn't
+// Trait-derived morphology knobs (see morphology.rs) — replaces raw trait export.
+const A_MORPH_POINTINESS: usize = 11;
+const A_MORPH_ELONGATION: usize = 12;
+const A_MORPH_BULK: usize = 13;
+const A_MORPH_ORNAMENT: usize = 14;
+const A_MORPH_EYE_SIZE: usize = 15;
+const A_MORPH_PULSE_RATE: usize = 16;
+const A_MORPH_BELLY: usize = 17;
 
 // Tile field offsets within stride
 const T_FOOD: usize = 0;
@@ -137,8 +145,16 @@ impl WasmWorld {
             buf[off + A_GENOME_CLUSTER] = cluster.genome_cluster_ids.get(i).copied().unwrap_or(0) as f32;
             buf[off + A_BRAIN_CLUSTER] = cluster.brain_cluster_ids.get(i).copied().unwrap_or(0) as f32;
             buf[off + A_AGE_NORM] = (w.age[i] as f64 / w.death_age[i] as f64).clamp(0.0, 1.0) as f32;
-            buf[off + A_AGGRESSION] = w.genome[i].traits.aggression as f32;
-            buf[off + A_SPEED] = w.genome[i].traits.speed as f32;
+            buf[off + A_ID] = w.ids[i] as f32;
+
+            let morph = MorphParams::from_traits(&w.genome[i].traits);
+            buf[off + A_MORPH_POINTINESS] = morph.pointiness;
+            buf[off + A_MORPH_ELONGATION] = morph.elongation;
+            buf[off + A_MORPH_BULK] = morph.bulk;
+            buf[off + A_MORPH_ORNAMENT] = morph.ornament;
+            buf[off + A_MORPH_EYE_SIZE] = morph.eye_size;
+            buf[off + A_MORPH_PULSE_RATE] = morph.pulse_rate;
+            buf[off + A_MORPH_BELLY] = morph.belly;
         }
 
         let tile_base = agent_base + n * AGENT_STRIDE;
@@ -227,6 +243,37 @@ impl WasmWorld {
     pub fn step_count(&self) -> u32 { self.inner.step_count }
     pub fn agent_count(&self) -> usize { self.inner.agent_count() }
     pub fn grid_size(&self) -> usize { self.inner.grid_size }
+
+    /// Brain/trait snapshot for one agent (inspector panel). Empty vec if the
+    /// id is not alive. Layout: [5 inputs | 12 h0 | 12 h1 | 12 h2 | 8 logits
+    /// | 8 sigmoid gates | energy_norm | age_norm | 9 traits] = 68 floats.
+    pub fn inspect_agent(&self, id: u32) -> Vec<f32> {
+        self.inner.inspect_agent(id).unwrap_or_default()
+    }
+
+    /// Population means of the 9 genome traits, in Traits field order.
+    pub fn trait_means(&self) -> Vec<f32> {
+        self.inner.trait_means().iter().map(|&v| v as f32).collect()
+    }
+}
+
+/// Trait bounds [lo, hi] × 9 in Traits field order (vision, speed, metabolism,
+/// energy_capacity, mutation_rate, reproduction_cost, attack, defense,
+/// aggression). Single source for JS bar normalization — mirrors
+/// genome.rs::Traits::generate ranges.
+#[wasm_bindgen]
+pub fn trait_bounds() -> Vec<f32> {
+    vec![
+        0.5, 1.05,   // vision
+        0.5, 1.0,    // speed
+        0.5, 1.05,   // metabolism
+        0.95, 1.05,  // energy_capacity (locked)
+        0.01, 0.25,  // mutation_rate (locked)
+        0.75, 1.50,  // reproduction_cost
+        0.5, 1.25,   // attack
+        0.5, 1.07,   // defense
+        0.0, 1.05,   // aggression
+    ]
 }
 
 #[wasm_bindgen]

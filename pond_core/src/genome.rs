@@ -3,18 +3,21 @@ use serde::{Deserialize, Serialize};
 
 use crate::brain::{initial_weights, WEIGHT_COUNT};
 
-/// All 12 genome traits. Bounds match `genomes/genome.json`.
+/// Genome traits. Bounds match `genomes/genome.json`.
+/// `daily_nutrition_minimum` and `clone_energy_threshold` were removed: generated
+/// and mutated but never read anywhere, so they only caused mutation drift on a
+/// non-selected gene and wasted RNG draws.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Traits {
     pub vision: f64,
     pub speed: f64,
     pub metabolism: f64,
-    pub daily_nutrition_minimum: f64,
     pub energy_capacity: f64,    // locked (D3)
     pub mutation_rate: f64,      // locked (D3)
-    pub clone_energy_threshold: f64,
     pub reproduction_cost: f64,
-    pub intelligence: f64,
+    // TODO: not yet wired into decision-making. Disabled (no generate/mutate draw)
+    // until it's actually used, to avoid wasted RNG draws and drift on a dead gene.
+    // pub intelligence: f64,
     pub attack: f64,
     pub defense: f64,
     pub aggression: f64,
@@ -28,12 +31,10 @@ impl Traits {
             vision:                  rng.gen_range(0.5_f64..=1.05),
             speed:                   rng.gen_range(0.5_f64..=1.0),
             metabolism:              rng.gen_range(0.5_f64..=1.05),
-            daily_nutrition_minimum: rng.gen_range(0.95_f64..=1.0),
             energy_capacity:         rng.gen_range(0.95_f64..=1.05),
             mutation_rate:           rng.gen_range(0.01_f64..=0.25),
-            clone_energy_threshold:  rng.gen_range(0.5_f64..=1.05),
             reproduction_cost:       rng.gen_range(0.75_f64..=1.50),
-            intelligence:            rng.gen_range(0.5_f64..=1.05),
+            // intelligence: rng.gen_range(0.5_f64..=1.05), // TODO: see struct def
             attack:                  rng.gen_range(0.5_f64..=1.25),
             defense:                 rng.gen_range(0.5_f64..=1.07),
             aggression:              rng.gen_range(0.0_f64..=1.05),
@@ -61,13 +62,11 @@ impl Traits {
             vision:                  maybe_mutate!(self.vision, 0.5, 1.05),
             speed:                   maybe_mutate!(self.speed, 0.5, 1.0),
             metabolism:              maybe_mutate!(self.metabolism, 0.5, 1.05),
-            daily_nutrition_minimum: maybe_mutate!(self.daily_nutrition_minimum, 0.95, 1.0),
             // Locked — no RNG draw (D3)
             energy_capacity:         self.energy_capacity,
             mutation_rate:           self.mutation_rate,
-            clone_energy_threshold:  maybe_mutate!(self.clone_energy_threshold, 0.5, 1.05),
             reproduction_cost:       maybe_mutate!(self.reproduction_cost, 0.75, 1.50),
-            intelligence:            maybe_mutate!(self.intelligence, 0.5, 1.05),
+            // intelligence: maybe_mutate!(self.intelligence, 0.5, 1.05), // TODO: see struct def
             attack:                  maybe_mutate!(self.attack, 0.5, 1.25),
             defense:                 maybe_mutate!(self.defense, 0.5, 1.07),
             aggression:              maybe_mutate!(self.aggression, 0.0, 1.05),
@@ -166,12 +165,9 @@ mod tests {
             assert!((0.5..=1.05).contains(&t.vision));
             assert!((0.5..=1.0).contains(&t.speed));
             assert!((0.5..=1.05).contains(&t.metabolism));
-            assert!((0.95..=1.0).contains(&t.daily_nutrition_minimum));
             assert!((0.95..=1.05).contains(&t.energy_capacity));
             assert!((0.01..=0.25).contains(&t.mutation_rate));
-            assert!((0.5..=1.05).contains(&t.clone_energy_threshold));
             assert!((0.75..=1.50).contains(&t.reproduction_cost));
-            assert!((0.5..=1.05).contains(&t.intelligence));
             assert!((0.5..=1.25).contains(&t.attack));
             assert!((0.5..=1.07).contains(&t.defense));
             assert!((0.0..=1.05).contains(&t.aggression));

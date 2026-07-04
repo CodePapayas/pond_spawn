@@ -2,6 +2,15 @@
 
 Pure Rust simulation engine for pond_spawn. Compiles to native (headless) or WASM (browser renderer via `pond_web/`).
 
+> **This crate is the product of two refactors.** (1) The **engine refactor**
+> ported the simulation from Python + PyTorch to this deterministic Rust crate —
+> full history in [`../REFACTOR_RUST_BEVY.md`](../REFACTOR_RUST_BEVY.md). (2) The
+> **renderer/visualization refactor** rebuilt `pond_web/` around trait-driven
+> agent morphology, Oklch color smoothing, stable cluster labels, and
+> interactive inspection panels — summarized in
+> [Renderer visual key](#renderer-visual-key) below and driven by the WASM
+> exports (`inspect_agent`, `trait_means`, `trait_bounds`) added for it.
+
 ---
 
 ## Build
@@ -23,12 +32,14 @@ cargo run --bin run --release --features native -- [grid] [pop] [steps] [seed]
 src/
   biome.rs    BiomeTile — fertility, food, movement_speed, visibility
   brain.rs    Hand-rolled 5→12→12→12→8 MLP, 488 weights, ReLU, sigmoid output gates
-  genome.rs   Genome + Traits (12 fields), mutation, effective_mutation_rate
+  genome.rs   Genome + Traits (9 trait fields), mutation, effective_mutation_rate
+  morphology.rs MorphParams — maps genome traits → normalized [0,1] shape knobs for the renderer
   memory.rs   AgentMemory — 10-action ring buffer, success detection, mutation suppression
   cluster.rs  Dual k-means: genome traits (k=6) + brain weights (k=24), every 50 steps
   spatial.rs  SpatialHashGrid — tile-aligned buckets, f32 coords, toroidal agents_near()
   world.rs    World — SoA arrays, 20 Hz step loop, continuous-space physics
-  wasm.rs     WasmWorld — wasm-bindgen wrapper, get_state() Float32Array, stir/pour
+  wasm.rs     WasmWorld — wasm-bindgen wrapper, get_state() Float32Array, stir/pour,
+              plus renderer-refactor exports: inspect_agent, trait_means, trait_bounds
   bin/run.rs  Headless runner: prints step table, death tallies, cluster distributions
 ```
 
@@ -78,11 +89,11 @@ src/
 
 ## Renderer visual key
 
-The `pond_web/` Canvas2D renderer draws agents as 7-segment kinematic chains with additive blending. Here's how to read what you see.
+The `pond_web/` Canvas2D renderer draws agents as 7-segment kinematic chains with additive blending. The renderer refactor made the body **trait-driven** — its silhouette reads the genome — and added color smoothing plus interactive panels. Here's how to read what you see.
 
-### Agent color — genome cluster
+### Agent color — genome cluster (with smoothing)
 
-Color encodes which of 6 genome clusters the agent belongs to. Clusters are recomputed every 50 steps via k-means on the 12 trait values.
+Color encodes which of 6 genome clusters the agent belongs to. Clusters are recomputed every 50 steps via k-means on the 9 trait values.
 
 | Color | Cluster | Rough trait tendency* |
 |-------|---------|----------------------|
@@ -95,18 +106,31 @@ Color encodes which of 6 genome clusters the agent belongs to. Clusters are reco
 
 *Tendencies emerge from evolution — not hardcoded. Early runs may show all clusters as mixed.*
 
-### Agent size and shape
+**Refactor detail — no color flashing.** Two mechanisms keep color changes smooth: (1) `cluster.rs` matches each k-means re-fit's centroids to the previous run's and remaps labels, so a persisting lineage keeps its label → keeps its color even though raw k-means labels are arbitrary; (2) the renderer crossfades each agent toward its cluster color in **Oklch** (`pond_web/color.js`) over ~1s, so genuine reassignments fade through vivid hues instead of popping.
 
-Body segments follow a bell-curve size envelope: narrow head → widest at segment 2–3 → tapering tail.
+### Agent shape — genome morphology
+
+Body segments follow a size envelope (narrow head → widest mid-body → tapering tail), but the envelope and ornaments are now derived per-agent from traits via `morphology.rs` (`MorphParams`, normalized [0,1]) and `pond_web/morphology.js`.
 
 | Visual property | Driven by |
 |----------------|-----------|
-| **Overall size** | `energy_norm` (0–1) + `aggression` trait — larger = more energised or more aggressive |
-| **Glow radius** | `energy_norm` — bright halo = well-fed agent |
-| **Brightness** | `energy_norm` — dims as agent starves |
-| **Body width peak** | Fixed at segment 2–3 (bell curve), scales with size above |
-| **Tail fade** | Fixed segment envelope — last 2 segments always narrow |
-| **Eye orientation** | Velocity vector — eyes face the direction of travel |
+| **Pointed wedge head + swept-back fins** | `aggression` |
+| **Body length / taper sharpness** | `speed` (elongation) |
+| **Mid-body width + white armor rings** | `defense` (bulk) |
+| **Head spikes** | `attack` (ornament) |
+| **Eye size + lateral spread** | `vision` |
+| **Glow pulse rate** | `metabolism` |
+| **Belly bulge** | `energy_capacity` |
+| **Overall size / glow radius / brightness** | `energy_norm` — bright, large halo = well-fed; dims as it starves |
+| **Eye + body orientation** | Velocity vector — the head faces the direction of travel |
+
+### Interactive panels (renderer refactor)
+
+| Panel | What it shows | Data source |
+|-------|---------------|-------------|
+| **Legend** (right, `L` toggles, on by default) | Cluster color swatches with live per-cluster counts, shape→trait glyph key, tile-color key | client-side tally + static key |
+| **Average genome** (right, under legend) | Population mean of each of the 9 traits as bars normalized to trait bounds, with sparkline history; dominant traits highlighted | `trait_means()`, `trait_bounds()` |
+| **Inspector** (left, click an agent) | Selected agent's live brain: 5→12→12→12→8 node activations (brightness = magnitude), input/output labels, sigmoid gate bars, energy/age/traits | `inspect_agent(id)` — a pure traced forward pass, no sim mutation |
 
 ### Tile colors
 
@@ -121,10 +145,13 @@ Body segments follow a bell-curve size envelope: narrow head → widest at segme
 
 | Input | Effect |
 |-------|--------|
+| Click agent | Select + open the **inspector** panel (drag threshold distinguishes click from stir) |
 | Drag (left mouse) | `stir` — scatters agents outward, drains food, suppresses fertility |
 | Double-click | `pour_agents` — spawns 12 new agents at cursor position |
 | Space | Pause / resume |
 | `+` / `-` | Speed up / slow down simulation (×0.25 to ×16) |
+| `L` | Toggle the legend / average-genome panel |
+| `Esc` | Deselect the inspected agent |
 
 ---
 
@@ -190,22 +217,21 @@ Currently reproduction is asexual — one parent mutates its own genome. Two-par
 
 ---
 
-### 4 · Exploding (radial) menus
+### 4 · Click-to-inspect agent panel — ✅ shipped in the renderer refactor
 
-A right-click context UI in the renderer: click an agent to open a radial menu that "explodes" outward, showing genome stats, cluster membership, and agent actions. Entirely renderer-side — no engine changes.
+Delivered as the **inspector panel** (left side) rather than a radial menu:
+click an agent to select it (a drag threshold distinguishes select from stir),
+draw a pulsing ring on its head, and open a panel showing its live brain
+(5→12→12→12→8 node activations + sigmoid gate bars), energy/age, and all 9
+trait values. Backed by the `inspect_agent(id)` WASM export — a pure traced
+forward pass that never mutates sim state.
 
-**What's needed:**
-- On right-click, find the nearest agent to the click position (iterate state buffer, find min distance in world coords).
-- Store selected agent index + screen position. Draw radial menu segments around that point (Canvas2D arcs).
-- Menu items (initial set):
-  - **Genome** — popup showing all 12 trait values as a radial bar chart
-  - **Cluster** — highlight all agents sharing the same genome/brain cluster
-  - **Inject food** — call `world.inject_food(cx, cy, 3)` at agent position
-  - **Kill** — future: expose a `world.kill_agent(id)` WASM export
-- Animation: segments fly outward on open (CSS transform or manual easing), collapse on close or outside click.
-- Selected agent: draw a ring highlight around its head each frame while menu is open.
+**Files (shipped):** `pond_web/inspector.js`, `pond_web/renderer.js` (selection
++ ring), `src/wasm.rs` + `src/world.rs` (`inspect_agent`), `src/brain.rs`
+(`forward_traced`).
 
-**Files:** `pond_web/renderer.js` (menu state + draw), `pond_web/index.html` (no structural change needed). Optionally `src/wasm.rs` for new exports (kill, inspect).
+**Still open:** cluster-highlight-on-select, and a `world.kill_agent(id)`
+export for a "kill" affordance.
 
 ---
 

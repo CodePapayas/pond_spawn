@@ -41,7 +41,7 @@ All simulation logic. WASM-safe, deterministic, seeded with `ChaCha8Rng`.
 | File | Contents |
 |------|----------|
 | `src/biome.rs` | `BiomeTile` — fertility, food, movement_speed, visibility; BFS barren cluster init |
-| `src/brain.rs` | Hand-rolled 5→12→12→12→8 MLP, 488 weights, ReLU, softmax, multinomial sample |
+| `src/brain.rs` | Hand-rolled 5→12→12→12→8 MLP, 488 weights, ReLU, sigmoid output gates (softmax/sample retained but dead — see D1) |
 | `src/genome.rs` | `Genome` + `Traits` (12 fields), mutation with D3 locked traits, `effective_mutation_rate` (D4) |
 | `src/memory.rs` | `AgentMemory` — 10-action ring buffer, success detection, suppression factor |
 | `src/cluster.rs` | Dual k-means: genome (euclidean, k=6) + brain (cosine via normalized euclidean, k=24), k-means++ init |
@@ -144,7 +144,7 @@ Outputs [0] seek_weight          → force toward nearest food
 
 | ID | Decision |
 |----|----------|
-| D1 | Softmax-sampled action (not argmax) |
+| D1 | ~~Softmax-sampled action (not argmax)~~ **Superseded by Pass A.** The continuous-space physics refactor replaced discrete softmax-sampled action selection with independent per-output **sigmoid gates** (`sigmoid_outputs`): steering needs several simultaneous continuous force weights, not one mutually-exclusive action drawn from a probability simplex — softmax action selection had no meaning once agents moved by force integration instead of grid steps. `softmax`/`sample_action` remain in `brain.rs` (dead, `#[allow(dead_code)]`) for the Python-parity golden harness. |
 | D2 | Food unit = 33.3 energy |
 | D3 | `energy_capacity`, `mutation_rate` locked — skip RNG draw in mutate |
 | D4 | `effective_mutation_rate: f32` separate heritable field; suppressed at reproduction by memory |

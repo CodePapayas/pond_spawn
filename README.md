@@ -22,6 +22,45 @@
 
 *************************
 
+## ⚙️ RUST REFACTOR — READ THIS FIRST
+*************************
+
+**The simulation has been refactored from Python to Rust.** The canonical
+engine is now [`pond_core`](pond_core/README.md) — a pure-Rust, deterministic,
+WASM-compilable crate — driven in the browser by the [`pond_web`](pond_web/)
+Canvas2D renderer. The Python code documented below is the **original reference
+implementation** and no longer reflects the live sim.
+
+See [`REFACTOR_RUST_BEVY.md`](REFACTOR_RUST_BEVY.md) for the full refactor log
+and [`pond_core/README.md`](pond_core/README.md) for the engine + renderer spec.
+
+What the refactor changed at a glance:
+
+- **Engine:** Python + PyTorch → hand-rolled Rust MLP (`5→12→12→12→8`, 488
+  weights), SoA `World`, `ChaCha8Rng` determinism, native + WASM targets.
+- **Physics:** discrete tile actions (MOVE/TURN/EAT) → continuous-space
+  steering forces (seek/wander/separate) + sigmoid trigger gates
+  (eat/reproduce/sleep). Positions are `f32`, interpolated between 20 Hz ticks.
+- **Renderer (`pond_web`):** trait-driven agent **morphology** (body shape
+  reads genome traits), **Oklch color smoothing** so cluster reassignments fade
+  instead of flashing, stable cluster labels across k-means re-fits, a
+  click-to-inspect **neuron panel**, a color/shape **legend**, and a running
+  **average-genome** panel. Pond fills the whole window.
+
+Run the Rust/WASM version:
+
+```bash
+# Build the engine to WASM
+wasm-pack build pond_core --target web --features wasm
+
+# Serve the repo root and open /pond_web/ in a browser
+python3 -m http.server
+```
+
+*Everything below documents the legacy Python sim, kept for reference.*
+
+*************************
+
 ## RUNNING THE SIMULATION
 *************************
 

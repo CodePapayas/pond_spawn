@@ -22,9 +22,14 @@ canvas { display: block; }
 #hint {
   position: fixed;
   bottom: 16px; left: 16px;
-  color: rgba(80, 120, 180, 0.45);
-  font-size: 11px;
-  line-height: 1.8;
+  color: rgba(190, 230, 240, 0.95);
+  font-size: 14px;
+  line-height: 1.9;
+  background: rgba(6, 14, 24, 0.88);
+  border: 1px solid rgba(60, 220, 180, 0.3);
+  border-radius: 6px;
+  padding: 10px 14px;
+  text-shadow: none;
   pointer-events: none;
 }
 
@@ -40,6 +45,83 @@ canvas { display: block; }
   text-shadow: 0 0 20px rgba(0, 255, 180, 0.6);
   pointer-events: none;
 }
+
+/* ── Shared panel chrome ──────────────────────────────────────────────── */
+.panel {
+  position: fixed;
+  background: rgba(4, 10, 18, 0.88);
+  border: 1px solid rgba(60, 220, 180, 0.18);
+  border-radius: 6px;
+  color: rgba(170, 210, 220, 0.85);
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.panel h2 {
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(60, 220, 180, 0.8);
+  margin-bottom: 8px;
+}
+.panel h2:not(:first-child) { margin-top: 12px; }
+
+/* ── Legend + genome (right) ──────────────────────────────────────────── */
+#side-right {
+  top: 16px; right: 16px;
+  width: 230px;
+  display: block;   /* legend on by default; L toggles */
+}
+.legend-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+.legend-swatch {
+  width: 12px; height: 12px; border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 6px currentColor;
+}
+.legend-glyph { flex-shrink: 0; width: 34px; height: 16px; opacity: 0.9; }
+.legend-count { margin-left: auto; color: rgba(120, 160, 175, 0.7); }
+.legend-note { color: rgba(110, 140, 155, 0.6); font-size: 10px; margin-top: 4px; }
+
+.trait-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+.trait-name { width: 74px; flex-shrink: 0; color: rgba(140, 180, 190, 0.8); }
+.trait-name.locked { color: rgba(100, 120, 130, 0.5); }
+.trait-track {
+  flex: 1; height: 8px; position: relative;
+  background: rgba(60, 220, 180, 0.08);
+  border-radius: 4px; overflow: hidden;
+}
+.trait-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  background: rgba(60, 220, 180, 0.55);
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+.trait-row.dominant .trait-fill { background: rgba(255, 185, 0, 0.75); }
+.trait-row.dominant .trait-name { color: rgba(255, 205, 90, 0.9); }
+.trait-spark { width: 46px; height: 14px; flex-shrink: 0; opacity: 0.8; }
+.trait-val { width: 34px; text-align: right; color: rgba(120, 160, 175, 0.75); flex-shrink: 0; }
+
+/* ── Inspector (left, below the HUD stats so it never covers them) ────── */
+#inspector {
+  top: 140px; left: 16px;
+  width: 304px;
+  max-height: calc(100vh - 160px);
+  display: none;
+}
+#insp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+#insp-swatch {
+  width: 12px; height: 12px; border-radius: 50%;
+  box-shadow: 0 0 6px currentColor;
+}
+#insp-id { color: rgba(60, 220, 180, 0.9); }
+#insp-status { margin-left: auto; color: rgba(255, 120, 120, 0.85); }
+.insp-bar-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+.insp-bar-row .trait-name { width: 52px; }
+#insp-net { display: block; margin-top: 8px; background: rgba(0,0,0,0.25); border-radius: 4px; }
+#insp-note { color: rgba(110, 140, 155, 0.6); font-size: 10px; margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -54,11 +136,42 @@ canvas { display: block; }
 </div>
 
 <div id="hint">
-  drag → stir &nbsp;·&nbsp; dblclick → pour agents<br>
-  space → pause &nbsp;·&nbsp; +/- → speed
+  click agent → inspect &nbsp;·&nbsp; drag → stir &nbsp;·&nbsp; dblclick → pour agents<br>
+  space → pause &nbsp;·&nbsp; +/- → speed &nbsp;·&nbsp; l → legend &nbsp;·&nbsp; esc → deselect
 </div>
 
 <div id="paused-banner">paused</div>
+
+<!-- Right side: legend (colors + shapes) and running average genome -->
+<div id="side-right" class="panel">
+  <h2>colors — genome family</h2>
+  <div id="legend-colors"></div>
+  <div class="legend-note">kinship clusters, re-fit every 50 steps; label colors persist across re-fits</div>
+
+  <h2>shapes — traits</h2>
+  <div id="legend-shapes"></div>
+
+  <h2>tiles</h2>
+  <div id="legend-tiles"></div>
+
+  <h2>average genome</h2>
+  <div id="genome-panel"></div>
+  <div class="legend-note">population mean per trait; amber = dominant (furthest above range midpoint); dotted history ≈ last 1200 steps</div>
+</div>
+
+<!-- Left side: click-to-inspect brain panel -->
+<div id="inspector" class="panel">
+  <div id="insp-head">
+    <div id="insp-swatch"></div>
+    <div id="insp-id">agent —</div>
+    <div id="insp-status"></div>
+  </div>
+  <div class="insp-bar-row"><span class="trait-name">energy</span><div class="trait-track"><div class="trait-fill" id="insp-energy"></div></div></div>
+  <div class="insp-bar-row"><span class="trait-name">age</span><div class="trait-track"><div class="trait-fill" id="insp-age"></div></div></div>
+  <div id="insp-traits"></div>
+  <canvas id="insp-net" width="280" height="330"></canvas>
+  <div id="insp-note">node brightness = activation &middot; right bars = sigmoid steering gates the sim acts on</div>
+</div>
 
 <script type="module" src="renderer.js"></script>
 </body>

@@ -5,7 +5,7 @@ use rand::{Rng, SeedableRng, seq::SliceRandom};
 use rand_chacha::ChaCha8Rng;
 
 use crate::biome::{BiomeTile, MAX_FOOD_PER_TILE};
-use crate::brain::{forward as brain_forward, sigmoid_outputs};
+use crate::brain::{forward as brain_forward, forward_traced, sigmoid_outputs};
 use crate::cluster::ClusterState;
 use crate::genome::Genome;
 use crate::memory::{AgentMemory, SUCCESS_SCALAR};
@@ -33,7 +33,7 @@ const MAX_FORCE: f32 = 8.0;             // steering acceleration magnitude cap
 const WANDER_FORCE: f32 = 2.5;          // wander perturbation strength
 const SEPARATION_RADIUS: f32 = 1.2;     // repulsion radius in tiles
 const VISION_SCALE: f32 = 3.0;          // vision_trait × VISION_SCALE = radius in tiles
-const MOVE_COST: f64 = 0.12;            // energy per tile traveled × metabolism
+const MOVE_COST: f64 = 0.15;            // energy per tile traveled × terrain_speed × metabolism
 
 // ── Economy constants ─────────────────────────────────────────────────────────
 const MATURITY_AGE: u32 = 100;
@@ -42,7 +42,9 @@ const BIRTH_FAIL_CHANCE: f64 = 0.02;
 const FAIL_COUNTS_CHANCE: f64 = 0.20;
 const FOOD_ENERGY: f64 = 33.3;
 const MAX_ENERGY_BASE: f64 = 100.0;
-const BIRTH_ENERGY_TRANSFER: f64 = 0.40;
+// Tile can't be fed from again for this many ticks after last eat — stops one
+// camper parking on a tile and eating every tick regardless of regen rate.
+const EAT_COOLDOWN_TICKS: u32 = 8;
 
 // ── Death ─────────────────────────────────────────────────────────────────────
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -111,6 +113,10 @@ pub struct World {
     spatial: SpatialHashGrid,
     pub cluster: ClusterState,
 
+    // Per-tile eat bookkeeping (crowding contention + cooldown)
+    tile_last_eaten: Vec<Option<u32>>,
+    tile_eat_count_this_tick: Vec<u16>,
+
     // Pre-allocated scratch buffers — cleared and reused each step
     scratch_acting: Vec<usize>,
     scratch_dead: Vec<usize>,
@@ -156,6 +162,8 @@ impl World {
             death_tally: HashMap::new(),
             spatial,
             cluster: ClusterState::new(),
+            tile_last_eaten: vec![None; grid_size * grid_size],
+            tile_eat_count_this_tick: vec![0u16; grid_size * grid_size],
             scratch_acting: Vec::new(),
             scratch_dead: Vec::new(),
             scratch_perceptions: Vec::new(),
@@ -194,6 +202,62 @@ impl World {
         }
     }
 
+    /// Population mean of each of the 9 genome traits over living agents,
+    /// in Traits field order: vision, speed, metabolism, energy_capacity,
+    /// mutation_rate, reproduction_cost, attack, defense, aggression.
+    pub fn trait_means(&self) -> [f64; 9] {
+        let mut sums = [0f64; 9];
+        let mut count = 0usize;
+        for i in 0..self.ids.len() {
+            if self.cause_of_death[i].is_some() { continue; }
+            let t = &self.genome[i].traits;
+            for (s, v) in sums.iter_mut().zip([
+                t.vision, t.speed, t.metabolism, t.energy_capacity,
+                t.mutation_rate, t.reproduction_cost, t.attack, t.defense, t.aggression,
+            ]) { *s += v; }
+            count += 1;
+        }
+        if count > 0 {
+            for s in sums.iter_mut() { *s /= count as f64; }
+        }
+        sums
+    }
+
+    /// Debug snapshot of one agent's brain for the inspector panel. Runs a
+    /// pure traced forward pass on the agent's current perception — no RNG
+    /// consumed, no state mutated, so calling it never perturbs the sim.
+    /// Layout: [5 inputs | 12 h0 | 12 h1 | 12 h2 | 8 logits | 8 sigmoid gates
+    ///          | energy_norm | age_norm | 9 traits] = 68 floats.
+    /// Returns None if the id is not alive.
+    pub fn inspect_agent(&self, id: u32) -> Option<Vec<f32>> {
+        let idx = self.ids.iter().position(|&i| i == id)?;
+        if self.cause_of_death[idx].is_some() { return None; }
+
+        let input = self.perceive(idx);
+        let (h0, h1, h2, logits) = forward_traced(self.genome[idx].weights_array(), input);
+        let gates = sigmoid_outputs(logits);
+
+        let max_e = MAX_ENERGY_BASE * self.genome[idx].traits.energy_capacity;
+        let energy_norm = (self.energy[idx] / max_e).clamp(0.0, 1.0) as f32;
+        let age_norm = (self.age[idx] as f64 / self.death_age[idx] as f64).clamp(0.0, 1.0) as f32;
+        let t = &self.genome[idx].traits;
+
+        let mut out = Vec::with_capacity(68);
+        out.extend_from_slice(&input);
+        out.extend_from_slice(&h0);
+        out.extend_from_slice(&h1);
+        out.extend_from_slice(&h2);
+        out.extend_from_slice(&logits);
+        out.extend_from_slice(&gates);
+        out.push(energy_norm);
+        out.push(age_norm);
+        for v in [t.vision, t.speed, t.metabolism, t.energy_capacity,
+                  t.mutation_rate, t.reproduction_cost, t.attack, t.defense, t.aggression] {
+            out.push(v as f32);
+        }
+        Some(out)
+    }
+
     /// Spawn agents at random positions within `radius` tiles of (cx, cy).
     pub fn pour_agents(&mut self, cx: f32, cy: f32, count: usize) {
         let world_size = self.grid_size as f32;
@@ -215,6 +279,7 @@ impl World {
 
         // Phase 1: food regen
         self.tick_food_regen();
+        for c in self.tile_eat_count_this_tick.iter_mut() { *c = 0; }
 
         // Phase 2: age / passive metabolism drain / natural death
         self.scratch_dead.clear();
@@ -268,7 +333,8 @@ impl World {
 
         // Phase 10: dual k-means clustering every 50 steps
         if self.step_count % 50 == 0 && !self.genome.is_empty() {
-            self.cluster = ClusterState::run(&self.genome, 6, 24, self.step_count);
+            let prev = std::mem::take(&mut self.cluster);
+            self.cluster = ClusterState::run(&self.genome, 6, 24, self.step_count, Some(&prev));
         }
     }
 
@@ -346,7 +412,8 @@ impl World {
         let world_size = self.grid_size as f32;
 
         // [0] energy
-        let energy_norm = (self.energy[idx] / 100.0).clamp(0.0, 1.0) as f32;
+        let max_e = MAX_ENERGY_BASE * self.genome[idx].traits.energy_capacity;
+        let energy_norm = (self.energy[idx] / max_e).clamp(0.0, 1.0) as f32;
 
         // [1,2] nearest food tile distance + angle relative to velocity
         let (food_dist_norm, food_angle_norm) =
@@ -500,9 +567,14 @@ impl World {
         self.vel_x[idx] = nvx;
         self.vel_y[idx] = nvy;
 
-        // Movement energy cost proportional to distance traveled
+        // Movement energy cost proportional to distance traveled, scaled by the
+        // terrain speed modifier of the tile departed from (RULES.md: terrain_speed
+        // × speed × metabolism × 0.15 — speed itself is already baked into dist via
+        // the velocity cap above).
         let dist = (nvx * nvx + nvy * nvy).sqrt() * DT as f32;
-        self.energy[idx] -= dist as f64 * metabolism * MOVE_COST;
+        let (otx, oty) = SpatialHashGrid::tile_of(px, py, self.grid_size);
+        let terrain_speed = self.tiles[oty * self.grid_size + otx].movement_speed;
+        self.energy[idx] -= dist as f64 * terrain_speed * metabolism * MOVE_COST;
 
         // Record dominant output index for memory ring buffer
         let dominant = outputs.iter().enumerate()
@@ -511,17 +583,28 @@ impl World {
             .unwrap_or(OUT_WANDER as u8);
         self.memory[idx].record_action(dominant);
 
-        // Discrete triggers
-        if outputs[OUT_EAT] > 0.5 {
-            self.do_eat(idx);
-        }
-        if outputs[OUT_SLEEP] > 0.5 {
-            // Give back half passive drain: net drain = 0.05 * metabolism instead of 0.1
-            self.energy[idx] += 0.05 * metabolism;
-            self.memory[idx].record_action(TAG_SLEEP);
-        }
-        if outputs[OUT_REPRODUCE] > 0.5 {
-            return self.do_reproduce(idx);
+        // Discrete triggers are mutually exclusive per tick — the strongest gate above
+        // threshold wins. Previously all three fired independently in the same tick
+        // (free sleep alongside eat/reproduce/movement), which made SLEEP a dominant,
+        // no-cost strategy.
+        let gates = [
+            (OUT_EAT, outputs[OUT_EAT]),
+            (OUT_REPRODUCE, outputs[OUT_REPRODUCE]),
+            (OUT_SLEEP, outputs[OUT_SLEEP]),
+        ];
+        if let Some(&(winner, _)) = gates.iter()
+            .filter(|&&(_, v)| v > 0.5)
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        {
+            if winner == OUT_EAT {
+                self.do_eat(idx);
+            } else if winner == OUT_SLEEP {
+                // RULES.md: sleep gain is 0.15 * metabolism (was 0.05 — matches code to spec).
+                self.energy[idx] += 0.15 * metabolism;
+                self.memory[idx].record_action(TAG_SLEEP);
+            } else if winner == OUT_REPRODUCE {
+                return self.do_reproduce(idx);
+            }
         }
 
         None
@@ -588,17 +671,32 @@ impl World {
         let (tx, ty) = SpatialHashGrid::tile_of(self.pos_x[idx], self.pos_y[idx], self.grid_size);
         let tile_idx = ty * self.grid_size + tx;
         if self.tiles[tile_idx].food_units == 0 { return; }
+
+        // Per-tile cooldown: a tile just fed from can't be fed from again for a
+        // while, independent of regen. Stops a single parked camper eating the
+        // same tile every tick.
+        if let Some(last) = self.tile_last_eaten[tile_idx] {
+            if self.step_count.saturating_sub(last) < EAT_COOLDOWN_TICKS { return; }
+        }
+
         let ec = self.genome[idx].traits.energy_capacity;
         let max_e = MAX_ENERGY_BASE * ec;
         let needed = max_e - self.energy[idx];
-        if needed > 0.0 {
-            let gained = FOOD_ENERGY.min(needed);
-            self.energy[idx] += gained;
-            self.tiles[tile_idx].food_units -= 1;
-            let threshold = self.genome[idx].traits.metabolism * SUCCESS_SCALAR;
-            if gained > threshold {
-                self.memory[idx].record_success(TAG_EAT);
-            }
+        if needed <= 0.0 { return; }
+
+        // Crowding contention: agents eating the same tile in the same tick split
+        // that tile's food value instead of each getting the full amount.
+        let prior_claims = self.tile_eat_count_this_tick[tile_idx];
+        self.tile_eat_count_this_tick[tile_idx] += 1;
+        let share = FOOD_ENERGY / (1.0 + prior_claims as f64);
+
+        let gained = share.min(needed);
+        self.energy[idx] += gained;
+        self.tiles[tile_idx].food_units -= 1;
+        self.tile_last_eaten[tile_idx] = Some(self.step_count);
+        let threshold = self.genome[idx].traits.metabolism * SUCCESS_SCALAR;
+        if gained > threshold {
+            self.memory[idx].record_success(TAG_EAT);
         }
     }
 
@@ -635,7 +733,7 @@ impl World {
         let suppression = self.memory[idx].suppression(0.05);
         let child_genome = self.genome[idx].mutate(&mut self.rng, suppression);
         let parent_defense = self.genome[idx].traits.defense;
-        let child_energy = cost * BIRTH_ENERGY_TRANSFER;
+        let child_energy = cost;
 
         self.memory[idx].record_action(TAG_REPRODUCE);
 
@@ -679,14 +777,24 @@ impl World {
                     let metabolism = self.genome[attacker].traits.metabolism;
                     self.energy[attacker] -= 0.2 * metabolism;
 
-                    if atk > v_def * 0.66 {
+                    // Attack cost can itself be lethal — check before the attacker
+                    // fights on with <=0 energy and self-rescues via eat next tick.
+                    if self.energy[attacker] <= 0.0 {
+                        self.cause_of_death[attacker] = Some(CauseOfDeath::Starvation);
+                        self.lifespans.push(self.age[attacker]);
+                        self.scratch_dead.push(attacker);
+                        continue;
+                    }
+
+                    // Win chance scales continuously with atk vs def instead of fixed
+                    // thresholds. Old thresholds (defender wins iff atk <= def*0.33) were
+                    // unreachable for adults given trait bounds (atk min 0.5, def max
+                    // 1.07 -> def*0.33 max 0.353 < atk min), making combat a guaranteed
+                    // win above atk 0.706 and a coinflip below it — no counter-pressure
+                    // against high aggression.
+                    let p_win = atk / (atk + v_def);
+                    if self.rng.gen::<f64>() < p_win {
                         self.passive_eat(attacker, victim);
-                    } else if atk > v_def * 0.33 {
-                        if self.rng.gen::<f64>() >= 0.5 {
-                            self.passive_eat(attacker, victim);
-                        } else {
-                            self.passive_eat(victim, attacker);
-                        }
                     } else {
                         self.passive_eat(victim, attacker);
                     }
@@ -906,9 +1014,7 @@ fn create_death_range(rng: &mut ChaCha8Rng) -> Vec<u32> {
 }
 
 fn assign_death_age(pool: &[u32], rng: &mut ChaCha8Rng) -> u32 {
-    let candidates: Vec<u32> = pool.iter().copied().filter(|&v| v > 0).collect();
-    if candidates.is_empty() { return 750; }
-    *candidates.choose(rng).unwrap()
+    pool.choose(rng).copied().unwrap_or(750)
 }
 
 fn median(v: &[u32]) -> f64 {
