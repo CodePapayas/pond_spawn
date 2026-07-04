@@ -15,7 +15,7 @@
 ![Language](https://img.shields.io/badge/language-python-blue)
 
 ### With visuals
-![Simulation Visualization GIF](assets/gifs/visual_sim.gif)
+![Simulation Visualization GIF](assets/gifs/rust_pond.gif)
 
 ### Without visuals (print to console)
 ![Simulation GIF](assets/gifs/sim_gif_looped.gif)
