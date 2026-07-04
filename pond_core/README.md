@@ -4,7 +4,7 @@ Pure Rust simulation engine for pond_spawn. Compiles to native (headless) or WAS
 
 > **This crate is the product of two refactors.** (1) The **engine refactor**
 > ported the simulation from Python + PyTorch to this deterministic Rust crate —
-> full history in [`../REFACTOR_RUST_BEVY.md`](../REFACTOR_RUST_BEVY.md). (2) The
+> full history in [`../REFACTOR_RUST_ROADMAP.md`](../REFACTOR_RUST_ROADMAP.md). (2) The
 > **renderer/visualization refactor** rebuilt `pond_web/` around trait-driven
 > agent morphology, Oklch color smoothing, stable cluster labels, and
 > interactive inspection panels — summarized in

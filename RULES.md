@@ -2,7 +2,7 @@
 
 > **Canonical implementation: Rust `pond_core`.** These rules were refactored
 > from the original Python sim to the Rust engine (see
-> [`REFACTOR_RUST_BEVY.md`](REFACTOR_RUST_BEVY.md) and
+> [`REFACTOR_RUST_ROADMAP.md`](REFACTOR_RUST_ROADMAP.md) and
 > [`pond_core/README.md`](pond_core/README.md)). Where a mechanic differs
 > between the two, **`pond_core` is authoritative** and the difference is
 > tagged inline below. The biggest refactor change: discrete tile actions
