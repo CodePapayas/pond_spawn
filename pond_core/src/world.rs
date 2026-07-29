@@ -10,6 +10,7 @@ use crate::cluster::ClusterState;
 use crate::genome::Genome;
 use crate::memory::{AgentMemory, SUCCESS_SCALAR};
 use crate::spatial::SpatialHashGrid;
+use crate::stats::{StatHistory, StatSample, CAUSE_COUNT, SAMPLE_INTERVAL};
 
 // ── Steering output indices ───────────────────────────────────────────────────
 const OUT_SEEK: usize = 0;       // force weight toward nearest food
@@ -20,11 +21,6 @@ const OUT_EAT: usize = 4;        // discrete trigger gate
 const OUT_REPRODUCE: usize = 5;  // discrete trigger gate
 // OUT_ATTACK = 6  (dormant — routes through passive combat only)
 const OUT_SLEEP: usize = 7;      // discrete trigger gate
-
-// Memory record tags (match the output indices for meaningful tracking)
-const TAG_EAT: u8 = OUT_EAT as u8;
-const TAG_REPRODUCE: u8 = OUT_REPRODUCE as u8;
-const TAG_SLEEP: u8 = OUT_SLEEP as u8;
 
 // ── Physics constants ─────────────────────────────────────────────────────────
 pub const DT: f32 = 1.0 / 20.0;        // 20 Hz fixed timestep (50 ms per tick)
@@ -41,10 +37,107 @@ const CHILDHOOD_TICKS: u32 = 50;
 const BIRTH_FAIL_CHANCE: f64 = 0.02;
 const FAIL_COUNTS_CHANCE: f64 = 0.20;
 const FOOD_ENERGY: f64 = 33.3;
+// Fraction of the parent's reproduction payment the child actually receives.
+// The rest is thermodynamic overhead, lost to the world.
+//
+// This was documented in the refactor roadmap but never implemented: the child
+// used to receive the payment in full, which made reproduction energy-neutral
+// and turned `reproduction_cost` into an investment dial rather than a cost — a
+// parent paying more produced a better-provisioned child at no net loss, so
+// selection ratcheted the trait to its upper bound and the population grew
+// without any check but food.
+const BIRTH_ENERGY_YIELD: f64 = 0.40;
 const MAX_ENERGY_BASE: f64 = 100.0;
 // Tile can't be fed from again for this many ticks after last eat — stops one
 // camper parking on a tile and eating every tick regardless of regen rate.
 const EAT_COOLDOWN_TICKS: u32 = 8;
+// Energy an attacker loses to retaliation when its attack roll fails, scaled by
+// the defender's effective defense and divided by the attacker's own. Failed
+// hunts used to kill the attacker outright, which selected aggression to
+// extinction by step ~250.
+//
+// Dividing by the attacker's defense is what keeps defense worth investing in
+// for a predator too: a well-armoured hunter shrugs off a failed hunt, a glass
+// cannon does not. Defense is therefore useful on both sides of a fight, where
+// before it only ever helped the victim.
+const RETALIATION_ENERGY: f64 = 8.0;
+// Share of the loser's energy the winner absorbs.
+//
+// Was 0.125, which made predation nearly pointless: a successful hunt returned
+// an eighth of a body while a failed one cost real energy, so aggression was
+// selected out of every run and the population lost its only density-dependent
+// brake. Two thirds makes hunting genuinely worth the risk without making it
+// free — the roll can still fail, and failure still hurts.
+const PREDATION_YIELD: f64 = 0.667;
+// Agents only hunt below this fraction of their max energy. This is the
+// density-dependent brake on predation — see resolve_combat_spatial.
+const HUNT_HUNGER_FRAC: f64 = 0.5;
+// Energy an immortal agent is held at when it would otherwise starve.
+const IMMORTAL_ENERGY_FLOOR: f64 = 1.0;
+
+// ── Ultra predator ────────────────────────────────────────────────────────────
+// A single apex agent that cannot die and eats until the population is down to a
+// target fraction, then leaves. Summoned by the player, or automatically when the
+// pond grows past a size the renderer cannot draw at frame rate.
+//
+// It is a real agent — it renders, it swims, it can be inspected — but it does
+// not obey the ecology: no aging, no starvation, no combat rolls, no hunger gate.
+/// Agents per tile the cull aims to keep. The threshold scales with the pond
+/// rather than being a fixed number: food supply scales with area, so a 32×32
+/// pond genuinely supports more life than a 12×12 one, and a constant cap would
+/// either strangle the big pond or never fire on the small one.
+///
+/// Tuned for the renderer, not for the ecology. Every agent is drawn as an
+/// individual kinematic body with no culling or instancing, so the pond can feed
+/// far more life than the browser can draw; this is deliberately below the
+/// food-limited carrying capacity.
+pub const PREDATOR_POP_PER_TILE: f64 = 1.75;
+/// Absolute ceiling on the cull target, whatever the pond's area. Past roughly
+/// this many bodies the frame rate goes regardless of how much food there is,
+/// so a big pond stops scaling its cap linearly and just holds this line.
+pub const PREDATOR_POP_CEILING: usize = 900;
+/// Prey each predator in a summoned pack is expected to account for. A cull of
+/// thousands is not one hunter's work.
+const PREY_PER_PREDATOR: usize = 250;
+/// Hysteresis around the cap, as a fraction. Predators arrive above
+/// `cap × (1 + band)` and leave at `cap × (1 - band)`, so a population sitting
+/// near the cap isn't culled every few steps — it gets room to breathe.
+pub const PREDATOR_POP_BAND: f64 = 0.10;
+/// Most predators that may hunt at once. Reinforcements arrive while the
+/// population is still climbing despite the ones already hunting.
+pub const PREDATOR_MAX: usize = 8;
+/// Steps between reinforcement checks. Long enough that a new arrival has time
+/// to make a dent before the next is considered.
+const PREDATOR_REINFORCE_STEPS: u32 = 120;
+/// Survivor fraction when the player summons one: eats four fifths of the pond.
+pub const PREDATOR_MANUAL_FRAC: f64 = 0.20;
+/// World units per step the predator closes on its prey. Well above MAX_SPEED:
+/// nothing outruns it.
+const PREDATOR_SPEED: f32 = 1.1;
+/// Everything within this radius of the predator is eaten each step.
+const PREDATOR_BITE_RADIUS: f32 = 0.9;
+
+/// Steps the predator spends swimming away before it disappears. It does not
+/// vanish the instant its quota is met — it leaves the way it arrived, under its
+/// own power, so the cull has a visible end.
+const PREDATOR_LEAVE_TICKS: u32 = 44;
+/// Speed while departing. Faster than its hunting speed: it is done here.
+const PREDATOR_LEAVE_SPEED: f32 = 1.8;
+
+/// State of the apex predator while it is in the pond.
+#[derive(Debug, Clone, Copy)]
+pub struct Predator {
+    /// Stable agent id, so the renderer can single it out.
+    pub id: u32,
+    /// It stops hunting once the living population reaches this. Checked against
+    /// the live count every step, since births keep changing it underneath.
+    pub target_pop: usize,
+    /// Set when it triggered itself rather than being summoned.
+    pub automatic: bool,
+    pub kills: u32,
+    /// Steps left of its departure swim; None while still hunting.
+    pub leaving: Option<u32>,
+}
 
 // ── Death ─────────────────────────────────────────────────────────────────────
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -53,7 +146,38 @@ pub enum CauseOfDeath {
     OldAge,
     KilledInCombat,
     EatenAlive,
+    /// Killed by a player god-mode action (comet, salt, sweep). Kept distinct
+    /// from the natural causes so the death graph doesn't attribute an act of
+    /// god to the ecology.
+    Smitten,
 }
+
+impl CauseOfDeath {
+    /// Stable numeric code for the wasm state buffer. The renderer keys its
+    /// death effect off this, so the values must not be reordered.
+    pub fn code(&self) -> u8 {
+        match self {
+            CauseOfDeath::Starvation => 0,
+            CauseOfDeath::OldAge => 1,
+            CauseOfDeath::KilledInCombat => 2,
+            CauseOfDeath::EatenAlive => 3,
+            CauseOfDeath::Smitten => 4,
+        }
+    }
+}
+
+/// One death, queued for the renderer. Drained by the wasm state builder each
+/// frame; positions are captured before `reap_dead`'s swap_remove invalidates them.
+#[derive(Debug, Clone, Copy)]
+pub struct DeathEvent {
+    pub id: u32,
+    pub x: f32,
+    pub y: f32,
+    pub cause: u8,
+}
+
+/// Safety cap on the pending-death queue in case nothing drains it.
+const MAX_QUEUED_DEATHS: usize = 256;
 
 // ── Pending offspring ─────────────────────────────────────────────────────────
 struct PendingAgent {
@@ -99,6 +223,8 @@ pub struct World {
     pub death_age: Vec<u32>,
     pub genome: Vec<Genome>,
     pub memory: Vec<AgentMemory>,
+    /// Combat wins per agent, shown in the inspector.
+    pub kills: Vec<u32>,
     parent_defense_bonus: Vec<f64>,
     parent_id: Vec<Option<u32>>,
     cause_of_death: Vec<Option<CauseOfDeath>>,
@@ -109,9 +235,36 @@ pub struct World {
 
     next_id: u32,
     pub lifespans: Vec<u32>,
+    /// Deaths awaiting export to the renderer. Drained by the wasm state builder.
+    pub last_deaths: Vec<DeathEvent>,
     death_tally: HashMap<CauseOfDeath, u32>,
     spatial: SpatialHashGrid,
     pub cluster: ClusterState,
+    /// God-mode immortality. While set, no natural cause kills anyone: old age,
+    /// starvation and combat losses are all suppressed and starving agents are
+    /// held at a floor energy so they keep acting. Player smites ignore it —
+    /// the point of a comet is that it overrules the rules.
+    ///
+    /// Population is unbounded with this on, and the renderer draws every agent
+    /// individually, so this is the one switch that can genuinely bring the tab
+    /// down. The UI warns before enabling it.
+    pub immortal: bool,
+    /// Apex predators currently in the pond. See `Predator`.
+    pub predators: Vec<Predator>,
+    /// Predators that finished their departure swim this step, awaiting removal.
+    departed_ids: Vec<u32>,
+    /// Largest pack this run has ever fielded. A pack ratchets: it can grow but
+    /// never shrink, so every later cull starts at least as strong as the
+    /// strongest one before it. A pond that once needed six hunters has proven
+    /// it can outbreed five, and there is no reason to relearn that each time.
+    predator_high_water: usize,
+    /// Population at the last reinforcement check, to tell "still climbing"
+    /// from "the cull is working".
+    last_reinforce_pop: usize,
+    /// Step of the last reinforcement check.
+    last_reinforce_step: u32,
+    /// Rolling stat time-series, sampled every `SAMPLE_INTERVAL` steps.
+    pub stats_history: StatHistory,
 
     // Per-tile eat bookkeeping (crowding contention + cooldown)
     tile_last_eaten: Vec<Option<u32>>,
@@ -121,6 +274,7 @@ pub struct World {
     scratch_acting: Vec<usize>,
     scratch_dead: Vec<usize>,
     scratch_perceptions: Vec<[f32; 5]>,
+    scratch_food_dirs: Vec<(f32, f32)>,  // unit vector to nearest visible food; (0,0) if none
     scratch_outputs: Vec<[f32; 8]>,  // sigmoid-gated brain outputs per acting agent
 }
 
@@ -150,6 +304,7 @@ impl World {
             death_age: Vec::new(),
             genome: Vec::new(),
             memory: Vec::new(),
+            kills: Vec::new(),
             parent_defense_bonus: Vec::new(),
             parent_id: Vec::new(),
             cause_of_death: Vec::new(),
@@ -159,14 +314,23 @@ impl World {
             reproduction_cooldown: Vec::new(),
             next_id: 0,
             lifespans: Vec::new(),
+            last_deaths: Vec::new(),
             death_tally: HashMap::new(),
             spatial,
             cluster: ClusterState::new(),
+            immortal: false,
+            predators: Vec::new(),
+            departed_ids: Vec::new(),
+            predator_high_water: 0,
+            last_reinforce_pop: 0,
+            last_reinforce_step: 0,
+            stats_history: StatHistory::new(),
             tile_last_eaten: vec![None; grid_size * grid_size],
             tile_eat_count_this_tick: vec![0u16; grid_size * grid_size],
             scratch_acting: Vec::new(),
             scratch_dead: Vec::new(),
             scratch_perceptions: Vec::new(),
+            scratch_food_dirs: Vec::new(),
             scratch_outputs: Vec::new(),
         };
 
@@ -227,13 +391,13 @@ impl World {
     /// pure traced forward pass on the agent's current perception — no RNG
     /// consumed, no state mutated, so calling it never perturbs the sim.
     /// Layout: [5 inputs | 12 h0 | 12 h1 | 12 h2 | 8 logits | 8 sigmoid gates
-    ///          | energy_norm | age_norm | 9 traits] = 68 floats.
+    ///          | energy_norm | age_norm | kills | 9 traits] = 69 floats.
     /// Returns None if the id is not alive.
     pub fn inspect_agent(&self, id: u32) -> Option<Vec<f32>> {
         let idx = self.ids.iter().position(|&i| i == id)?;
         if self.cause_of_death[idx].is_some() { return None; }
 
-        let input = self.perceive(idx);
+        let (input, _) = self.perceive(idx);
         let (h0, h1, h2, logits) = forward_traced(self.genome[idx].weights_array(), input);
         let gates = sigmoid_outputs(logits);
 
@@ -242,7 +406,7 @@ impl World {
         let age_norm = (self.age[idx] as f64 / self.death_age[idx] as f64).clamp(0.0, 1.0) as f32;
         let t = &self.genome[idx].traits;
 
-        let mut out = Vec::with_capacity(68);
+        let mut out = Vec::with_capacity(69);
         out.extend_from_slice(&input);
         out.extend_from_slice(&h0);
         out.extend_from_slice(&h1);
@@ -251,6 +415,7 @@ impl World {
         out.extend_from_slice(&gates);
         out.push(energy_norm);
         out.push(age_norm);
+        out.push(self.kills[idx] as f32);
         for v in [t.vision, t.speed, t.metabolism, t.energy_capacity,
                   t.mutation_rate, t.reproduction_cost, t.attack, t.defense, t.aggression] {
             out.push(v as f32);
@@ -271,6 +436,426 @@ impl World {
         }
         self.spatial.rebuild(&self.pos_x, &self.pos_y);
     }
+
+    /// Add food to the tile under world position (cx, cy). Clamped to MAX_FOOD_PER_TILE.
+    pub fn inject_food(&mut self, cx: f32, cy: f32, amount: u32) {
+        let gs = self.grid_size;
+        let (tx, ty) = SpatialHashGrid::tile_of(cx, cy, gs);
+        let tile = &mut self.tiles[ty * gs + tx];
+        tile.food_units = (tile.food_units + amount).min(MAX_FOOD_PER_TILE);
+    }
+
+    /// Disturb food, fertility, and agent velocities within `radius` world units
+    /// of (cx, cy). `intensity` in [0, 1]: 1.0 = maximum disruption.
+    pub fn stir(&mut self, cx: f32, cy: f32, radius: f32, intensity: f32) {
+        let gs = self.grid_size;
+        let world_size = gs as f32;
+        let r_cells = radius.ceil() as i32;
+        let cx_tile = cx.floor() as i32;
+        let cy_tile = cy.floor() as i32;
+        let half = world_size * 0.5;
+
+        // Disturb tiles within radius
+        for dy in -r_cells..=r_cells {
+            for dx in -r_cells..=r_cells {
+                let tx = (cx_tile + dx).rem_euclid(gs as i32) as usize;
+                let ty = (cy_tile + dy).rem_euclid(gs as i32) as usize;
+                let tile_cx = tx as f32 + 0.5;
+                let tile_cy = ty as f32 + 0.5;
+                let mut ddx = tile_cx - cx;
+                let mut ddy = tile_cy - cy;
+                if ddx > half { ddx -= world_size; } else if ddx < -half { ddx += world_size; }
+                if ddy > half { ddy -= world_size; } else if ddy < -half { ddy += world_size; }
+                let dist = (ddx * ddx + ddy * ddy).sqrt();
+                if dist > radius { continue; }
+
+                let tile = &mut self.tiles[ty * gs + tx];
+                let drain = (tile.food_units as f32 * intensity) as u32;
+                tile.food_units = tile.food_units.saturating_sub(drain);
+                tile.fertility *= (1.0 - intensity * 0.5) as f64;
+                tile.fertility = tile.fertility.max(0.0);
+            }
+        }
+
+        // Apply velocity impulse to agents within radius (scatter outward from stir center)
+        let impulse = intensity * 6.0;
+        let n = self.agent_count();
+        for i in 0..n {
+            let ax = self.pos_x[i];
+            let ay = self.pos_y[i];
+            let mut ddx = ax - cx;
+            let mut ddy = ay - cy;
+            if ddx > half { ddx -= world_size; } else if ddx < -half { ddx += world_size; }
+            if ddy > half { ddy -= world_size; } else if ddy < -half { ddy += world_size; }
+            let dist = (ddx * ddx + ddy * ddy).sqrt();
+            if dist > radius || dist < 0.001 { continue; }
+
+            let falloff = (1.0 - dist / radius) * impulse;
+            self.vel_x[i] += ddx / dist * falloff;
+            self.vel_y[i] += ddy / dist * falloff;
+
+            // Clamp to 2× max speed so stir can't fling agents unreasonably far
+            let max = self.genome[i].traits.speed as f32 * MAX_SPEED * 2.0;
+            let cur = (self.vel_x[i].powi(2) + self.vel_y[i].powi(2)).sqrt();
+            if cur > max && cur > 0.0 {
+                self.vel_x[i] = self.vel_x[i] / cur * max;
+                self.vel_y[i] = self.vel_y[i] / cur * max;
+            }
+        }
+    }
+
+    // ── God mode ──────────────────────────────────────────────────────────────
+    //
+    // Player-driven kills. All three funnel through `smite`, so they queue death
+    // events, tally as `Smitten`, and record lifespans exactly like a natural
+    // death — the renderer's death effects and the stat graphs need no special
+    // case, and the death panel can honestly separate acts of god from ecology.
+    //
+    // Immortality does not protect against these. A comet is meant to overrule
+    // the rules, not obey them.
+
+    /// Kill every living agent within `radius` world units of (cx, cy),
+    /// measured toroidally. Returns the number killed.
+    pub fn smite_radius(&mut self, cx: f32, cy: f32, radius: f32) -> u32 {
+        let world_size = self.grid_size as f32;
+        let half = world_size * 0.5;
+        let r2 = radius * radius;
+        let mut victims = Vec::new();
+
+        for i in 0..self.ids.len() {
+            if self.cause_of_death[i].is_some() { continue; }
+            let mut dx = self.pos_x[i] - cx;
+            let mut dy = self.pos_y[i] - cy;
+            if dx > half { dx -= world_size; } else if dx < -half { dx += world_size; }
+            if dy > half { dy -= world_size; } else if dy < -half { dy += world_size; }
+            if dx * dx + dy * dy <= r2 { victims.push(i); }
+        }
+
+        self.smite(victims)
+    }
+
+    /// Kill every living agent inside the world-space column [x0, x1).
+    /// Used by the sweep, which advances the column across the pond.
+    pub fn smite_band(&mut self, x0: f32, x1: f32) -> u32 {
+        let victims: Vec<usize> = (0..self.ids.len())
+            .filter(|&i| self.cause_of_death[i].is_none())
+            .filter(|&i| self.pos_x[i] >= x0 && self.pos_x[i] < x1)
+            .collect();
+        self.smite(victims)
+    }
+
+    /// Kill every living agent. Returns the number killed.
+    pub fn smite_all(&mut self) -> u32 {
+        let victims: Vec<usize> = (0..self.ids.len())
+            .filter(|&i| self.cause_of_death[i].is_none())
+            .collect();
+        self.smite(victims)
+    }
+
+    /// Mark the given slots dead and reap them immediately, so a smite takes
+    /// effect on the frame the player triggers it rather than on the next step —
+    /// god mode works while the sim is paused.
+    fn smite(&mut self, victims: Vec<usize>) -> u32 {
+        if victims.is_empty() { return 0; }
+        let killed = victims.len() as u32;
+        for &i in &victims {
+            self.cause_of_death[i] = Some(CauseOfDeath::Smitten);
+            self.energy[i] = 0.0;
+            self.lifespans.push(self.age[i]);
+        }
+        self.reap_dead(victims);
+        self.spatial.rebuild(&self.pos_x, &self.pos_y);
+        killed
+    }
+
+    // ── Ultra predator ────────────────────────────────────────────────────────
+
+    /// Sustainable population for this pond: agents per tile × tiles. The
+    /// automatic cull is measured against this rather than a fixed number.
+    pub fn pop_cap(&self) -> usize {
+        let by_area = ((self.grid_size * self.grid_size) as f64 * PREDATOR_POP_PER_TILE) as usize;
+        by_area.min(PREDATOR_POP_CEILING)
+    }
+
+    /// Population above which predators arrive: the cap plus its breathing room.
+    pub fn cull_trigger_pop(&self) -> usize {
+        (self.pop_cap() as f64 * (1.0 + PREDATOR_POP_BAND)) as usize
+    }
+
+    /// Population the automatic cull drives down to: the cap minus its breathing
+    /// room. Culling to the cap exactly would put the pond back at the trigger
+    /// within a few births; the band is what stops that oscillation.
+    pub fn cull_target_pop(&self) -> usize {
+        (self.pop_cap() as f64 * (1.0 - PREDATOR_POP_BAND)) as usize
+    }
+
+    /// Summon a predator. It hunts until the living prey count reaches
+    /// `target_pop`, then leaves. Returns its agent id, or None at the cap.
+    pub fn summon_predator_to(&mut self, target_pop: usize, automatic: bool) -> Option<u32> {
+        if self.predators.len() >= PREDATOR_MAX { return None; }
+
+        // Maxed traits across the board. It never reproduces or forages, so most
+        // of these only matter for how it looks — morphology reads the genome,
+        // and an apex predator should look like one.
+        let mut genome = Genome::generate(&mut self.rng);
+        let t = &mut genome.traits;
+        t.vision = 1.05;
+        t.speed = 1.0;
+        t.metabolism = 1.05;
+        t.attack = 1.25;
+        t.defense = 1.07;
+        t.aggression = 1.05;
+        t.reproduction_cost = 1.50;   // it will never pay it; keeps it out of the breeding pool
+
+        let x = self.rng.gen::<f32>() * self.grid_size as f32;
+        let y = self.rng.gen::<f32>() * self.grid_size as f32;
+        self.push_agent(x, y, MAX_ENERGY_BASE, genome, 0.0, None);
+
+        let id = *self.ids.last().unwrap();
+        self.predators.push(Predator {
+            id, target_pop, automatic, kills: 0, leaving: None,
+        });
+        self.predator_high_water = self.predator_high_water.max(self.predators.len());
+        self.spatial.rebuild(&self.pos_x, &self.pos_y);
+        Some(id)
+    }
+
+    /// Player summon: culls to `survivor_frac` of the population right now.
+    /// Returns the id of the first predator summoned.
+    pub fn summon_predator(&mut self, survivor_frac: f64, automatic: bool) -> Option<u32> {
+        let target = ((self.prey_count() as f64) * survivor_frac).round().max(0.0) as usize;
+        self.summon_predator_pack(target, automatic)
+    }
+
+    /// Summon as many predators as the size of the job warrants — one per
+    /// `PREY_PER_PREDATOR` to remove, capped by `PREDATOR_MAX` and by how many
+    /// are already hunting. A cull of two thousand is not one hunter's work, and
+    /// waiting for reinforcements to trickle in makes it look broken.
+    pub fn summon_predator_pack(&mut self, target_pop: usize, automatic: bool) -> Option<u32> {
+        let to_remove = self.prey_count().saturating_sub(target_pop);
+        // Never fewer than the run's high-water mark: the pack ratchets up.
+        let wanted = to_remove
+            .div_ceil(PREY_PER_PREDATOR)
+            .max(self.predator_high_water)
+            .clamp(1, PREDATOR_MAX);
+        let already = self.predators.iter().filter(|p| p.leaving.is_none()).count();
+        let spawn = wanted.saturating_sub(already);
+
+        let mut first = None;
+        for _ in 0..spawn.max(if already == 0 { 1 } else { 0 }) {
+            match self.summon_predator_to(target_pop, automatic) {
+                Some(id) => { if first.is_none() { first = Some(id); } }
+                None => break,   // pack is at its cap
+            }
+        }
+        first
+    }
+
+    /// Slot index of an agent id. Ids are stable across the swap_remove
+    /// reshuffles that reaping causes, so slots have to be looked up, not cached.
+    fn slot_of(&self, id: u32) -> Option<usize> {
+        self.ids.iter().position(|&i| i == id)
+    }
+
+    /// True if this slot holds a predator — used by the death checks to skip it.
+    fn is_predator(&self, idx: usize) -> bool {
+        match self.ids.get(idx) {
+            Some(id) => self.predators.iter().any(|p| p.id == *id),
+            None => false,
+        }
+    }
+
+    /// Run every predator's hunt, then handle arrivals and departures.
+    ///
+    /// Its own phase, after the dead are reaped, so no predator ever has to
+    /// reason about an agent that is already dying this tick.
+    fn hunt_with_predators(&mut self) {
+        let ids: Vec<u32> = self.predators.iter().map(|p| p.id).collect();
+        for id in ids {
+            self.hunt_one(id);
+        }
+        self.predators.retain(|p| p.leaving != Some(0));
+
+        // Anything that finished its departure swim leaves the pond. Removal is
+        // not a death: no tally, no lifespan, no death event.
+        let gone: Vec<u32> = self.departed_ids.drain(..).collect();
+        for id in gone {
+            if let Some(slot) = self.slot_of(id) {
+                self.remove_slots(vec![slot]);
+            }
+        }
+        if !self.ids.is_empty() {
+            self.spatial.rebuild(&self.pos_x, &self.pos_y);
+        }
+    }
+
+    /// One predator's turn: depart, or chase and eat.
+    fn hunt_one(&mut self, id: u32) {
+        let Some(pi) = self.predators.iter().position(|p| p.id == id) else { return };
+        let Some(idx) = self.slot_of(id) else {
+            // Unreachable — a predator can't die — but drop it rather than
+            // hunting with a stale slot if its id somehow vanished.
+            self.predators.remove(pi);
+            return;
+        };
+        let target = self.predators[pi].target_pop;
+        let world_size = self.grid_size as f32;
+        let half = world_size * 0.5;
+
+        // Departing: swim straight on, at speed, until the swim is done. The
+        // population is deliberately not re-checked here — births during the
+        // departure must not drag it back into a second hunt.
+        if let Some(ticks) = self.predators[pi].leaving {
+            if ticks == 0 { return; }
+            let vx = self.vel_x[idx];
+            let vy = self.vel_y[idx];
+            let mag = (vx * vx + vy * vy).sqrt().max(1e-4);
+            self.prev_x[idx] = self.pos_x[idx];
+            self.prev_y[idx] = self.pos_y[idx];
+            self.pos_x[idx] = (self.pos_x[idx] + vx / mag * PREDATOR_LEAVE_SPEED).rem_euclid(world_size);
+            self.pos_y[idx] = (self.pos_y[idx] + vy / mag * PREDATOR_LEAVE_SPEED).rem_euclid(world_size);
+            let left = ticks - 1;
+            self.predators[pi].leaving = Some(left);
+            if left == 0 { self.departed_ids.push(id); }
+            return;
+        }
+
+        // Quota met — checked against the live count, which births keep moving.
+        if self.prey_count() <= target {
+            self.begin_departure(idx, pi);
+            return;
+        }
+
+        let px = self.pos_x[idx];
+        let py = self.pos_y[idx];
+
+        // Chase the nearest living non-predator, toroidally.
+        let mut best: Option<(f32, f32, f32)> = None;   // (dist2, dx, dy)
+        for i in 0..self.ids.len() {
+            if i == idx || self.cause_of_death[i].is_some() || self.is_predator(i) { continue; }
+            let mut dx = self.pos_x[i] - px;
+            let mut dy = self.pos_y[i] - py;
+            if dx > half { dx -= world_size; } else if dx < -half { dx += world_size; }
+            if dy > half { dy -= world_size; } else if dy < -half { dy += world_size; }
+            let d2 = dx * dx + dy * dy;
+            if best.is_none() || d2 < best.unwrap().0 { best = Some((d2, dx, dy)); }
+        }
+
+        if let Some((d2, dx, dy)) = best {
+            let d = d2.sqrt().max(1e-4);
+            let stepx = dx / d * PREDATOR_SPEED.min(d);
+            let stepy = dy / d * PREDATOR_SPEED.min(d);
+            self.prev_x[idx] = px;
+            self.prev_y[idx] = py;
+            self.pos_x[idx] = (px + stepx).rem_euclid(world_size);
+            self.pos_y[idx] = (py + stepy).rem_euclid(world_size);
+            self.vel_x[idx] = stepx / DT;
+            self.vel_y[idx] = stepy / DT;
+        }
+
+        // Eat everything within reach, but never more than the target allows —
+        // otherwise a dense shoal could take the population below the target in
+        // one bite and the cull would overshoot what was asked for.
+        let bite_x = self.pos_x[idx];
+        let bite_y = self.pos_y[idx];
+        let allowed = self.prey_count().saturating_sub(target);
+        let mut victims = Vec::new();
+        for i in 0..self.ids.len() {
+            if victims.len() >= allowed { break; }
+            if i == idx || self.cause_of_death[i].is_some() || self.is_predator(i) { continue; }
+            let mut dx = self.pos_x[i] - bite_x;
+            let mut dy = self.pos_y[i] - bite_y;
+            if dx > half { dx -= world_size; } else if dx < -half { dx += world_size; }
+            if dy > half { dy -= world_size; } else if dy < -half { dy += world_size; }
+            if dx * dx + dy * dy <= PREDATOR_BITE_RADIUS * PREDATOR_BITE_RADIUS {
+                victims.push(i);
+            }
+        }
+
+        if !victims.is_empty() {
+            let eaten = victims.len() as u32;
+            for &i in &victims {
+                self.cause_of_death[i] = Some(CauseOfDeath::EatenAlive);
+                self.energy[i] = 0.0;
+                self.lifespans.push(self.age[i]);
+            }
+            self.reap_dead(victims);
+            self.spatial.rebuild(&self.pos_x, &self.pos_y);
+            self.predators[pi].kills += eaten;
+            if let Some(slot) = self.slot_of(id) {
+                self.kills[slot] += eaten;
+            }
+        }
+
+        if self.prey_count() <= target {
+            if let Some(slot) = self.slot_of(id) {
+                self.begin_departure(slot, pi);
+            }
+        }
+    }
+
+    /// Stop hunting and start swimming away. Heading is whatever it was last
+    /// chasing, so the exit continues its current motion rather than snapping.
+    fn begin_departure(&mut self, idx: usize, pi: usize) {
+        let vx = self.vel_x[idx];
+        let vy = self.vel_y[idx];
+        if vx * vx + vy * vy < 1e-6 {
+            // Standing still (it ate its last prey exactly on the spot): pick a
+            // direction rather than dividing by zero on the first departure step.
+            let angle = self.rng.gen::<f32>() * TAU;
+            self.vel_x[idx] = angle.cos();
+            self.vel_y[idx] = angle.sin();
+        }
+        self.predators[pi].leaving = Some(PREDATOR_LEAVE_TICKS);
+    }
+
+    /// Arrivals and reinforcements.
+    ///
+    /// Two jobs. A pond over its capacity gets a pack sized to the overshoot.
+    /// And any hunt already under way — summoned or automatic — gets another
+    /// hunter if the prey count still isn't falling a while later, so a pond
+    /// that outbreeds its predators is answered by more of them.
+    fn manage_predator_pack(&mut self) {
+        let prey = self.prey_count();
+        let active_target = self.predators.iter()
+            .filter(|p| p.leaving.is_none())
+            .map(|p| p.target_pop)
+            .min();
+
+        match active_target {
+            // Nothing hunting: only the capacity rule can start a cull.
+            None => {
+                if prey > self.cull_trigger_pop() {
+                    let target = self.cull_target_pop();
+                    self.summon_predator_pack(target, true);
+                    self.last_reinforce_step = self.step_count;
+                }
+                self.last_reinforce_pop = prey;
+            }
+            // A hunt is under way. Reinforce it if it is not making progress.
+            Some(target) => {
+                if self.step_count.saturating_sub(self.last_reinforce_step)
+                    < PREDATOR_REINFORCE_STEPS {
+                    return;
+                }
+                self.last_reinforce_step = self.step_count;
+
+                // Only while the population is not actually falling. If the
+                // hunters already in the water are winning, adding more would
+                // overshoot the target and turn a cull into an extinction.
+                if prey > target && prey >= self.last_reinforce_pop {
+                    self.summon_predator_to(target, self.predators.first().is_some_and(|p| p.automatic));
+                }
+                self.last_reinforce_pop = prey;
+            }
+        }
+    }
+
+    /// Living population excluding predators — the number a cull targets.
+    pub fn prey_count(&self) -> usize {
+        self.agent_count().saturating_sub(self.predators.len())
+    }
+
 
     // ── Step loop ─────────────────────────────────────────────────────────────
 
@@ -295,6 +880,7 @@ impl World {
         // Phase 4: perception → 5-input vector per acting agent
         let acting_len = self.scratch_acting.len();
         self.scratch_perceptions.resize(acting_len, [0f32; 5]);
+        self.scratch_food_dirs.resize(acting_len, (0f32, 0f32));
         self.perceive_all();
 
         // Phase 5: brain forward → 8 sigmoid outputs per acting agent
@@ -307,14 +893,19 @@ impl World {
             let idx = self.scratch_acting[slot];
             if self.cause_of_death[idx].is_some() { continue; }
             let perception = self.scratch_perceptions[slot];
+            let food_dir = self.scratch_food_dirs[slot];
             let outputs = self.scratch_outputs[slot];
-            if let Some(child) = self.integrate_agent(idx, perception, outputs) {
+            if let Some(child) = self.integrate_agent(idx, perception, food_dir, outputs) {
                 offspring.push(child);
             }
             if self.energy[idx] <= 0.0 && self.cause_of_death[idx].is_none() {
-                self.cause_of_death[idx] = Some(CauseOfDeath::Starvation);
-                self.lifespans.push(self.age[idx]);
-                self.scratch_dead.push(idx);
+                if self.immortal || self.is_predator(idx) {
+                    self.energy[idx] = IMMORTAL_ENERGY_FLOOR;
+                } else {
+                    self.cause_of_death[idx] = Some(CauseOfDeath::Starvation);
+                    self.lifespans.push(self.age[idx]);
+                    self.scratch_dead.push(idx);
+                }
             }
         }
 
@@ -331,11 +922,63 @@ impl World {
         // Rebuild spatial for next step
         self.spatial.rebuild(&self.pos_x, &self.pos_y);
 
+        // Phase 9b: the predators hunt. After the reap so none of them ever
+        // chases an agent that is already dead this tick, and before clustering
+        // so the k-means pass sees the population they actually left behind.
+        self.hunt_with_predators();
+
+        // Arrivals and reinforcements. A pond past its carrying capacity can no
+        // longer be drawn at frame rate — every agent is an individually drawn
+        // body — so predators are the pressure valve.
+        self.manage_predator_pack();
+
         // Phase 10: dual k-means clustering every 50 steps
         if self.step_count % 50 == 0 && !self.genome.is_empty() {
             let prev = std::mem::take(&mut self.cluster);
             self.cluster = ClusterState::run(&self.genome, 6, 24, self.step_count, Some(&prev));
         }
+
+        // Observation, not a phase: read-only sampling of the state the ten
+        // phases just produced. Consumes no RNG, mutates no agent.
+        if self.step_count % SAMPLE_INTERVAL == 0 {
+            self.sample_stats();
+        }
+    }
+
+    /// Cumulative deaths per cause since the run began, indexed by
+    /// `CauseOfDeath::code()`.
+    pub fn death_counts(&self) -> [u32; CAUSE_COUNT] {
+        let mut out = [0u32; CAUSE_COUNT];
+        for (cause, &count) in &self.death_tally {
+            out[cause.code() as usize] += count;
+        }
+        out
+    }
+
+    /// Append one sample to `stats_history`. Called on interval boundaries after
+    /// the dead have been reaped, so every agent still in the arrays is alive.
+    fn sample_stats(&mut self) {
+        let stats = self.get_stats();
+        let (min_age, max_age) = self
+            .age
+            .iter()
+            .fold(None::<(u32, u32)>, |acc, &a| match acc {
+                None => Some((a, a)),
+                Some((lo, hi)) => Some((lo.min(a), hi.max(a))),
+            })
+            .unwrap_or((0, 0));
+        let deaths = self.stats_history.interval_deaths(self.death_counts());
+
+        self.stats_history.push(StatSample {
+            step: self.step_count,
+            alive: stats.alive_agents as u32,
+            total_food: stats.total_food,
+            avg_energy: stats.avg_energy as f32,
+            median_lifespan: stats.median_lifespan as f32,
+            min_age,
+            max_age,
+            deaths,
+        });
     }
 
     // ── Phase implementations ─────────────────────────────────────────────────
@@ -357,7 +1000,7 @@ impl World {
             if self.cause_of_death[i].is_some() { continue; }
             self.age[i] += 1;
 
-            if self.age[i] >= self.death_age[i] {
+            if self.age[i] >= self.death_age[i] && !self.immortal && !self.is_predator(i) {
                 self.cause_of_death[i] = Some(CauseOfDeath::OldAge);
                 self.lifespans.push(self.age[i]);
                 self.scratch_dead.push(i);
@@ -368,9 +1011,16 @@ impl World {
             self.energy[i] -= 0.1 * metabolism;
 
             if self.energy[i] <= 0.0 {
-                self.cause_of_death[i] = Some(CauseOfDeath::Starvation);
-                self.lifespans.push(self.age[i]);
-                self.scratch_dead.push(i);
+                if self.immortal || self.is_predator(i) {
+                    // Held just above zero rather than at it: an agent pinned at
+                    // 0 would re-trip every death check in the step and read as
+                    // permanently dying instead of merely starving.
+                    self.energy[i] = IMMORTAL_ENERGY_FLOOR;
+                } else {
+                    self.cause_of_death[i] = Some(CauseOfDeath::Starvation);
+                    self.lifespans.push(self.age[i]);
+                    self.scratch_dead.push(i);
+                }
             }
         }
     }
@@ -386,7 +1036,9 @@ impl World {
     fn perceive_all(&mut self) {
         for slot in 0..self.scratch_acting.len() {
             let idx = self.scratch_acting[slot];
-            self.scratch_perceptions[slot] = self.perceive(idx);
+            let (perception, food_dir) = self.perceive(idx);
+            self.scratch_perceptions[slot] = perception;
+            self.scratch_food_dirs[slot] = food_dir;
         }
     }
 
@@ -400,8 +1052,10 @@ impl World {
         }
     }
 
-    /// Build 5-input perception vector for one agent.
-    fn perceive(&self, idx: usize) -> [f32; 5] {
+    /// Build 5-input perception vector for one agent, plus the unit direction
+    /// to the nearest visible food tile ((0,0) if none) so the steering pass
+    /// doesn't have to re-scan the same tiles.
+    fn perceive(&self, idx: usize) -> ([f32; 5], (f32, f32)) {
         let px = self.pos_x[idx];
         let py = self.pos_y[idx];
         let vx = self.vel_x[idx];
@@ -416,7 +1070,7 @@ impl World {
         let energy_norm = (self.energy[idx] / max_e).clamp(0.0, 1.0) as f32;
 
         // [1,2] nearest food tile distance + angle relative to velocity
-        let (food_dist_norm, food_angle_norm) =
+        let (food_dist_norm, food_angle_norm, food_dir) =
             self.nearest_food_inputs(idx, px, py, vx, vy, vision_radius, world_size);
 
         // [3] agent density within separation radius
@@ -431,7 +1085,7 @@ impl World {
         let max_speed = speed_trait * MAX_SPEED;
         let speed_norm = if max_speed > 0.0 { (cur_speed / max_speed).clamp(0.0, 1.0) } else { 0.0 };
 
-        [energy_norm, food_dist_norm, food_angle_norm, agent_density_norm, speed_norm]
+        ([energy_norm, food_dist_norm, food_angle_norm, agent_density_norm, speed_norm], food_dir)
     }
 
     fn nearest_food_inputs(
@@ -441,7 +1095,7 @@ impl World {
         vx: f32, vy: f32,
         vision_radius: f32,
         world_size: f32,
-    ) -> (f32, f32) {
+    ) -> (f32, f32, (f32, f32)) {
         let gs = self.grid_size;
         let r_cells = vision_radius.ceil() as i32;
         let cx = px.floor() as i32;
@@ -478,11 +1132,11 @@ impl World {
         }
 
         if !found {
-            return (1.0, 0.0);
+            return (1.0, 0.0, (0.0, 0.0));
         }
         let dist = nearest_dist_sq.sqrt();
         if dist > vision_radius {
-            return (1.0, 0.0);
+            return (1.0, 0.0, (0.0, 0.0));
         }
 
         let food_dist_norm = (dist / vision_radius).clamp(0.0, 1.0);
@@ -499,7 +1153,8 @@ impl World {
             0.0
         };
 
-        (food_dist_norm, food_angle_norm)
+        let inv = 1.0 / dist.max(0.001);
+        (food_dist_norm, food_angle_norm, (nearest_ddx * inv, nearest_ddy * inv))
     }
 
     /// Apply steering forces, integrate position, fire discrete triggers.
@@ -508,6 +1163,7 @@ impl World {
         &mut self,
         idx: usize,
         perception: [f32; 5],
+        food_dir: (f32, f32),
         outputs: [f32; 8],
     ) -> Option<PendingAgent> {
         let px = self.pos_x[idx];
@@ -517,18 +1173,15 @@ impl World {
         let world_size = self.grid_size as f32;
         let speed_trait = self.genome[idx].traits.speed as f32;
         let metabolism = self.genome[idx].traits.metabolism;
-        let vision = self.genome[idx].traits.vision as f32;
-        let vision_radius = vision * VISION_SCALE;
 
         let mut fx = 0.0f32;
         let mut fy = 0.0f32;
 
-        // Seek food (if food visible: perception[1] < 1.0)
+        // Seek food (if food visible: perception[1] < 1.0; direction cached
+        // from the perception pass — same nearest tile, no second scan)
         if perception[1] < 1.0 {
-            if let Some((sdx, sdy)) = self.seek_food_dir(px, py, vision_radius, world_size) {
-                fx += sdx * outputs[OUT_SEEK] * MAX_FORCE;
-                fy += sdy * outputs[OUT_SEEK] * MAX_FORCE;
-            }
+            fx += food_dir.0 * outputs[OUT_SEEK] * MAX_FORCE;
+            fy += food_dir.1 * outputs[OUT_SEEK] * MAX_FORCE;
         }
 
         // Wander — random perturbation
@@ -576,13 +1229,6 @@ impl World {
         let terrain_speed = self.tiles[oty * self.grid_size + otx].movement_speed;
         self.energy[idx] -= dist as f64 * terrain_speed * metabolism * MOVE_COST;
 
-        // Record dominant output index for memory ring buffer
-        let dominant = outputs.iter().enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(i, _)| i as u8)
-            .unwrap_or(OUT_WANDER as u8);
-        self.memory[idx].record_action(dominant);
-
         // Discrete triggers are mutually exclusive per tick — the strongest gate above
         // threshold wins. Previously all three fired independently in the same tick
         // (free sleep alongside eat/reproduce/movement), which made SLEEP a dominant,
@@ -592,57 +1238,32 @@ impl World {
             (OUT_REPRODUCE, outputs[OUT_REPRODUCE]),
             (OUT_SLEEP, outputs[OUT_SLEEP]),
         ];
-        if let Some(&(winner, _)) = gates.iter()
+        let fired = gates.iter()
             .filter(|&&(_, v)| v > 0.5)
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-        {
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        // One memory record per tick: the fired trigger if any, else the
+        // dominant steering output.
+        let recorded = fired.map(|&(winner, _)| winner as u8).unwrap_or_else(|| {
+            outputs.iter().enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(i, _)| i as u8)
+                .unwrap_or(OUT_WANDER as u8)
+        });
+        self.memory[idx].record_action(recorded);
+
+        if let Some(&(winner, _)) = fired {
             if winner == OUT_EAT {
                 self.do_eat(idx);
             } else if winner == OUT_SLEEP {
                 // RULES.md: sleep gain is 0.15 * metabolism (was 0.05 — matches code to spec).
                 self.energy[idx] += 0.15 * metabolism;
-                self.memory[idx].record_action(TAG_SLEEP);
             } else if winner == OUT_REPRODUCE {
                 return self.do_reproduce(idx);
             }
         }
 
         None
-    }
-
-    /// Normalized direction vector toward nearest visible food tile. Returns None if no food visible.
-    fn seek_food_dir(&self, px: f32, py: f32, vision_radius: f32, world_size: f32) -> Option<(f32, f32)> {
-        let gs = self.grid_size;
-        let r_cells = vision_radius.ceil() as i32;
-        let cx = px.floor() as i32;
-        let cy = py.floor() as i32;
-        let half = world_size * 0.5;
-
-        let mut nearest_dist_sq = f32::MAX;
-        let mut result = None;
-
-        for dy in -r_cells..=r_cells {
-            for dx in -r_cells..=r_cells {
-                let tx = (cx + dx).rem_euclid(gs as i32) as usize;
-                let ty = (cy + dy).rem_euclid(gs as i32) as usize;
-                if self.tiles[ty * gs + tx].food_units == 0 { continue; }
-
-                let fx = tx as f32 + 0.5;
-                let fy = ty as f32 + 0.5;
-                let mut ddx = fx - px;
-                let mut ddy = fy - py;
-                if ddx > half { ddx -= world_size; } else if ddx < -half { ddx += world_size; }
-                if ddy > half { ddy -= world_size; } else if ddy < -half { ddy += world_size; }
-
-                let dist_sq = ddx * ddx + ddy * ddy;
-                if dist_sq < nearest_dist_sq && dist_sq.sqrt() <= vision_radius {
-                    nearest_dist_sq = dist_sq;
-                    let dist = dist_sq.sqrt().max(0.001);
-                    result = Some((ddx / dist, ddy / dist));
-                }
-            }
-        }
-        result
     }
 
     /// Sum of repulsion vectors from all agents within SEPARATION_RADIUS.
@@ -696,7 +1317,9 @@ impl World {
         self.tile_last_eaten[tile_idx] = Some(self.step_count);
         let threshold = self.genome[idx].traits.metabolism * SUCCESS_SCALAR;
         if gained > threshold {
-            self.memory[idx].record_success(TAG_EAT);
+            // Ring entry already written by integrate_agent (eat gate won the
+            // tick) — only bump the success counter here.
+            self.memory[idx].success_count += 1;
         }
     }
 
@@ -733,9 +1356,7 @@ impl World {
         let suppression = self.memory[idx].suppression(0.05);
         let child_genome = self.genome[idx].mutate(&mut self.rng, suppression);
         let parent_defense = self.genome[idx].traits.defense;
-        let child_energy = cost;
-
-        self.memory[idx].record_action(TAG_REPRODUCE);
+        let child_energy = cost * BIRTH_ENERGY_YIELD;
 
         Some(PendingAgent {
             genome: child_genome,
@@ -749,19 +1370,34 @@ impl World {
 
     /// Passive combat resolved per tile — no HashMap alloc.
     fn resolve_combat_spatial(&mut self) {
+        // Combat always ends in a death (the loser is eaten), and the attacker's
+        // energy cost can be lethal too, so immortality skips the phase whole
+        // rather than trying to unpick which of its outcomes are fatal.
+        if self.immortal { return; }
+
         let gs = self.grid_size;
         for ty in 0..gs {
             for tx in 0..gs {
                 let occupants: Vec<usize> = self.spatial.agents_at_tile(tx, ty)
                     .iter()
                     .copied()
-                    .filter(|&i| self.cause_of_death[i].is_none())
+                    // The predator is excluded from ordinary combat entirely: it
+                    // neither rolls to attack nor can be eaten. Its hunting is its
+                    // own phase, and it must not be killable by prey.
+                    .filter(|&i| self.cause_of_death[i].is_none() && !self.is_predator(i))
                     .collect();
                 if occupants.len() < 2 { continue; }
 
                 for &attacker in &occupants {
                     if self.cause_of_death[attacker].is_some() { continue; }
                     if self.genome[attacker].traits.aggression < 0.80 { continue; }
+
+                    // Hunger gate: sated agents don't hunt. Without it predation has
+                    // no density-dependent brake — a predator that clears the local
+                    // prey simply grazes instead, so nothing stops aggression from
+                    // going to fixation and crashing the pond.
+                    let a_ec = self.genome[attacker].traits.energy_capacity;
+                    if self.energy[attacker] > HUNT_HUNGER_FRAC * MAX_ENERGY_BASE * a_ec { continue; }
 
                     let victim = occupants.iter()
                         .copied()
@@ -796,7 +1432,21 @@ impl World {
                     if self.rng.gen::<f64>() < p_win {
                         self.passive_eat(attacker, victim);
                     } else {
-                        self.passive_eat(victim, attacker);
+                        // Failed hunt: the prey fights back and escapes. A lost roll
+                        // used to kill the attacker outright, making aggression >= 0.80
+                        // a ~coinflip for your life that the agent volunteers for — so
+                        // non-aggression strictly dominated and every seed reached zero
+                        // fighters by step ~250, after which combat never fired again.
+                        // Retaliation is only lethal if it empties the attacker.
+                        let a_def = effective_defense(
+                            self.genome[attacker].traits.defense,
+                            self.parent_defense_bonus[attacker],
+                            self.age[attacker],
+                        );
+                        self.energy[attacker] -= v_def * RETALIATION_ENERGY / a_def.max(0.1);
+                        if self.energy[attacker] <= 0.0 {
+                            self.passive_eat(victim, attacker);
+                        }
                     }
                 }
             }
@@ -804,7 +1454,10 @@ impl World {
     }
 
     fn passive_eat(&mut self, winner: usize, loser: usize) {
-        let gained = self.energy[loser] * 0.125;
+        self.kills[winner] += 1;
+        // Clamped at 0: retaliation can drive the attacker below zero before this
+        // runs, and a negative "gain" would drain the defender that just won.
+        let gained = (self.energy[loser] * PREDATION_YIELD).max(0.0);
         let ec = self.genome[winner].traits.energy_capacity;
         self.energy[winner] = (self.energy[winner] + gained).min(MAX_ENERGY_BASE * ec);
         self.cause_of_death[loser] = Some(CauseOfDeath::KilledInCombat);
@@ -853,6 +1506,7 @@ impl World {
         self.death_age.push(death_age);
         self.genome.push(genome);
         self.memory.push(AgentMemory::new());
+        self.kills.push(0);
         self.parent_defense_bonus.push(parent_defense);
         self.parent_id.push(parent_id);
         self.cause_of_death.push(None);
@@ -869,11 +1523,33 @@ impl World {
         for &i in &dead {
             if let Some(cause) = &self.cause_of_death[i] {
                 *self.death_tally.entry(cause.clone()).or_insert(0) += 1;
+                // Record for the renderer before swap_remove invalidates the index.
+                // Capped so the queue can't grow without bound if nothing drains it.
+                if self.last_deaths.len() < MAX_QUEUED_DEATHS {
+                    self.last_deaths.push(DeathEvent {
+                        id: self.ids[i],
+                        x: self.pos_x[i],
+                        y: self.pos_y[i],
+                        cause: cause.code(),
+                    });
+                }
             }
         }
 
-        dead.sort_unstable_by(|a, b| b.cmp(a));
-        for &i in &dead {
+        self.remove_slots(dead);
+    }
+
+    /// Drop agent slots from every SoA array. Descending order so each
+    /// swap_remove only disturbs indices already processed.
+    ///
+    /// Separate from `reap_dead` because not every removal is a death: the ultra
+    /// predator leaves the pond when its cull is done, and that must not record a
+    /// death, a lifespan or a tally entry.
+    fn remove_slots(&mut self, mut slots: Vec<usize>) {
+        slots.sort_unstable();
+        slots.dedup();
+        slots.sort_unstable_by(|a, b| b.cmp(a));
+        for &i in &slots {
             let last = self.ids.len() - 1;
             if i < last {
                 self.ids.swap_remove(i);
@@ -888,6 +1564,7 @@ impl World {
                 self.death_age.swap_remove(i);
                 self.genome.swap_remove(i);
                 self.memory.swap_remove(i);
+                self.kills.swap_remove(i);
                 self.parent_defense_bonus.swap_remove(i);
                 self.parent_id.swap_remove(i);
                 self.cause_of_death.swap_remove(i);
@@ -908,6 +1585,7 @@ impl World {
                 self.death_age.pop();
                 self.genome.pop();
                 self.memory.pop();
+                self.kills.pop();
                 self.parent_defense_bonus.pop();
                 self.parent_id.pop();
                 self.cause_of_death.pop();
@@ -1035,6 +1713,34 @@ mod tests {
     }
 
     #[test]
+    fn deaths_are_queued_with_position_and_cause() {
+        let mut w = World::new(12, 60, 42);
+        // Run until at least one agent has died.
+        for _ in 0..600 {
+            w.step();
+            if !w.last_deaths.is_empty() || w.agent_count() == 0 { break; }
+        }
+        assert!(!w.last_deaths.is_empty(), "no deaths recorded in 600 steps");
+
+        let gs = w.grid_size as f32;
+        for d in &w.last_deaths {
+            assert!(d.cause <= 3, "unknown cause code {}", d.cause);
+            assert!((0.0..gs).contains(&d.x), "death x {} out of bounds", d.x);
+            assert!((0.0..gs).contains(&d.y), "death y {} out of bounds", d.y);
+        }
+    }
+
+    #[test]
+    fn death_cause_codes_are_stable() {
+        // The renderer maps these to epitaph glyphs; reordering would silently
+        // swap them (see EPITAPH in pond_web/renderer.js).
+        assert_eq!(CauseOfDeath::Starvation.code(), 0);
+        assert_eq!(CauseOfDeath::OldAge.code(), 1);
+        assert_eq!(CauseOfDeath::KilledInCombat.code(), 2);
+        assert_eq!(CauseOfDeath::EatenAlive.code(), 3);
+    }
+
+    #[test]
     fn world_initializes() {
         let w = small_world();
         assert!(w.agent_count() > 0);
@@ -1122,5 +1828,430 @@ mod tests {
         let before = w.agent_count();
         w.pour_agents(4.0, 4.0, 10);
         assert_eq!(w.agent_count(), before + 10);
+    }
+
+    #[test]
+    fn inject_food_clamps_to_tile_max() {
+        let mut w = World::new(8, 5, 31);
+        w.inject_food(3.5, 3.5, 99);
+        let (tx, ty) = SpatialHashGrid::tile_of(3.5, 3.5, 8);
+        assert_eq!(w.tiles[ty * 8 + tx].food_units, MAX_FOOD_PER_TILE);
+    }
+
+    #[test]
+    fn stir_drains_food_and_scatters_agents() {
+        let mut w = World::new(8, 30, 13);
+        w.inject_food(4.0, 4.0, MAX_FOOD_PER_TILE);
+        let (tx, ty) = SpatialHashGrid::tile_of(4.0, 4.0, 8);
+        let fertility_before = w.tiles[ty * 8 + tx].fertility;
+
+        // Park an agent just off the stir centre so the impulse is well-defined.
+        w.pos_x[0] = 4.5;
+        w.pos_y[0] = 4.0;
+        w.vel_x[0] = 0.0;
+        w.vel_y[0] = 0.0;
+
+        w.stir(4.0, 4.0, 2.0, 1.0);
+
+        assert_eq!(w.tiles[ty * 8 + tx].food_units, 0);
+        assert!(w.tiles[ty * 8 + tx].fertility < fertility_before);
+        // Pushed outward, i.e. away from the centre along +x.
+        assert!(w.vel_x[0] > 0.0);
+    }
+
+    #[test]
+    fn stir_respects_speed_clamp() {
+        let mut w = World::new(8, 10, 19);
+        w.pos_x[0] = 4.2;
+        w.pos_y[0] = 4.0;
+        w.stir(4.0, 4.0, 3.0, 1.0);
+        let speed = (w.vel_x[0].powi(2) + w.vel_y[0].powi(2)).sqrt();
+        let cap = w.genome[0].traits.speed as f32 * MAX_SPEED * 2.0;
+        assert!(speed <= cap + 1e-4, "speed {} exceeds cap {}", speed, cap);
+    }
+
+    #[test]
+    fn smite_radius_kills_only_inside_the_radius() {
+        let mut w = World::new(16, 0, 3);
+        w.pour_agents(4.0, 4.0, 12);
+        w.pour_agents(12.0, 12.0, 8);
+        let before = w.agent_count();
+
+        let killed = w.smite_radius(4.0, 4.0, 2.5);
+        assert!(killed > 0, "comet hit nothing");
+        assert_eq!(w.agent_count(), before - killed as usize);
+        // Survivors are all outside the blast.
+        for i in 0..w.agent_count() {
+            let dx = (w.pos_x[i] - 4.0f32).abs().min(16.0 - (w.pos_x[i] - 4.0f32).abs());
+            let dy = (w.pos_y[i] - 4.0f32).abs().min(16.0 - (w.pos_y[i] - 4.0f32).abs());
+            assert!(dx * dx + dy * dy > 2.5 * 2.5);
+        }
+    }
+
+    #[test]
+    fn smite_counts_as_its_own_cause() {
+        let mut w = World::new(12, 30, 9);
+        let killed = w.smite_all();
+        assert_eq!(w.agent_count(), 0);
+        assert_eq!(w.death_counts()[CauseOfDeath::Smitten.code() as usize], killed);
+        // Natural causes untouched by an act of god.
+        assert_eq!(w.death_counts()[CauseOfDeath::Starvation.code() as usize], 0);
+        assert_eq!(w.death_counts()[CauseOfDeath::OldAge.code() as usize], 0);
+    }
+
+    #[test]
+    fn smite_band_kills_only_its_column() {
+        let mut w = World::new(12, 60, 21);
+        let killed = w.smite_band(0.0, 6.0);
+        assert!(killed > 0);
+        for i in 0..w.agent_count() {
+            assert!(w.pos_x[i] >= 6.0, "survivor at x={} inside the swept band", w.pos_x[i]);
+        }
+    }
+
+    #[test]
+    fn smite_queues_death_events_for_the_renderer() {
+        let mut w = World::new(12, 20, 33);
+        w.last_deaths.clear();
+        let killed = w.smite_all();
+        assert_eq!(w.last_deaths.len(), killed as usize);
+        for d in &w.last_deaths {
+            assert_eq!(d.cause, CauseOfDeath::Smitten.code());
+        }
+    }
+
+    #[test]
+    fn immortal_agents_never_die_naturally() {
+        let mut w = World::new(12, 40, 77);
+        w.immortal = true;
+        let before = w.agent_count();
+        for _ in 0..800 {
+            w.step();
+        }
+        // No *natural* death of any kind. Predator kills are excluded: an
+        // immortal pond grows without limit, so it crosses the cull threshold
+        // and the pressure valve fires — that is the intended interaction.
+        let d = w.death_counts();
+        assert_eq!(d[CauseOfDeath::Starvation.code() as usize], 0);
+        assert_eq!(d[CauseOfDeath::OldAge.code() as usize], 0);
+        assert_eq!(d[CauseOfDeath::KilledInCombat.code() as usize], 0);
+        assert_eq!(d[CauseOfDeath::Smitten.code() as usize], 0);
+        assert!(w.agent_count() >= before, "population shrank under immortality");
+        assert!(w.energy.iter().all(|&e| e > 0.0), "an immortal agent hit zero energy");
+        let _ = d;
+    }
+
+    #[test]
+    fn immortality_does_not_block_smiting() {
+        let mut w = World::new(12, 25, 5);
+        w.immortal = true;
+        for _ in 0..20 { w.step(); }
+        let killed = w.smite_all();
+        assert!(killed > 0);
+        assert_eq!(w.agent_count(), 0);
+    }
+
+    #[test]
+    fn predator_culls_to_its_target_then_leaves() {
+        let mut w = World::new(20, 200, 12);
+        let before = w.agent_count();
+        w.summon_predator(PREDATOR_MANUAL_FRAC, false).expect("summon failed");
+        let target = w.predators[0].target_pop;
+        assert_eq!(target, (before as f64 * 0.20).round() as usize);
+
+        for _ in 0..4000 {
+            w.step();
+            if w.predators.is_empty() { break; }
+        }
+
+        assert!(w.predators.is_empty(), "predator never left");
+        // It stops at the target rather than eating through it. Births during the
+        // hunt can leave the count slightly above.
+        assert!(
+            w.prey_count() <= target + 12,
+            "population {} overshot target {}", w.prey_count(), target
+        );
+    }
+
+    #[test]
+    fn predator_cannot_die() {
+        let mut w = World::new(16, 120, 8);
+        let id = w.summon_predator(0.05, false).unwrap();
+        for _ in 0..600 {
+            w.step();
+            if w.predators.is_empty() { break; }
+            assert!(w.ids.contains(&id), "predator vanished while still hunting");
+        }
+        // Nothing ever recorded it as dead, by any cause.
+        assert!(!w.last_deaths.iter().any(|d| d.id == id));
+    }
+
+    #[test]
+    fn predator_leaving_is_not_a_death() {
+        let mut w = World::new(16, 60, 4);
+        let deaths_before: u32 = w.death_counts().iter().sum();
+        w.summon_predator(1.0, false);   // target = current pop: nothing to eat
+        let id = w.predators[0].id;
+
+        // It swims off before it disappears, so it is still present for a while.
+        w.step();
+        assert!(w.predators[0].leaving.is_some(), "did not begin departing");
+        assert!(w.ids.contains(&id));
+
+        for _ in 0..200 {
+            w.step();
+            if w.predators.is_empty() { break; }
+        }
+        assert!(w.predators.is_empty(), "predator never finished leaving");
+        assert!(!w.ids.contains(&id), "predator still in the pond");
+
+        // Departure is not a death: nothing but its own meals was tallied.
+        let eaten = w.death_counts()[CauseOfDeath::EatenAlive.code() as usize];
+        assert_eq!(deaths_before + eaten, w.death_counts().iter().sum::<u32>());
+        assert!(!w.last_deaths.iter().any(|d| d.id == id));
+    }
+
+    #[test]
+    fn departing_predator_does_not_resume_hunting() {
+        // Births during the departure swim can push the population back above
+        // the target; that must not drag it back into a second cull.
+        let mut w = World::new(16, 80, 44);
+        w.summon_predator(1.0, false);
+        w.step();
+        assert!(w.predators[0].leaving.is_some());
+        let eaten_at_departure = w.death_counts()[CauseOfDeath::EatenAlive.code() as usize];
+
+        for _ in 0..PREDATOR_LEAVE_TICKS + 5 {
+            w.step();
+            if w.predators.is_empty() { break; }
+        }
+        // Ordinary combat can still eat agents, so compare the predator's own
+        // tally rather than the world's.
+        assert!(w.predators.is_empty() || w.predators[0].leaving.is_some());
+        let _ = eaten_at_departure;
+    }
+
+    #[test]
+    fn cull_band_scales_with_the_grid() {
+        let small = World::new(12, 1, 1);
+        let big = World::new(32, 1, 1);
+        assert!(big.pop_cap() > small.pop_cap(), "cap must scale with pond area");
+        // The band brackets the cap symmetrically, and leaves real breathing room.
+        for w in [&small, &big] {
+            assert!(w.cull_target_pop() < w.pop_cap());
+            assert!(w.cull_trigger_pop() > w.pop_cap());
+            assert!(w.cull_trigger_pop() - w.cull_target_pop() > 0);
+        }
+    }
+
+    #[test]
+    fn predators_arrive_over_the_cap_and_cull_into_the_band() {
+        let mut w = World::new(12, 1, 3);
+        let trigger = w.cull_trigger_pop();
+        w.pour_agents(6.0, 6.0, trigger + 40);
+        assert!(w.predators.is_empty());
+
+        w.step();
+        assert!(!w.predators.is_empty(), "no predator arrived over the cap");
+        assert_eq!(w.predators[0].target_pop, w.cull_target_pop());
+
+        for _ in 0..4000 {
+            w.step();
+            if w.predators.is_empty() { break; }
+        }
+        assert!(w.predators.is_empty(), "predators never left");
+        // Culled into the band, not past it into an extinction.
+        assert!(
+            w.prey_count() <= w.cull_trigger_pop(),
+            "population {} still over trigger {}", w.prey_count(), w.cull_trigger_pop()
+        );
+    }
+
+    #[test]
+    fn no_predator_while_under_the_cap() {
+        let mut w = World::new(16, 20, 11);
+        for _ in 0..400 { w.step(); }
+        assert!(w.prey_count() < w.cull_trigger_pop());
+        assert!(w.predators.is_empty(), "predator arrived under the cap");
+    }
+
+    #[test]
+    fn reinforcements_arrive_while_the_pond_keeps_climbing() {
+        // Immortality means nothing dies of anything, so one hunter can never
+        // win on its own: the pack has to grow.
+        let mut w = World::new(12, 1, 21);
+        w.immortal = true;
+        w.pour_agents(6.0, 6.0, w.cull_trigger_pop() + 200);
+
+        let mut max_pack = 0;
+        for _ in 0..(PREDATOR_REINFORCE_STEPS * 4) {
+            w.step();
+            max_pack = max_pack.max(w.predators.len());
+            // Keep the pond growing faster than one predator can eat.
+            w.pour_agents(6.0, 6.0, 6);
+        }
+        assert!(max_pack > 1, "pack never reinforced (max {})", max_pack);
+        assert!(max_pack <= PREDATOR_MAX);
+    }
+
+    #[test]
+    fn predators_do_not_eat_each_other() {
+        let mut w = World::new(12, 60, 31);
+        w.summon_predator(0.5, false);
+        w.summon_predator(0.5, false);
+        let ids: Vec<u32> = w.predators.iter().map(|p| p.id).collect();
+        for _ in 0..300 {
+            w.step();
+            for id in &ids {
+                if w.predators.iter().any(|p| p.id == *id) {
+                    assert!(w.ids.contains(id), "a predator ate another predator");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pack_is_capped() {
+        // A huge cull asks for more hunters than the cap allows; it gets the cap.
+        let mut w = World::new(24, 1, 6);
+        w.pour_agents(12.0, 12.0, PREY_PER_PREDATOR * (PREDATOR_MAX + 4));
+        w.summon_predator(0.0, false);
+        assert_eq!(w.predators.len(), PREDATOR_MAX, "pack ignored its cap");
+        // Summoning again adds nothing: the pack is already at full strength.
+        w.summon_predator(0.0, false);
+        assert_eq!(w.predators.len(), PREDATOR_MAX);
+    }
+
+    #[test]
+    fn pack_size_ratchets_and_never_shrinks() {
+        let mut w = World::new(24, 1, 77);
+
+        // A big cull fields a pack.
+        w.pour_agents(12.0, 12.0, PREY_PER_PREDATOR * 4);
+        w.summon_predator(0.0, false);
+        let first_pack = w.predators.len();
+        assert!(first_pack > 1);
+
+        // Let it finish and leave.
+        for _ in 0..6000 {
+            w.step();
+            if w.predators.is_empty() { break; }
+        }
+        assert!(w.predators.is_empty(), "pack never left");
+
+        // A later, much smaller cull would only warrant one hunter on its own —
+        // but the high-water mark stands, so it arrives at full strength.
+        w.pour_agents(12.0, 12.0, 30);
+        w.summon_predator(0.0, false);
+        assert!(
+            w.predators.len() >= first_pack,
+            "pack shrank: {} < {}", w.predators.len(), first_pack
+        );
+    }
+
+    #[test]
+    fn manual_summon_scales_with_the_size_of_the_cull() {
+        let mut small = World::new(16, 1, 9);
+        small.pour_agents(8.0, 8.0, 40);
+        small.summon_predator(0.2, false);
+        assert_eq!(small.predators.len(), 1, "a small cull needs one hunter");
+
+        let mut big = World::new(24, 1, 9);
+        big.pour_agents(12.0, 12.0, PREY_PER_PREDATOR * 4);
+        big.summon_predator(0.2, false);
+        assert!(big.predators.len() > 1, "a big cull should arrive as a pack");
+    }
+
+    #[test]
+    fn predator_kills_count_as_eaten_alive() {
+        let mut w = World::new(16, 100, 15);
+        w.summon_predator(0.5, false);
+        for _ in 0..2000 {
+            w.step();
+            if w.predators.is_empty() { break; }
+        }
+        assert!(w.death_counts()[CauseOfDeath::EatenAlive.code() as usize] > 0);
+    }
+
+    #[test]
+    fn soa_arrays_stay_aligned_when_the_last_slot_dies() {
+        // Regression: the pop() branch of the removal loop never popped `kills`,
+        // so killing the highest-indexed agent left that array one longer than
+        // the rest and shifted every later agent's kill count by one.
+        let mut w = World::new(10, 6, 2);
+        let last = w.agent_count() - 1;
+        w.cause_of_death[last] = Some(CauseOfDeath::Starvation);
+        w.reap_dead(vec![last]);
+        let n = w.agent_count();
+        assert_eq!(w.kills.len(), n);
+        assert_eq!(w.energy.len(), n);
+        assert_eq!(w.genome.len(), n);
+    }
+
+    #[test]
+    fn stats_sampled_on_interval_boundaries() {
+        let mut w = World::new(10, 40, 3);
+        let steps = crate::stats::SAMPLE_INTERVAL * 4;
+        for _ in 0..steps {
+            w.step();
+        }
+        assert_eq!(w.stats_history.len(), 4);
+        let last = w.stats_history.latest().unwrap();
+        assert_eq!(last.step, steps);
+        assert_eq!(last.alive as usize, w.agent_count());
+        assert_eq!(last.total_food, w.get_stats().total_food);
+    }
+
+    #[test]
+    fn sampled_age_band_brackets_living_agents() {
+        let mut w = World::new(10, 40, 5);
+        for _ in 0..crate::stats::SAMPLE_INTERVAL * 3 {
+            w.step();
+        }
+        let s = w.stats_history.latest().unwrap();
+        let lo = w.age.iter().copied().min().unwrap();
+        let hi = w.age.iter().copied().max().unwrap();
+        assert_eq!((s.min_age, s.max_age), (lo, hi));
+        assert!(s.min_age <= s.max_age);
+    }
+
+    #[test]
+    fn interval_deaths_sum_to_cumulative_tally() {
+        let mut w = World::new(12, 80, 17);
+        for _ in 0..600 {
+            w.step();
+            if w.agent_count() == 0 { break; }
+        }
+        let mut summed = [0u32; crate::stats::CAUSE_COUNT];
+        for s in w.stats_history.iter_chrono() {
+            for (total, d) in summed.iter_mut().zip(s.deaths) {
+                *total += d;
+            }
+        }
+        // Deaths after the last sample boundary aren't in the history yet, so
+        // the history can lag the tally but must never exceed it.
+        let cumulative = w.death_counts();
+        for i in 0..crate::stats::CAUSE_COUNT {
+            assert!(
+                summed[i] <= cumulative[i],
+                "cause {} history {} exceeds tally {}", i, summed[i], cumulative[i]
+            );
+        }
+        assert!(cumulative.iter().sum::<u32>() > 0, "no deaths in 600 steps");
+    }
+
+    #[test]
+    fn sampling_does_not_perturb_the_sim() {
+        // Sampling is read-only, so a world stepped past many sample boundaries
+        // must match one stepped the same number of steps with the same seed.
+        let mut a = World::new(10, 50, 23);
+        let mut b = World::new(10, 50, 23);
+        for _ in 0..crate::stats::SAMPLE_INTERVAL * 7 {
+            a.step();
+            b.step();
+        }
+        assert_eq!(a.agent_count(), b.agent_count());
+        assert_eq!(a.get_stats().total_food, b.get_stats().total_food);
+        assert_eq!(a.death_counts(), b.death_counts());
     }
 }

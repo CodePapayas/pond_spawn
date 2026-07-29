@@ -37,6 +37,15 @@
 - Assigned a death age at birth
 
 ### Perception (Brain Inputs)
+
+**Rust `pond_core` (canonical):**
+1. `energy_norm` — own energy / (100 × energy_capacity trait), 0–1
+2. `food_dist_norm` — distance to nearest food / vision radius (1.0 = none visible)
+3. `food_angle_norm` — angle to food relative to velocity direction, in [−1, 1]
+4. `agent_density_norm` — neighbours within separation radius / 8, 0–1
+5. `speed_norm` — current speed / max speed, 0–1
+
+**Legacy Python:**
 1. Normalized energy (0–1)
 2. Normalized food at tile (0–1)
 3. Normalized nearby agent count (0–1)
@@ -87,13 +96,61 @@
 - **Max offspring cap**: assigned at birth, random 1–10 per agent; reproduction blocked once reached
 - **Cooldown**: `(death_age - 100) // max_offspring` ticks between births
 - **Birth failure**: 2% chance attempt produces no offspring; on failure, 20% chance it still burns one slot
-- Offspring energy: equal to the energy cost paid by the parent
+- Offspring energy: **40% of the energy cost paid by the parent** (`BIRTH_ENERGY_YIELD`). The other 60% is thermodynamic overhead, lost to the world — reproduction is not an energy-neutral transfer. Without this loss a higher `reproduction_cost` bought a better-provisioned child for free, so selection drove the trait to its 1.50 bound and population growth had no brake but food.
 - Offspring placed on random adjacent tile (wrapping)
 
 ### Death
 - Energy ≤ 0
 - Reaching assigned death age
 - Killed in combat
+- **Smitten** — killed by a player god-mode action (comet, salt, sweep). Tallied
+  as its own cause so the death graph never attributes an act of god to the
+  ecology.
+
+### God mode (player powers, outside the simulation's rules)
+- **Comet** — kills every agent within 2.2 world units of the click, instantly.
+- **Salt** — kills in a ring that widens to 5.5 world units over 5 s, driven by
+  wall-clock time rather than sim steps, so it keeps spreading while paused.
+- **Sweep clean** — a column crosses the pond over 1.8 s, killing as it passes,
+  then empties whatever remains.
+- **Ultra predator** — a single apex agent, summoned by the player or triggered
+  automatically. It cannot die (no aging, no starvation, and it is excluded from
+  ordinary combat entirely, as attacker and as victim), chases the nearest agent
+  at 1.1 world units per step, and eats everything within 0.9 units of itself
+  each step. Kills count as `EatenAlive`.
+  - **Summoned**: culls to 20% of the population at the moment it is called.
+  - **Automatic**: the pond has a capacity of `1.75 × tiles`
+    (`PREDATOR_POP_PER_TILE`), capped absolutely at 900 agents
+    (`PREDATOR_POP_CEILING`) however large the pond is — so a 12×12 pond caps at
+    252 and anything from 23×23 up holds the 900 line. Food supply scales with
+    area, so a fixed number would either strangle the big pond or never fire on
+    the small one; the ceiling exists because past roughly 900 individually
+    drawn bodies the frame rate goes regardless of how much food there is. A hunter arrives when
+    the prey count passes `cap × 1.10` and the pack culls down to `cap × 0.90`
+    (`PREDATOR_POP_BAND`). That ±10% band is the breathing room: culling to the
+    cap exactly would put the pond back over the trigger within a few births.
+  - **Reinforcements**: if the prey count is still not falling
+    `PREDATOR_REINFORCE_STEPS` (120) after the last arrival, another predator
+    joins, up to `PREDATOR_MAX` (8). A pond that outbreeds one hunter gets a
+    pack. Reinforcement is skipped while the population is already falling, so
+    the cull doesn't overshoot into an extinction.
+  - **The pack ratchets.** Its size can grow but never shrink: the largest pack
+    a run has ever fielded is the minimum size of every later cull. A pond that
+    once needed six hunters has proven it can outbreed five, and it does not get
+    to relearn that from scratch each time.
+  - Predators never hunt or eat each other.
+  - The target is checked against the live population every step, since births
+    keep moving it. It never eats past the target: the number it may take in one
+    bite is capped by how many are still owed.
+  - When the quota is met it stops hunting and swims off at speed for 44 steps
+    before disappearing. Leaving is not a death — no tally, no lifespan, no death
+    event. Births during the departure do not drag it back into a second hunt.
+- **Immortality** — suppresses every natural death: old age and starvation are
+  skipped, and the whole passive-combat phase is skipped (combat always ends in a
+  death, and the attacker's energy cost can itself be lethal). A starving
+  immortal agent is held at 1.0 energy rather than 0, so it keeps acting instead
+  of re-tripping the death check every tick. Population is unbounded while this
+  is on. Smites ignore it — a comet overrules the rules rather than obeying them.
 
 ## Combat
 
@@ -102,14 +159,35 @@ Two combat paths exist:
 ### Passive combat phase (`_resolve_combat`, runs every tick after actions)
 - Triggers when 2+ agents occupy the same tile
 - Attacker must have `aggression >= 0.80` to initiate
+- Attacker must also be **hungry**: energy `< 0.5 × 100 × energy_capacity`
+  (`HUNT_HUNGER_FRAC`). Sated agents do not hunt. This is the density-dependent
+  brake on predation — without it a predator that clears the local prey simply
+  grazes instead, so nothing stops aggression reaching fixation and crashing the
+  population.
 - Each eligible attacker picks one random co-tile target per step
 - Outcome is probabilistic, scaling continuously with `attack` vs effective `defense`:
   `p_win = attack / (attack + defense)`
   (previous fixed thresholds — defender wins iff `attack <= defense × 0.33` — were
   unreachable for adult agents given trait bounds, making combat a guaranteed win
   above `attack` 0.706 and a coinflip below it)
-- Winner gains **12.5% of loser's current energy** (capped at capacity)
-- Loser dies ("Killed in combat")
+- **Win:** attacker gains **66.7% of loser's current energy** (`PREDATION_YIELD`,
+  capped at capacity); loser dies ("Killed in combat").
+  This was 12.5%, which made predation close to pointless — a kill returned an
+  eighth of a body while a failed hunt cost real energy, so aggression was
+  selected out of every run and the population lost its only density-dependent
+  brake. Two thirds makes hunting a genuinely worthwhile high-risk strategy
+  without making it free: the roll can still fail, and failure still hurts.
+- **Loss:** the prey fights back and escapes. Attacker loses
+  `victim_effective_defense × 8.0 / attacker_effective_defense` energy
+  (`RETALIATION_ENERGY`) and *survives* unless that empties it; only then does
+  the defender take the yield and the attacker die.
+  Dividing by the attacker's own defense is what keeps defense worth investing
+  in for a hunter as well as a victim: a well-armoured predator shrugs off a
+  failed hunt, a glass cannon does not.
+  A failed attack previously killed the attacker outright, which made
+  `aggression >= 0.80` a ~coinflip for your life that the agent volunteers for —
+  every seed reached **zero** agents above the threshold by step ~250, after which
+  combat never fired again for the rest of the run.
 - Initiating attack costs `0.2 × metabolism` energy
 
 ### Chosen attack (ACTION_ATTACK output, index 7)
@@ -161,6 +239,11 @@ decision-making later.
 
 - Each trait has `mutation_rate` chance to mutate
 - Mutation magnitude scales with `mutation_rate`
-- Brain weights also mutate
+- Brain weights also mutate, per-weight with the same `mutation_rate` chance
+  - **Rust `pond_core` (canonical):** additive — `w + uniform(−m·0.5, +m·0.5)`
+    where `m = mutation_rate × 0.5`. Weight signs can flip; zero weights can
+    revive.
+  - **Legacy Python:** multiplicative — `w × uniform(1−m, 1+m)`. Signs never
+    flip; zero weights stay dead.
 
 ---

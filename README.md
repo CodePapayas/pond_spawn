@@ -53,6 +53,11 @@ Click on any agent and view their genome and neural network to see how an agent 
 > **Status: in development.** Not published anywhere yet — run it locally per
 > below. An itch.io release is on the roadmap, see
 > [`REFACTOR_RUST_ROADMAP.md`](REFACTOR_RUST_ROADMAP.md).
+>
+> **Next up: speciation.** Stable genome clusters will be promoted to named
+> species with their own colour, founding step and lineage record, instead of
+> today's k-means labels that carry no identity across re-fits. Full plan in
+> [`PLAN_SPECIATION.md`](PLAN_SPECIATION.md).
 
 *************************
 
@@ -67,7 +72,16 @@ Click on any agent and view their genome and neural network to see how an agent 
   steps; positions are `f32`, interpolated between fixed 20 Hz sim ticks.
 - **Genome-driven morphology** — each agent's body shape, size, and coloring
   is derived directly from its own genome traits, so lineages are visually
-  distinguishable at a glance.
+  distinguishable at a glance. Colour reads the lineage's combat strategy on a
+  three-ramp palette: lime is passive, cyan is middling, magenta is aggressive.
+- **Run setup + live stat graphs** — choose grid size, starting population and
+  seed before a run; a toggleable panel plots population, food, average energy,
+  the lifespan band and per-cause deaths over the last ~6000 steps, sampled
+  engine-side so nothing is lost to a dropped frame.
+- **God mode** — comet, spreading salt, a sweep that empties the pond,
+  immortality, and an **ultra predator**: an unkillable apex hunter that culls
+  the pond back inside its capacity band and then swims off. It also summons
+  itself, in packs, when the population outgrows what the renderer can draw.
 - **Live lineage clustering** — dual k-means (genome traits + brain weights)
   re-fits every 50 steps; cluster colors smoothly fade between reassignments
   (Oklch interpolation) instead of flashing, and cluster labels stay stable
@@ -79,7 +93,8 @@ Click on any agent and view their genome and neural network to see how an agent 
   panel (population mean per trait, ~1200-step rolling history) update live
   alongside the sim.
 - **Pond interaction** — drag to stir (disturbs food, fertility, and nearby
-  agent velocity), double-click to pour in new agents at a point.
+  agent velocity), double-click to pour in new agents at a point, wheel to zoom
+  and right-drag to pan around the pond.
 - **Deterministic engine** — seeded `ChaCha8Rng`, same seed reproduces the
   same run; compiles to a headless native binary or to WASM for the browser.
 

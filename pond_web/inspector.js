@@ -5,7 +5,7 @@
 // inspect_agent buffer layout (68 floats):
 //   [0..5)   inputs        [5..17)  h0        [17..29) h1
 //   [29..41) h2            [41..49) logits    [49..57) sigmoid gates
-//   [57] energy_norm  [58] age_norm  [59..68) traits
+//   [57] energy_norm  [58] age_norm  [59] kills  [60..69) traits
 
 const INPUT_LABELS = ['energy', 'food dist', 'food angle', 'crowding', 'speed'];
 const OUTPUT_LABELS = ['seek', 'wander', 'separate', 'flee', 'eat', 'reproduce', 'attack', 'sleep'];
@@ -17,7 +17,9 @@ const TRAIT_NAMES = [
 ];
 
 const LAYER_SIZES = [5, 12, 12, 12, 8];
-const LAYER_X = [64, 102, 136, 170, 200];   // node column x on the 280px canvas
+// Columns pushed apart and shifted left on the widened canvas: output labels
+// ("reproduce" is the longest) were running into the right edge.
+const LAYER_X = [62, 104, 142, 180, 214];
 
 export function initInspector() {
     const panel = document.getElementById('inspector');
@@ -27,6 +29,7 @@ export function initInspector() {
     const energyFill = document.getElementById('insp-energy');
     const ageFill = document.getElementById('insp-age');
     const traitsBox = document.getElementById('insp-traits');
+    const killsEl = document.getElementById('insp-kills');
     const net = document.getElementById('insp-net');
     const ctx = net.getContext('2d');
 
@@ -37,7 +40,7 @@ export function initInspector() {
             row.className = 'insp-bar-row';
             row.innerHTML =
                 `<span class="trait-name">${TRAIT_NAMES[i]}</span>` +
-                `<span class="trait-val" style="width:auto">${buf[59 + i].toFixed(2)}</span>`;
+                `<span class="trait-val" style="width:auto">${buf[60 + i].toFixed(2)}</span>`;
             traitsBox.appendChild(row);
         }
     }
@@ -47,6 +50,7 @@ export function initInspector() {
             panel.style.display = 'block';
             idEl.textContent = `agent ${id}`;
             statusEl.textContent = '';
+            killsEl.textContent = '0';
             swatch.style.background = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
             swatch.style.color = swatch.style.background;
             traitsBox.innerHTML = '';
@@ -57,11 +61,16 @@ export function initInspector() {
             statusEl.textContent = '';
             energyFill.style.width = `${(buf[57] * 100).toFixed(0)}%`;
             ageFill.style.width = `${(buf[58] * 100).toFixed(0)}%`;
+            killsEl.textContent = `${buf[59] | 0}`;
             if (isFirst) setTraits(buf);   // traits are immutable per life
             drawNetwork(ctx, net.width, net.height, buf);
         },
 
-        showDead() { statusEl.textContent = 'died'; },
+        /** `cause` is the human-readable phrase from the sim's death event;
+         *  the agent is already reaped by now, so it can't be re-queried. */
+        showDead(cause) {
+            statusEl.textContent = cause ? `died — ${cause}` : 'died';
+        },
         hide() { panel.style.display = 'none'; },
     };
 }

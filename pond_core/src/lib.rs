@@ -5,6 +5,7 @@ pub mod genome;
 pub mod memory;
 pub mod morphology;
 pub mod spatial;
+pub mod stats;
 pub mod world;
 #[cfg(feature = "wasm")]
 pub mod wasm;
@@ -16,4 +17,5 @@ pub use genome::{Genome, Traits};
 pub use memory::AgentMemory;
 pub use morphology::MorphParams;
 pub use spatial::SpatialHashGrid;
+pub use stats::{StatHistory, StatSample};
 pub use world::{SimStats, World, DT, MAX_SPEED};

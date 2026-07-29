@@ -2,10 +2,10 @@
 // silhouette instead of per-segment circles. Knows nothing about traits —
 // consumes only { chain, spec, palette, xform, motion }.
 //
-// The world→screen transform is anisotropic (the pond stretches to fill the
-// window), so segment positions project per-axis while the hull geometry
-// (widths, fins, spikes, eyes) is built in screen space from `scale_px` —
-// bodies keep correct proportions regardless of window aspect.
+// The world→screen transform is uniform (square pond, letterboxed), so the
+// per-axis projection below collapses to a single scale. Hull geometry is still
+// built in screen space from `scale_px` rather than in world units, which keeps
+// body proportions independent of the transform.
 //
 // Perf: one glow hull path + one core hull path (+ small trait ornaments),
 // ~2 draw calls/agent regardless of segment count.
@@ -70,7 +70,7 @@ function buildHullPath(ctx, left, right, headCenter, headDir, headWidth, headPoi
  * motion: { baseR, energyNorm, velX, velY, timeSec }
  */
 export function drawBody(ctx, chain, spec, palette, xform, motion) {
-    const { segCount, envelope, headPointiness, fins, ornamentLen, armorBumps, eyeSize, eyeSpread, pulseRate } = spec;
+    const { segCount, envelope, headPointiness, fins, ornamentLen, ornamentPairs, armorBumps, eyeSize, eyeSpread, pulseRate } = spec;
     const { tile_w, tile_h, scale_px, off_x, off_y, gridSize } = xform;
     const { baseR, energyNorm, velX, velY, timeSec } = motion;
     const [cr, cg, cb] = palette;
@@ -116,19 +116,24 @@ export function drawBody(ctx, chain, spec, palette, xform, motion) {
     ctx.fillStyle = `rgba(${cr},${cg},${cb},${glowA})`;
     ctx.fill();
 
-    // Core pass.
+    // Core pass. Additive compositing saturates a bright fill straight to white
+    // over lit water, which erased the genome colour entirely — so only the glow
+    // above is additive and the body itself paints normally.
+    ctx.globalCompositeOperation = 'source-over';
     buildHullPath(ctx, left, right, centers[0], dirs[0], headWidth, headPointiness, 1.0);
-    const coreA = 0.6 + energyNorm * 0.35;
+    const coreA = 0.72 + energyNorm * 0.28;
     ctx.fillStyle = `rgba(${cr},${cg},${cb},${coreA})`;
     ctx.fill();
 
     // Armor scalloping (defense): rings around the mid-body hull points.
     if (armorBumps > 0) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.28)';
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+        ctx.lineWidth = 0.8;
         for (let b = 0; b < armorBumps; b++) {
             const s = Math.min(2 + (b % 2), segCount - 1);
-            const r = envelope[s] * baseR * 1.08;
+            // Hugs the hull. At 1.08 the widened bulk/belly envelope pushed these
+            // into big free-floating rings that read as UI, not anatomy.
+            const r = envelope[s] * baseR * 0.92;
             ctx.beginPath();
             ctx.arc(centers[s].x, centers[s].y, r, 0, Math.PI * 2);
             ctx.stroke();
@@ -136,12 +141,17 @@ export function drawBody(ctx, chain, spec, palette, xform, motion) {
     }
 
     // Head spikes (attack): short strokes outward from the head hull points.
+    // High-attack agents get a second pair further back along the head.
     if (ornamentLen > 0.01) {
         const spikeLen = ornamentLen * scale_px;
         ctx.strokeStyle = `rgba(${cr},${cg},${cb},0.9)`;
         ctx.lineWidth = 1.2;
-        for (const hp of [left[0], right[0]]) {
-            const dx = hp.x - centers[0].x, dy = hp.y - centers[0].y;
+        const anchors = [left[0], right[0]];
+        if (ornamentPairs > 1 && segCount > 1) anchors.push(left[1], right[1]);
+        for (let ai = 0; ai < anchors.length; ai++) {
+            const hp = anchors[ai];
+            const c = centers[ai < 2 ? 0 : 1];
+            const dx = hp.x - c.x, dy = hp.y - c.y;
             const len = Math.sqrt(dx * dx + dy * dy) || 1;
             ctx.beginPath();
             ctx.moveTo(hp.x, hp.y);
@@ -150,24 +160,30 @@ export function drawBody(ctx, chain, spec, palette, xform, motion) {
         }
     }
 
-    // Fins (aggression): swept-back triangles near the tail-third segment.
+    // Fins (aggression): swept-back triangles. `fins.count` is a total, drawn as
+    // count/2 pairs spread down the rear half of the body — a 4-fin spear reads
+    // very differently from a 2-fin eel at the same proportions.
     if (fins.len > 0.01) {
-        const s = Math.min(4, segCount - 1);
-        const p = perp(dirs[s]);
+        const pairs = Math.max(1, Math.round(fins.count / 2));
         const finLen = fins.len * scale_px;
         const sweep = fins.rake;
-        for (const side of [-1, 1]) {
-            const baseX = centers[s].x + p.x * envelope[s] * baseR * side;
-            const baseY = centers[s].y + p.y * envelope[s] * baseR * side;
-            const tipX = baseX + (p.x * side * (1 - sweep) - dirs[s].x * sweep) * finLen;
-            const tipY = baseY + (p.y * side * (1 - sweep) - dirs[s].y * sweep) * finLen;
-            ctx.fillStyle = `rgba(${cr},${cg},${cb},0.5)`;
-            ctx.beginPath();
-            ctx.moveTo(baseX, baseY);
-            ctx.lineTo(tipX, tipY);
-            ctx.lineTo(centers[s].x + dirs[s].x * baseR * 0.3, centers[s].y + dirs[s].y * baseR * 0.3);
-            ctx.closePath();
-            ctx.fill();
+        for (let f = 0; f < pairs; f++) {
+            const frac = pairs === 1 ? 0.62 : 0.45 + (f / (pairs - 1)) * 0.35;
+            const s = Math.min(segCount - 1, Math.max(1, Math.round(frac * (segCount - 1))));
+            const p = perp(dirs[s]);
+            for (const side of [-1, 1]) {
+                const baseX = centers[s].x + p.x * envelope[s] * baseR * side;
+                const baseY = centers[s].y + p.y * envelope[s] * baseR * side;
+                const tipX = baseX + (p.x * side * (1 - sweep) - dirs[s].x * sweep) * finLen;
+                const tipY = baseY + (p.y * side * (1 - sweep) - dirs[s].y * sweep) * finLen;
+                ctx.fillStyle = `rgba(${cr},${cg},${cb},0.5)`;
+                ctx.beginPath();
+                ctx.moveTo(baseX, baseY);
+                ctx.lineTo(tipX, tipY);
+                ctx.lineTo(centers[s].x + dirs[s].x * baseR * 0.3, centers[s].y + dirs[s].y * baseR * 0.3);
+                ctx.closePath();
+                ctx.fill();
+            }
         }
     }
 

@@ -113,8 +113,10 @@ impl Genome {
             .iter()
             .map(|&w| {
                 if rng.gen::<f64>() < rate_f64 {
-                    let factor = rng.gen_range((1.0 - magnitude)..=(1.0 + magnitude)) as f32;
-                    w * factor
+                    // Additive perturbation (was multiplicative w * factor): lets
+                    // weight signs flip and zero weights revive. Diverges from
+                    // legacy Python mutation — pond_core is canonical (RULES.md).
+                    w + rng.gen_range((-magnitude * 0.5)..=(magnitude * 0.5)) as f32
                 } else {
                     w
                 }

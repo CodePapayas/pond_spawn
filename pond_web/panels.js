@@ -26,23 +26,91 @@ const SHAPE_ROWS = [
 ];
 
 const TILE_ROWS = [
-    ['rgba(80,255,160,0.8)',  'green glow = food (brighter = more)'],
-    ['rgba(40,80,140,0.9)',   'blue tint = fertility'],
+    ['rgba(80,255,160,0.8)',  'floating node = one food unit'],
+    ['rgba(26,72,112,0.95)',  'lighter blue = fertile water'],
+    ['rgba(9,15,28,0.95)',    'dark matte = barren desert'],
+    ['rgba(150,225,255,0.5)', 'shimmer = caustics over fertile water'],
     ['rgba(100,200,255,0.6)', 'ripple ring = stir'],
 ];
 
-/** Build legend DOM once. Returns updater for per-cluster population counts. */
-export function initLegend(clusterRgb) {
+// Matches EPITAPH in renderer.js and CauseOfDeath::code() in world.rs.
+const DEATH_ROWS = [
+    ['X_X',   'killed in combat / eaten'],
+    ['[RIP]', 'died of old age'],
+    [':/',    'starved'],
+];
+
+const COMPOSITE_TRAITS = [0, 1, 2, 5, 6, 7, 8];   // skip the two locked traits
+const LAYER_NAMES = ['in→h0', 'h0→h1', 'h1→h2', 'h2→out'];
+
+/**
+ * Build legend DOM once.
+ * `onFamily(i)` is called when a family row is clicked (null = deselected),
+ * and should return that family's composite buffer from cluster_composite().
+ * Returns updateCounts(counts, meanRgb).
+ */
+export function initLegend(clusterRgb, onFamily, bounds) {
     const colorBox = document.getElementById('legend-colors');
-    const countEls = clusterRgb.map(([r, g, b], i) => {
+    const compBox = document.getElementById('legend-composite');
+    let selected = null;
+
+    const rows = clusterRgb.map(([r, g, b], i) => {
         const row = document.createElement('div');
-        row.className = 'legend-row';
+        row.className = 'legend-row clickable';
         row.innerHTML =
             `<div class="legend-swatch" style="background:rgb(${r},${g},${b});color:rgb(${r},${g},${b})"></div>` +
             `<span>family ${i + 1}</span><span class="legend-count">—</span>`;
+        row.addEventListener('click', () => {
+            selected = selected === i ? null : i;
+            for (const other of rows) other.row.classList.remove('selected');
+            if (selected !== null) row.classList.add('selected');
+            renderComposite();
+        });
         colorBox.appendChild(row);
-        return row.querySelector('.legend-count');
+        return { row, count: row.querySelector('.legend-count'), swatch: row.querySelector('.legend-swatch') };
     });
+
+    function renderComposite() {
+        if (selected === null || !onFamily) { compBox.innerHTML = ''; return; }
+        const c = onFamily(selected);
+        if (!c || c.length === 0) {
+            compBox.innerHTML = `<div class="comp-head">family ${selected + 1}</div>` +
+                `<div class="comp-note">no living members</div>`;
+            return;
+        }
+        // [0]=count, [1..10)=trait means, [10..19)=trait sd,
+        // [19..23)=layer magnitude means, [23..27)=layer sd
+        let html = `<div class="comp-head">family ${selected + 1} — ${c[0] | 0} members</div>`;
+        for (const t of COMPOSITE_TRAITS) {
+            const lo = bounds[t * 2], hi = bounds[t * 2 + 1];
+            const mean = c[1 + t], sd = c[10 + t];
+            const nm = Math.max(0, Math.min(1, (mean - lo) / (hi - lo)));
+            const nsd = Math.max(0, Math.min(1, sd / (hi - lo)));
+            const left = Math.max(0, (nm - nsd) * 100);
+            html +=
+                `<div class="comp-row"><span class="k">${TRAIT_NAMES[t]}</span>` +
+                `<div class="comp-track">` +
+                // Spread band drawn last so it stays visible over the mean bar.
+                `<div class="comp-fill" style="left:0;width:${(nm * 100).toFixed(1)}%"></div>` +
+                `<div class="comp-sd" style="left:${left}%;width:${Math.min(100 - left, nsd * 200)}%"></div>` +
+                `</div><span class="v">${mean.toFixed(2)}</span></div>`;
+        }
+        const maxMag = Math.max(1e-6, ...LAYER_NAMES.map((_, l) => c[19 + l]));
+        for (let l = 0; l < 4; l++) {
+            const mag = c[19 + l];
+            html +=
+                `<div class="comp-row"><span class="k">${LAYER_NAMES[l]}</span>` +
+                `<div class="comp-track">` +
+                `<div class="comp-fill" style="left:0;width:${(mag / maxMag * 100).toFixed(1)}%"></div>` +
+                `</div><span class="v">${mag.toFixed(3)}</span></div>`;
+        }
+        html += `<div class="comp-note">bar = family mean &middot; magenta band = spread (±1sd); ` +
+                `a narrow band means the family has genetically converged. ` +
+                `brain rows are mean |weight| per layer.</div>`;
+        compBox.innerHTML = html;
+    }
+
+    const countEls = rows.map(r => r.count);
 
     const shapeBox = document.getElementById('legend-shapes');
     for (const [name, path, desc] of SHAPE_ROWS) {
@@ -65,10 +133,27 @@ export function initLegend(clusterRgb) {
         tileBox.appendChild(row);
     }
 
-    return function updateCounts(counts) {
+    const deathBox = document.getElementById('legend-deaths');
+    for (const [glyph, desc] of DEATH_ROWS) {
+        const row = document.createElement('div');
+        row.className = 'legend-row';
+        row.innerHTML = `<span class="legend-glyph-txt">${glyph}</span><span>${desc}</span>`;
+        deathBox.appendChild(row);
+    }
+
+    return function updateCounts(counts, meanRgb) {
         for (let i = 0; i < countEls.length; i++) {
             countEls[i].textContent = counts[i] > 0 ? `×${counts[i]}` : '—';
+            // Swatch tracks the family's live mean genome colour; families with
+            // no members keep their seed colour rather than going black.
+            const c = meanRgb && meanRgb[i];
+            if (c) {
+                const css = `rgb(${c[0]},${c[1]},${c[2]})`;
+                rows[i].swatch.style.background = css;
+                rows[i].swatch.style.color = css;
+            }
         }
+        renderComposite();
     };
 }
 

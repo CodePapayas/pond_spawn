@@ -1,6 +1,7 @@
 # pond_spawn → Rust Refactor
 
-**Engine status: complete.** All phases shipped. Remaining work: interactive GUI.
+**Engine status: complete.** All phases shipped, and the browser GUI with them.
+Next goal: **speciation** — see [PLAN_SPECIATION.md](PLAN_SPECIATION.md).
 
 ---
 
@@ -16,7 +17,8 @@
 | 5 | Performance hardening — scratch buffers, spatial combat, rayon feature, native runner | ✅ Done |
 | Pass A | Continuous-space physics — steering forces, velocity integration, SpatialHashGrid | ✅ Done |
 | Pass B | Canvas2D renderer — kinematic body chains, additive glow, stir + pour interaction | ✅ Done |
-| 6 | Interactive GUI — WebGL upgrade, morphology, cluster UI, full HUD | 🔲 TODO |
+| 6 | Interactive GUI — morphology, cluster UI, full HUD, camera, setup, god mode, stat graphs | ✅ Done |
+| 7 | **Speciation — stable clusters lock in as named species** (see [PLAN_SPECIATION.md](PLAN_SPECIATION.md)) | 🔜 **Next** |
 
 ---
 
@@ -178,36 +180,36 @@ A fluid, physics-backed web UI that feels alive. The grid should look like a liv
 
 ---
 
-## TODO — Phase 7: Native Bevy Renderer
+## Detailed plans
 
-Second renderer target, native, visual parity w/ JS/Canvas2D (`pond_web`). Reuses `pond_core` unchanged (`native` feature) — no sim-logic reimpl.
+| Plan | Scope |
+|------|-------|
+| [PLAN_GRAPHS.md](PLAN_GRAPHS.md) | Live stat graphs, parity w/ the old Python matplotlib panel |
+| [PLAN_SPECIATION.md](PLAN_SPECIATION.md) | Stable genome clusters lock in as named species |
 
-### Steps
-1. New crate `pond_bevy/` (workspace member). Deps: `pond_core` (`native` feature, rayon), `bevy` (2D render).
-2. Sim bridge: `pond_core::World` as Bevy `Resource`, stepped in `FixedUpdate` at 20 Hz (match JS tick). Same `ChaCha8Rng` determinism.
-3. Morphology parity: `morphology.rs` output (already Rust, no port needed) → `MorphSpec` fields drive per-segment Bevy `Mesh` gen.
-4. Chain/body parity: port `chain.js` kinematic chain → Bevy `Component`, updated per tick. Body hull (`body.js`) → dynamic `Mesh` per frame, or `bevy_prototype_lyon` if perf ok.
-5. Color parity: port `color.js` OKLCH math (rgbToOklch/oklchToRgb/smoothOklch) → Rust fn. Cluster→color reuses existing dual k-means (`cluster.rs`) — no reimpl.
-6. Glow/bioluminescence: additive-blend sprite/mesh w/ soft-edge texture, or custom radial-falloff frag shader, for food glow + agent pulse (Canvas radial-gradient has no free Bevy equivalent).
-7. UI parity (`panels.js`, `inspector.js`, legend, avg-genome panel, click-to-inspect neuron view): `bevy_egui`. Click-inspect = raycast/AABB pick → egui window w/ genome + brain viz.
-8. Interaction parity (`stir`, `pour`): Bevy input systems call native (non-wasm-gated) `inject_food`/`stir`/`pour_agents` on `World`.
-9. Perf: GPU-instanced batch draw (per-instance color/transform buffer) — avoid per-agent draw call.
-10. **Per-agent trait sliders** — exploded/inspector view gets live sliders for each genome trait (vision, speed, metabolism, reproduction_cost, aggression, etc.) on the selected agent, writing back into `World` genome arrays in real time.
-11. **Per-agent immortality switch** — toggle in exploded view that pins `death_age = ∞` (or skips the death check) for the selected agent id; useful for lineage-tracing and debugging without restarting the run.
+---
 
-Order: 1–2 (bridge+step) → 3–4 (static body, no color) → 5 (color+cluster) → 6 (glow) → 7 (UI) → 8 (interaction) → 9 (perf) → 10–11 (per-agent debug controls). Check each stage against JS screenshots for parity.
+## Dropped — native Bevy renderer
+
+Phase 7 was a second, native renderer built on Bevy. It is cut: the project is a
+browser demo, and a second renderer is cost with no payoff for that. `pond_core`
+keeps its `native` feature and headless runner, so nothing about the engine
+depends on this decision being permanent.
+
+One piece of the plan shipped and is worth keeping: `stir` and `inject_food` now
+live on `World` rather than `WasmWorld`, so every interaction is reachable from
+native code and the wasm layer is a thin wrapper.
 
 ---
 
 ## TODO — Phase 8: Publish to itch.io
 
-Currently in development, not published anywhere. Once Phase 6 (web GUI) is solid:
+The browser build is the deliverable. Once Phase 6 (web GUI) is solid:
 
 - Package `pond_web/` + `pond_core/pkg/*.wasm` as an itch.io HTML5 project (zip of the static bundle, `index.html` at root of the zip).
 - Verify itch.io's iframe/CSP sandboxing doesn't block the WASM fetch/instantiate path — may need to inline or same-origin the `.wasm` load.
 - Confirm perf/asset size for browser play (current wasm build ~122 KB, should be fine).
 - Add itch.io page copy + screenshots/GIFs (reuse `assets/gifs/*`).
-- Decide whether the Phase 7 Bevy build also gets a downloadable native itch.io build (desktop executable) alongside the browser version.
 
 ---
 

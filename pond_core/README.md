@@ -37,10 +37,12 @@ src/
   memory.rs   AgentMemory — 10-action ring buffer, success detection, mutation suppression
   cluster.rs  Dual k-means: genome traits (k=6) + brain weights (k=24), every 50 steps
   spatial.rs  SpatialHashGrid — tile-aligned buckets, f32 coords, toroidal agents_near()
+  stats.rs    StatHistory — 600-sample ring of sim-wide stats, sampled every 10 steps
   world.rs    World — SoA arrays, 20 Hz step loop, continuous-space physics
   wasm.rs     WasmWorld — wasm-bindgen wrapper, get_state() Float32Array, stir/pour,
               plus renderer-refactor exports: inspect_agent, trait_means, trait_bounds
-  bin/run.rs  Headless runner: prints step table, death tallies, cluster distributions
+  bin/run.rs  Headless runner: prints step table, death tallies, cluster distributions;
+              --dump-stats PATH writes the sampled time-series as CSV
 ```
 
 ### Step loop (order fixed)
@@ -66,7 +68,7 @@ src/
 
 | # | Name | Description |
 |---|------|-------------|
-| 0 | `energy_norm` | own energy / 100 |
+| 0 | `energy_norm` | own energy / (100 × energy_capacity trait) |
 | 1 | `food_dist_norm` | distance to nearest food / vision_radius (1.0 = none visible) |
 | 2 | `food_angle_norm` | angle to food relative to velocity direction, in [−1, 1] |
 | 3 | `agent_density_norm` | neighbours within 1.2 tiles / 8 |
@@ -83,7 +85,7 @@ src/
 | 4 | `eat_trigger` | > 0.5 → eat from current tile |
 | 5 | `reproduce_trigger` | > 0.5 → attempt reproduction |
 | 6 | `attack_weight` | dormant (combat routes through aggression trait) |
-| 7 | `sleep_trigger` | > 0.5 → give back 0.05 × metabolism energy |
+| 7 | `sleep_trigger` | > 0.5 → give back 0.15 × metabolism energy |
 
 ---
 
@@ -91,9 +93,26 @@ src/
 
 The `pond_web/` Canvas2D renderer draws agents as 7-segment kinematic chains with additive blending. The renderer refactor made the body **trait-driven** — its silhouette reads the genome — and added color smoothing plus interactive panels. Here's how to read what you see.
 
-### Agent color — genome cluster (with smoothing)
+### Agent color — combat strategy
 
-Color encodes which of 6 genome clusters the agent belongs to. Clusters are recomputed every 50 steps via k-means on the 9 trait values.
+Color encodes the lineage's **combat strategy**, drawn from three fixed palette
+ramps rather than a free hue sweep:
+
+| Ramp | Meaning | Vivid anchor |
+|------|---------|--------------|
+| **Lime** | passive — low aggression, bulky | `#F8FF00` |
+| **Cyan** | middle | `#00F8FF` |
+| **Magenta** | aggressive — pointed, ornamented | `#FF00F8` |
+
+Ramps are interpolated in Oklch, not snapped to, so an agent between passive and
+middling reads as a blend and colour drifts continuously as traits do. Position
+*down* a ramp comes from metabolism: fast burners sit at the bright end. Live
+energy dims the result at render time, so a starving agent is a darker version
+of its own colour rather than a different one.
+
+Older builds mapped colour to the k-means cluster label instead; that made ~75%
+of a converged pond render as one identical RGB triple and made colour jump
+whenever labels were reassigned.
 
 | Color | Cluster | Rough trait tendency* |
 |-------|---------|----------------------|
@@ -131,6 +150,9 @@ Body segments follow a size envelope (narrow head → widest mid-body → taperi
 | **Legend** (right, `L` toggles, on by default) | Cluster color swatches with live per-cluster counts, shape→trait glyph key, tile-color key | client-side tally + static key |
 | **Average genome** (right, under legend) | Population mean of each of the 9 traits as bars normalized to trait bounds, with sparkline history; dominant traits highlighted | `trait_means()`, `trait_bounds()` |
 | **Inspector** (left, click an agent) | Selected agent's live brain: 5→12→12→12→8 node activations (brightness = magnitude), input/output labels, sigmoid gate bars, energy/age/traits | `inspect_agent(id)` — a pure traced forward pass, no sim mutation |
+| **God mode** (top right, checkbox) | Comet (click-to-place blast), salt (spreading kill ring), sweep clean (wipe animation that empties the pond), ultra predator (pale-white articulated triangle chains that cull the pond back into its ±10% capacity band, reinforcing while it keeps climbing, then swim off), and immortality with a performance warning | `smite_radius`, `smite_band`, `smite_all`, `summon_predator`, `predators_state`, `set_immortal` |
+| **Setup** (centre, `N` toggles, open on load) | Grid size, starting population, and seed — the three arguments `World::new` takes. Starting a run rebuilds the world and clears every per-run cache | `new WasmWorld(grid, pop, seed)` |
+| **Stat graphs** (bottom, `G` toggles, off by default) | Population, food, avg energy, lifespan (median + min–max band), and per-interval deaths by cause, over the last ~6000 steps; summary and death totals underneath | `stats_history()`, `death_totals()`, `peak_population()` — engine-side ring buffer, redrawn at 1 Hz |
 
 ### Tile colors
 
@@ -146,11 +168,17 @@ Body segments follow a size envelope (narrow head → widest mid-body → taperi
 | Input | Effect |
 |-------|--------|
 | Click agent | Select + open the **inspector** panel (drag threshold distinguishes click from stir) |
+| Wheel | Zoom about the cursor (fit → 10× ; default framing fills the window) |
+| Right / middle drag, arrow keys | Pan the camera; clamped so the view never leaves the pond |
+| `F` / `0` | Fit the whole pond (letterboxed) / reset to the default framing |
 | Drag (left mouse) | `stir` — scatters agents outward, drains food, suppresses fertility |
 | Double-click | `pour_agents` — spawns 12 new agents at cursor position |
 | Space | Pause / resume |
 | `+` / `-` | Speed up / slow down simulation (×0.25 to ×16) |
 | `L` | Toggle the legend / average-genome panel |
+| `G` | Toggle the stat graph panel |
+| `H` or `?` | Hide/show the controls key (bottom left); collapses to a `?` button |
+| `N`, or the **new run** button under the HUD | Toggle the run-parameter panel (grid size, population, seed). The sim freezes while it is open and an idle creature swims on a dark purple field, so the run you start is the run you configured. `Esc` closes it without restarting |
 | `Esc` | Deselect the inspected agent |
 
 ---
@@ -173,6 +201,32 @@ Body segments follow a size envelope (narrow head → widest mid-body → taperi
 ---
 
 ## Next steps
+
+### 0 · Speciation — **next goal**
+
+Genome clusters are k-means labels: they exist because `k = 6` was chosen, and
+label 3 at step 200 shares nothing with label 3 at step 2000 beyond a slot.
+Speciation gives lineages real identity — a cluster that holds still for several
+*generations* is promoted to a named species with its own colour, founding step
+and permanent record, surviving even after it goes extinct.
+
+Promotion needs membership, low centroid drift, tight within-cluster spread and
+**advanced mean generation** — that last criterion is what separates inherited
+structure from a cluster that merely sat still because its members were
+long-lived. After promotion, agents assign by nearest species centroid rather
+than by k-means label, so identity survives relabelling and an agent can drift
+out of its species.
+
+Prerequisite: `Genome` has no generation counter yet (one line in `mutate`).
+
+**Full plan, including thresholds, naming and tuning:**
+[`../PLAN_SPECIATION.md`](../PLAN_SPECIATION.md).
+
+**Files:** `src/genome.rs` (generation), new `src/species.rs`, `src/world.rs`
+(registry + per-step promotion), `src/wasm.rs` (exports), `pond_web/panels.js`
+and `pond_web/inspector.js` (legend + inspector).
+
+---
 
 ### 1 · Threat detection + flee mechanic
 

@@ -3,21 +3,53 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>pond_spawn</title>
+<title>Pond Spawn</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #000; overflow: hidden; font-family: 'Courier New', monospace; }
+body { background: #06010f; overflow: hidden; font-family: 'Courier New', monospace; }
 canvas { display: block; }
 
 #hud {
   position: fixed;
   top: 16px; left: 16px;
-  color: rgba(60, 220, 180, 0.75);
+  color: rgba(120, 255, 245, 0.75);
   font-size: 12px;
   line-height: 1.7;
-  text-shadow: 0 0 10px rgba(0, 255, 180, 0.4);
+  text-shadow: 0 0 10px rgba(120, 255, 245, 0.4);
   pointer-events: none;
 }
+
+/* The HUD is click-through, so the button re-enables pointer events on itself. */
+#h-newrun {
+  pointer-events: auto;
+  margin-top: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 60, 220, 0.5);
+  border-radius: 3px;
+  color: rgba(255, 150, 240, 0.95);
+  font-family: inherit; font-size: 10px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 4px 9px; cursor: pointer;
+}
+#h-newrun:hover { background: rgba(255, 60, 220, 0.2); }
+
+/* Collapsed form of the controls key. Small enough to ignore, present enough
+   that the keybinds are never unreachable once hidden. */
+#hint-show {
+  display: none;
+  position: fixed;
+  bottom: 16px; left: 16px;
+  width: 26px; height: 26px;
+  line-height: 24px; text-align: center;
+  background: rgba(6, 14, 24, 0.88);
+  border: 1px solid rgba(120, 255, 245, 0.35);
+  border-radius: 5px;
+  color: rgba(120, 255, 245, 0.9);
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  cursor: pointer;
+}
+#hint-show:hover { background: rgba(120, 255, 245, 0.15); }
 
 #hint {
   position: fixed;
@@ -26,11 +58,11 @@ canvas { display: block; }
   font-size: 14px;
   line-height: 1.9;
   background: rgba(6, 14, 24, 0.88);
-  border: 1px solid rgba(60, 220, 180, 0.3);
+  border: 1px solid rgba(120, 255, 245, 0.3);
   border-radius: 6px;
   padding: 10px 14px;
   text-shadow: none;
-  pointer-events: none;
+  cursor: pointer;
 }
 
 #paused-banner {
@@ -38,11 +70,11 @@ canvas { display: block; }
   position: fixed;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  color: rgba(60, 220, 180, 0.5);
+  color: rgba(120, 255, 245, 0.5);
   font-size: 24px;
   letter-spacing: 8px;
   text-transform: uppercase;
-  text-shadow: 0 0 20px rgba(0, 255, 180, 0.6);
+  text-shadow: 0 0 20px rgba(120, 255, 245, 0.6);
   pointer-events: none;
 }
 
@@ -50,9 +82,9 @@ canvas { display: block; }
 .panel {
   position: fixed;
   background: rgba(4, 10, 18, 0.88);
-  border: 1px solid rgba(60, 220, 180, 0.18);
+  border: 1px solid rgba(120, 255, 245, 0.18);
   border-radius: 6px;
-  color: rgba(170, 210, 220, 0.85);
+  color: rgba(190, 245, 255, 0.85);
   font-size: 11px;
   line-height: 1.5;
   padding: 10px 12px;
@@ -64,10 +96,57 @@ canvas { display: block; }
   font-size: 11px;
   letter-spacing: 2px;
   text-transform: uppercase;
-  color: rgba(60, 220, 180, 0.8);
+  color: rgba(120, 255, 245, 0.8);
   margin-bottom: 8px;
 }
 .panel h2:not(:first-child) { margin-top: 12px; }
+
+/* ── God mode (top right, above the legend) ───────────────────────────── */
+/* Shares the right-hand column with the legend; the legend's top is set from
+   this panel's measured height (layout_right_column), since it expands and
+   collapses and a fixed offset would either overlap or leave a gap. */
+#god {
+  top: 16px; right: 16px;
+  width: 230px;
+  border-color: rgba(255, 60, 220, 0.3);
+}
+#god.active {
+  border-color: rgba(255, 60, 220, 0.75);
+  box-shadow: 0 0 26px rgba(255, 60, 220, 0.22);
+}
+#god h2 { margin-bottom: 0; }
+.god-body { display: none; margin-top: 8px; }
+.god-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.god-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.god-toggle input { accent-color: rgb(255, 60, 220); cursor: pointer; }
+.god-tool {
+  flex: 0 0 92px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 60, 220, 0.45);
+  border-radius: 3px;
+  color: rgba(255, 150, 240, 0.95);
+  font-family: inherit; font-size: 10px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 5px 6px; cursor: pointer;
+}
+.god-tool:hover { background: rgba(255, 60, 220, 0.16); }
+.god-tool.armed {
+  background: rgba(255, 60, 220, 0.35);
+  color: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 0 12px rgba(255, 60, 220, 0.5);
+}
+.god-hint { color: rgba(120, 150, 175, 0.7); font-size: 10px; }
+.god-warn {
+  color: rgba(255, 105, 165, 0.95);
+  font-size: 10px;
+  line-height: 1.45;
+  margin-top: 6px;
+}
+.god-warn:not(:empty) {
+  padding: 6px 7px;
+  border-left: 2px solid rgba(255, 105, 165, 0.7);
+  background: rgba(255, 105, 165, 0.08);
+}
 
 /* ── Legend + genome (right) ──────────────────────────────────────────── */
 #side-right {
@@ -84,44 +163,197 @@ canvas { display: block; }
 .legend-glyph { flex-shrink: 0; width: 34px; height: 16px; opacity: 0.9; }
 .legend-count { margin-left: auto; color: rgba(120, 160, 175, 0.7); }
 .legend-note { color: rgba(110, 140, 155, 0.6); font-size: 10px; margin-top: 4px; }
+.legend-row.clickable { cursor: pointer; border-radius: 3px; padding: 1px 3px; margin-left: -3px; }
+.legend-row.clickable:hover { background: rgba(120, 255, 245, 0.10); }
+.legend-row.selected { background: rgba(120, 255, 245, 0.16); }
+.legend-glyph-txt {
+  flex-shrink: 0; width: 34px; text-align: center;
+  font-weight: bold; color: rgba(236, 248, 255, 0.9);
+}
+#legend-composite:not(:empty) {
+  margin-top: 6px; padding: 6px 7px;
+  background: rgba(0, 0, 0, 0.25); border-radius: 4px;
+  border-left: 2px solid rgba(120, 255, 245, 0.5);
+}
+.comp-head { color: rgba(120, 255, 245, 0.9); margin-bottom: 4px; }
+.comp-row { display: flex; align-items: center; gap: 6px; margin: 1px 0; }
+.comp-row .k { width: 62px; color: rgba(150, 220, 240, 0.8); flex-shrink: 0; }
+.comp-track {
+  position: relative; flex: 1; height: 6px;
+  background: rgba(120, 255, 245, 0.10); border-radius: 3px; overflow: hidden;
+}
+.comp-fill { position: absolute; top: 0; bottom: 0; background: rgba(120, 255, 245, 0.55); }
+.comp-sd { position: absolute; top: 0; bottom: 0; background: rgba(255, 60, 220, 0.35); }
+.comp-row .v { width: 30px; text-align: right; color: rgba(120,160,175,0.8); flex-shrink: 0; }
+.comp-note { color: rgba(110, 140, 155, 0.6); font-size: 10px; margin-top: 5px; }
 
 .trait-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
-.trait-name { width: 74px; flex-shrink: 0; color: rgba(140, 180, 190, 0.8); }
+.trait-name { width: 74px; flex-shrink: 0; color: rgba(150, 220, 240, 0.8); }
 .trait-name.locked { color: rgba(100, 120, 130, 0.5); }
 .trait-track {
   flex: 1; height: 8px; position: relative;
-  background: rgba(60, 220, 180, 0.08);
+  background: rgba(120, 255, 245, 0.08);
   border-radius: 4px; overflow: hidden;
 }
 .trait-fill {
   position: absolute; left: 0; top: 0; bottom: 0;
-  background: rgba(60, 220, 180, 0.55);
+  background: rgba(120, 255, 245, 0.55);
   border-radius: 4px;
   transition: width 0.4s ease;
 }
-.trait-row.dominant .trait-fill { background: rgba(255, 185, 0, 0.75); }
-.trait-row.dominant .trait-name { color: rgba(255, 205, 90, 0.9); }
+.trait-row.dominant .trait-fill { background: rgba(255, 60, 220, 0.75); }
+.trait-row.dominant .trait-name { color: rgba(255, 120, 235, 0.9); }
 .trait-spark { width: 46px; height: 14px; flex-shrink: 0; opacity: 0.8; }
 .trait-val { width: 34px; text-align: right; color: rgba(120, 160, 175, 0.75); flex-shrink: 0; }
 
 /* ── Inspector (left, below the HUD stats so it never covers them) ────── */
 #inspector {
   top: 140px; left: 16px;
-  width: 304px;
+  width: 320px;
   max-height: calc(100vh - 160px);
+  overflow-y: auto;
   display: none;
 }
+/* Traits sat in one 9-row column, which pushed the network canvas past the
+   panel and clipped it. Two columns halve the height and give each value room. */
+#insp-traits {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 12px;
+  row-gap: 1px;
+  margin: 6px 0 2px;
+}
+.insp-section {
+  margin-top: 10px; padding-top: 6px;
+  border-top: 1px solid rgba(120, 255, 245, 0.14);
+  color: rgba(110, 150, 165, 0.75);
+  font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+}
+#insp-kills { margin-left: auto; color: rgba(255, 60, 220, 0.9); }
 #insp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 #insp-swatch {
   width: 12px; height: 12px; border-radius: 50%;
   box-shadow: 0 0 6px currentColor;
 }
-#insp-id { color: rgba(60, 220, 180, 0.9); }
+#insp-id { color: rgba(120, 255, 245, 0.9); }
 #insp-status { margin-left: auto; color: rgba(255, 120, 120, 0.85); }
-.insp-bar-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
-.insp-bar-row .trait-name { width: 52px; }
+.insp-bar-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+.insp-bar-row .trait-name { width: 56px; flex-shrink: 0; }
+#insp-traits .insp-bar-row { margin: 0; }
+#insp-traits .trait-name { width: auto; flex: 1; }
 #insp-net { display: block; margin-top: 8px; background: rgba(0,0,0,0.25); border-radius: 4px; }
 #insp-note { color: rgba(110, 140, 155, 0.6); font-size: 10px; margin-top: 6px; }
+
+/* The sim is frozen while the setup panel is open, so say so — a still pond
+   with no banner reads as a hang. Sits above the panel, which is centred. */
+#setup-banner {
+  display: block;
+  position: fixed;
+  top: calc(50% - 145px); left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255, 60, 220, 0.75);
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  letter-spacing: 5px;
+  text-transform: uppercase;
+  text-shadow: 0 0 16px rgba(255, 60, 220, 0.6);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Announces the hunt. The automatic cull is the one thing the sim does that the
+   player didn't ask for, so it has to be legible rather than mysterious. */
+#predator-banner {
+  display: none;
+  position: fixed;
+  top: 22px; left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255, 120, 120, 0.95);
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  text-shadow: 0 0 14px rgba(255, 40, 60, 0.75);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ── Setup panel (centre, N toggles) ──────────────────────────────────── */
+#setup {
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 300px;
+  display: block;   /* open on load so a run always starts deliberately */
+  border-color: rgba(255, 60, 220, 0.45);
+  box-shadow: 0 0 40px rgba(255, 60, 220, 0.18);
+}
+.setup-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.setup-row label { flex: 1; color: rgba(160, 240, 255, 0.85); }
+.setup-row input {
+  width: 120px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(120, 255, 245, 0.35);
+  border-radius: 3px;
+  color: rgba(236, 255, 250, 0.95);
+  font-family: inherit; font-size: 11px;
+  padding: 3px 6px;
+}
+.setup-row input:focus { outline: none; border-color: rgba(255, 60, 220, 0.8); }
+.setup-note { color: rgba(120, 150, 175, 0.65); font-size: 10px; margin-left: 2px; }
+.setup-warn { color: rgba(255, 105, 165, 0.95); font-size: 10px; margin-top: 8px; }
+.setup-actions { display: flex; gap: 8px; margin: 12px 0 8px; }
+.setup-actions button {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(120, 255, 245, 0.4);
+  border-radius: 3px;
+  color: rgba(120, 255, 245, 0.95);
+  font-family: inherit; font-size: 11px;
+  letter-spacing: 0.05em; text-transform: uppercase;
+  padding: 6px 8px; cursor: pointer;
+}
+.setup-actions button:hover { background: rgba(120, 255, 245, 0.14); }
+.setup-actions button.primary {
+  border-color: rgba(255, 60, 220, 0.7);
+  color: rgba(255, 150, 240, 0.98);
+}
+.setup-actions button.primary:hover { background: rgba(255, 60, 220, 0.18); }
+
+/* ── Stat graphs (bottom strip, G toggles) ────────────────────────────── */
+/* Centred so it clears the inspector on the left and the legend on the right.
+   Off by default — the pond should be the first thing you see. */
+/* Fixed width rather than max-width: the cells flex to fill it, so the row is
+   evenly spaced and always reaches both edges of the panel. Clamped so it never
+   runs under the inspector on the left or the legend on the right. */
+#graphs {
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: clamp(520px, calc(100vw - 620px), 1180px);
+  overflow: hidden;
+  display: none;
+  padding: 8px 10px;
+}
+.graph-strip { display: flex; gap: 10px; align-items: flex-end; }
+.graph-cell { flex: 1 1 0; min-width: 0; }
+.graph-title {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 10px; letter-spacing: 0.05em;
+  color: rgba(110, 150, 165, 0.8);
+  margin-bottom: 3px;
+}
+.graph-cur { color: rgba(236, 248, 255, 0.9); }
+.graph-cell canvas {
+  display: block;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 3px;
+}
+.graph-footer {
+  display: flex; flex-wrap: wrap; gap: 4px 14px;
+  margin-top: 6px; padding-top: 5px;
+  border-top: 1px solid rgba(120, 255, 245, 0.14);
+}
+.graph-note { color: rgba(110, 140, 155, 0.7); font-size: 10px; }
 </style>
 </head>
 <body>
@@ -133,20 +365,27 @@ canvas { display: block; }
   <div id="h-energy">avg energy —</div>
   <div id="h-food">food —</div>
   <div id="h-speed">speed ×1</div>
+  <button id="h-newrun">new run</button>
 </div>
 
 <div id="hint">
   click agent → inspect &nbsp;·&nbsp; drag → stir &nbsp;·&nbsp; dblclick → pour agents<br>
-  space → pause &nbsp;·&nbsp; +/- → speed &nbsp;·&nbsp; l → legend &nbsp;·&nbsp; esc → deselect
+  wheel → zoom &nbsp;·&nbsp; right-drag / arrows → pan &nbsp;·&nbsp; f → fit pond &nbsp;·&nbsp; 0 → reset view<br>
+  space → pause &nbsp;·&nbsp; +/- → speed &nbsp;·&nbsp; n → restart (ends this run) &nbsp;·&nbsp; l → legend &nbsp;·&nbsp; g → graphs &nbsp;·&nbsp; esc → deselect &nbsp;·&nbsp; h → hide this
 </div>
 
+<div id="hint-show" title="show controls">?</div>
+
 <div id="paused-banner">paused</div>
+<div id="setup-banner">new simulation run parameters</div>
+<div id="predator-banner"></div>
 
 <!-- Right side: legend (colors + shapes) and running average genome -->
 <div id="side-right" class="panel">
   <h2>colors — genome family</h2>
   <div id="legend-colors"></div>
-  <div class="legend-note">kinship clusters, re-fit every 50 steps; label colors persist across re-fits</div>
+  <div class="legend-note">swatch = family mean genome colour &middot; click a family for its composite</div>
+  <div id="legend-composite"></div>
 
   <h2>shapes — traits</h2>
   <div id="legend-shapes"></div>
@@ -154,9 +393,12 @@ canvas { display: block; }
   <h2>tiles</h2>
   <div id="legend-tiles"></div>
 
+  <h2>deaths</h2>
+  <div id="legend-deaths"></div>
+
   <h2>average genome</h2>
   <div id="genome-panel"></div>
-  <div class="legend-note">population mean per trait; amber = dominant (furthest above range midpoint); dotted history ≈ last 1200 steps</div>
+  <div class="legend-note">population mean per trait; magenta = dominant (furthest above range midpoint); dotted history ≈ last 1200 steps</div>
 </div>
 
 <!-- Left side: click-to-inspect brain panel -->
@@ -168,10 +410,22 @@ canvas { display: block; }
   </div>
   <div class="insp-bar-row"><span class="trait-name">energy</span><div class="trait-track"><div class="trait-fill" id="insp-energy"></div></div></div>
   <div class="insp-bar-row"><span class="trait-name">age</span><div class="trait-track"><div class="trait-fill" id="insp-age"></div></div></div>
+  <div class="insp-bar-row"><span class="trait-name">kills</span><span id="insp-kills">0</span></div>
+  <div class="insp-section">genome</div>
   <div id="insp-traits"></div>
-  <canvas id="insp-net" width="280" height="330"></canvas>
+  <div class="insp-section">brain</div>
+  <canvas id="insp-net" width="296" height="330"></canvas>
   <div id="insp-note">node brightness = activation &middot; right bars = sigmoid steering gates the sim acts on</div>
 </div>
+
+<!-- Bottom: live stat time-series, sampled engine-side every 10 sim steps -->
+<div id="graphs" class="panel"></div>
+
+<!-- Centre: run parameters. Open on load, N toggles. -->
+<div id="setup" class="panel"></div>
+
+<!-- Top right, above the legend: player powers -->
+<div id="god" class="panel"></div>
 
 <script type="module" src="renderer.js"></script>
 </body>

@@ -49,6 +49,106 @@ export function oklchToRgb([L, C, h]) {
     return oklabToRgb([L, C * Math.cos(h), C * Math.sin(h)]);
 }
 
+// ── Genome → colour ───────────────────────────────────────────────────────────
+//
+// Colour is a continuous function of the genome rather than a lookup on the
+// k-means cluster label. Two consequences worth knowing:
+//
+//  1. Within-family variation becomes visible. Keyed to the label, ~75% of a
+//     converged pond rendered as one identical RGB triple.
+//  2. Colour can no longer "switch". A label is a step function, so any
+//     reassignment was a jump that smoothing could soften but not remove;
+//     traits only drift by small mutation steps, so hue drifts with them.
+//
+// Traits are immutable for an agent's life, so the base colour is constant and
+// needs no temporal smoothing at all — only the live energy term varies, and
+// that already moves continuously.
+//
+// Agent colour comes from three fixed ramps rather than a free hue sweep:
+//
+//   lime    — passive
+//   cyan    — middle
+//   magenta — aggressive
+//
+// A free arc put most of the pond in whatever hues sat mid-sweep, which is how
+// it ended up orange. Anchoring to three ramps means the strategy a lineage has
+// evolved is readable at a glance, and no colour outside the palette can occur.
+//
+// Ramps are interpolated, not snapped to: traits drift by small mutation steps,
+// so an agent between passive and middling reads as a blend rather than jumping
+// between bands. Interpolation runs in Oklch, so lime→cyan passes through
+// vivid greens instead of the grey mud a straight RGB lerp would give.
+const RAMP_LIME = ['#F8FF00', '#D0D600', '#A9AE00', '#878B00', '#636600', '#3F4100'];
+const RAMP_CYAN = ['#00F8FF', '#00CDD2', '#00A3A8', '#007E82', '#00585B', '#003234'];
+const RAMP_MAGENTA = ['#FFDFFB', '#FF98F7', '#FF00F8', '#CB00C5', '#950091', '#5F005C'];
+
+function hexToRgb(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+// Pre-converted once: the ramps are constant, and rgbToOklch per agent per
+// frame would be pure waste.
+const RAMPS = [RAMP_LIME, RAMP_CYAN, RAMP_MAGENTA]
+    .map(ramp => ramp.map(hex => rgbToOklch(hexToRgb(hex))));
+
+/** Sample one ramp at a continuous position, blending its two nearest stops. */
+function sampleRamp(ramp, pos) {
+    const t = Math.min(ramp.length - 1, Math.max(0, pos));
+    const lo = Math.floor(t);
+    const hi = Math.min(lo + 1, ramp.length - 1);
+    return lerpOklch(ramp[lo], ramp[hi], t - lo);
+}
+
+/** Blend two Oklch colours, hue along the shortest arc. */
+function lerpOklch(a, b, t) {
+    let dh = b[2] - a[2];
+    if (dh > Math.PI) dh -= 2 * Math.PI;
+    if (dh < -Math.PI) dh += 2 * Math.PI;
+    return [
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t,
+        a[2] + dh * t,
+    ];
+}
+
+// Where each ramp's vivid anchor sits. The lime and cyan ramps open on their
+// brightest stop, but the magenta ramp opens on two pale tints — starting there
+// made aggressive lineages read as washed-out pink rather than hot magenta, so
+// magenta starts two stops in and its light tints go unused.
+const RAMP_START = [0, 0, 2];
+// How far past that anchor a slow-metabolism agent sits. Kept shallow: the
+// bottom stops are dark enough to disappear against the water, and live energy
+// already dims the colour further at render time.
+const SHADE_DEPTH = 2.0;
+
+/**
+ * morph: normalized [0,1] knobs from pond_core (see morphology.rs).
+ * Returns base [L, C, h] — multiply L by live energy before rendering.
+ */
+export function genomeColor(morph) {
+    const { pointiness, ornament, bulk, pulseRate } = morph;
+
+    // Strategy ← combat profile. Aggression dominates because it's the trait
+    // that most defines a lineage's strategy; attack and defense shade it.
+    const combat = Math.min(1, Math.max(0,
+        pointiness * 0.55 + ornament * 0.25 + (1 - bulk) * 0.20));
+
+    // Position along its ramp ← burn rate. Fast-metabolism lineages sit at the
+    // bright end, slow ones deeper down.
+    const depth = (1 - pulseRate) * SHADE_DEPTH;
+
+    // lime → cyan over the first half of the range, cyan → magenta over the
+    // second, so the three anchors land at passive / middle / aggressive.
+    const half = combat < 0.5 ? 0 : 1;
+    const t = combat < 0.5 ? combat * 2 : (combat - 0.5) * 2;
+    return lerpOklch(
+        sampleRamp(RAMPS[half], RAMP_START[half] + depth),
+        sampleRamp(RAMPS[half + 1], RAMP_START[half + 1] + depth),
+        t,
+    );
+}
+
 /**
  * Frame-rate-independent exponential smoother over Oklch.
  * `state` = current [L,C,h] (mutated in place), `target` = target [L,C,h],
