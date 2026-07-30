@@ -1,6 +1,7 @@
 use wasm_bindgen::prelude::*;
 
 use crate::morphology::MorphParams;
+use crate::genome::TRAIT_COUNT;
 use crate::world::{World, DT};
 
 // ── State buffer layout constants (exported so JS can read them) ──────────────
@@ -199,7 +200,7 @@ impl WasmWorld {
         let Some(s) = all.get(index) else { return Vec::new() };
 
         let bounds = crate::genome::Traits::BOUNDS;
-        let mut raw = [0f64; 9];
+        let mut raw = [0f64; TRAIT_COUNT];
         for (t, slot) in raw.iter_mut().enumerate() {
             let (lo, hi) = bounds[t];
             *slot = (lo + hi) / 2.0;
@@ -213,7 +214,7 @@ impl WasmWorld {
             vision: raw[0], speed: raw[1], metabolism: raw[2],
             energy_capacity: raw[3], mutation_rate: raw[4],
             reproduction_cost: raw[5], attack: raw[6], defense: raw[7],
-            aggression: raw[8],
+            aggression: raw[8], intelligence: raw[9],
         };
         let m = MorphParams::from_traits(&traits);
         vec![m.pointiness, m.elongation, m.bulk, m.ornament, m.eye_size, m.pulse_rate, m.belly]
@@ -401,33 +402,47 @@ impl WasmWorld {
         let traits_of = |i: usize| {
             let t = &w.genome[i].traits;
             [t.vision, t.speed, t.metabolism, t.energy_capacity, t.mutation_rate,
-             t.reproduction_cost, t.attack, t.defense, t.aggression]
+             t.reproduction_cost, t.attack, t.defense, t.aggression, t.intelligence]
         };
 
-        let mut means = [0f32; 9];
+        let mut means = [0f32; TRAIT_COUNT];
         for &i in &members {
             let t = traits_of(i);
-            for d in 0..9 { means[d] += t[d] as f32; }
+            for d in 0..TRAIT_COUNT { means[d] += t[d] as f32; }
         }
         for m in means.iter_mut() { *m /= n; }
 
-        let mut sds = [0f32; 9];
+        let mut sds = [0f32; TRAIT_COUNT];
         for &i in &members {
             let t = traits_of(i);
-            for d in 0..9 { sds[d] += (t[d] as f32 - means[d]).powi(2); }
+            for d in 0..TRAIT_COUNT { sds[d] += (t[d] as f32 - means[d]).powi(2); }
         }
         for (d, sd) in sds.iter_mut().enumerate() { *sd = (*sd / n).sqrt(); let _ = d; }
 
         out.extend_from_slice(&means);
         out.extend_from_slice(&sds);
 
-        // Layer weight spans in the flat 488-float buffer (see brain.rs).
-        const LAYERS: [(usize, usize); 4] = [(0, 60), (72, 216), (228, 372), (384, 480)];
+        // Weight span of each layer, derived from the brain's own layer table.
+        // These were four hardcoded pairs cut for the old 488-float buffer, and
+        // widening the input vector left them slicing the wrong ranges of a
+        // 512-float one — the exact silent misread `schema.rs` exists to stop,
+        // committed in the same pass that added it.
+        let layers: [(usize, usize); 4] = {
+            let sizes = crate::brain::LAYER_SIZES;
+            let mut spans = [(0usize, 0usize); 4];
+            let mut off = 0;
+            for l in 0..4 {
+                let w = sizes[l] * sizes[l + 1];
+                spans[l] = (off, off + w);
+                off += w + sizes[l + 1];
+            }
+            spans
+        };
         let mut lmeans = [0f32; 4];
         let mut per_agent = vec![[0f32; 4]; members.len()];
         for (mi, &i) in members.iter().enumerate() {
             let bw = &w.genome[i].brain_weights;
-            for (li, &(a, b)) in LAYERS.iter().enumerate() {
+            for (li, &(a, b)) in layers.iter().enumerate() {
                 let mag: f32 = bw[a..b].iter().map(|x| x.abs()).sum::<f32>() / (b - a) as f32;
                 per_agent[mi][li] = mag;
                 lmeans[li] += mag;

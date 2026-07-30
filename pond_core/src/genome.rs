@@ -15,20 +15,31 @@ pub struct Traits {
     pub energy_capacity: f64,    // locked (D3)
     pub mutation_rate: f64,      // locked (D3)
     pub reproduction_cost: f64,
-    // TODO: not yet wired into decision-making. Disabled (no generate/mutate draw)
-    // until it's actually used, to avoid wasted RNG draws and drift on a dead gene.
-    // pub intelligence: f64,
     pub attack: f64,
     pub defense: f64,
     pub aggression: f64,
+    /// How often the agent thinks, how quickly it notices a threat, and what
+    /// that costs. See `DECISION_INTERVAL_MAX`, `THREAT_LAG_MAX` and
+    /// `INTELLIGENCE_UPKEEP` in `world.rs`.
+    ///
+    /// Appended rather than slotted in beside `reproduction_cost` where it was
+    /// first drafted: every index after it is mirrored by hand in `wasm.rs`,
+    /// `species.rs`, the inspector and the panels, and shifting `attack`,
+    /// `defense` and `aggression` by one would have been a silent misread in
+    /// each of them.
+    pub intelligence: f64,
 }
+
+/// Number of genome traits. One source for every `[f64; N]` that mirrors the
+/// trait list — the population means, the composite panel, the inspector row.
+pub const TRAIT_COUNT: usize = Traits::BOUNDS.len();
 
 impl Traits {
     /// `[lo, hi]` per trait in field order. Canonical — `generate()` draws from
     /// these, `mutate()` clamps to them, `species.rs` normalizes by them, and
     /// `wasm::trait_bounds()` exports them. One table, so a bounds change can't
     /// half-land.
-    pub const BOUNDS: [(f64, f64); 9] = [
+    pub const BOUNDS: [(f64, f64); 10] = [
         (0.5, 1.05),   // vision
         (0.5, 1.0),    // speed
         (0.5, 1.05),   // metabolism
@@ -38,6 +49,7 @@ impl Traits {
         (0.5, 1.25),   // attack
         (0.5, 1.07),   // defense
         (0.0, 1.05),   // aggression
+        (0.5, 1.05),   // intelligence
     ];
 
     /// Generate random founding trait values within JSON-defined bounds.
@@ -50,10 +62,10 @@ impl Traits {
             energy_capacity:         rng.gen_range(0.95_f64..=1.05),
             mutation_rate:           rng.gen_range(0.01_f64..=0.25),
             reproduction_cost:       rng.gen_range(0.75_f64..=1.50),
-            // intelligence: rng.gen_range(0.5_f64..=1.05), // TODO: see struct def
             attack:                  rng.gen_range(0.5_f64..=1.25),
             defense:                 rng.gen_range(0.5_f64..=1.07),
             aggression:              rng.gen_range(0.0_f64..=1.05),
+            intelligence:            rng.gen_range(0.5_f64..=1.05),
         }
     }
 
@@ -82,10 +94,10 @@ impl Traits {
             energy_capacity:         self.energy_capacity,
             mutation_rate:           self.mutation_rate,
             reproduction_cost:       maybe_mutate!(self.reproduction_cost, 0.75, 1.50),
-            // intelligence: maybe_mutate!(self.intelligence, 0.5, 1.05), // TODO: see struct def
             attack:                  maybe_mutate!(self.attack, 0.5, 1.25),
             defense:                 maybe_mutate!(self.defense, 0.5, 1.07),
             aggression:              maybe_mutate!(self.aggression, 0.0, 1.05),
+            intelligence:            maybe_mutate!(self.intelligence, 0.5, 1.05),
         }
     }
 }

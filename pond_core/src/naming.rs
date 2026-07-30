@@ -70,8 +70,8 @@ const NONSENSE_TAIL: [&str; 2] = ["us", "a"];
 /// Latin epithets per signature trait, `[low, high]`.
 ///
 /// Index order matches `species::SIGNATURE_DIMS`: vision, speed, metabolism,
-/// reproduction_cost, attack, defense, aggression. Each pool deliberately mixes
-/// masculine and feminine forms.
+/// reproduction_cost, attack, defense, aggression, intelligence. Each pool
+/// deliberately mixes masculine and feminine forms.
 const LATIN: [[&[&str]; 2]; SIG_LEN] = [
     // vision — low: blind/dim, high: sharp/watchful
     [&["caeca", "obscurus", "nebulosa"], &["lucida", "vigilus", "acuta", "clarus"]],
@@ -87,6 +87,8 @@ const LATIN: [[&[&str]; 2]; SIG_LEN] = [
     [&["fragilis", "nuda", "apertus"], &["loricata", "munitus", "scutata", "firmus"]],
     // aggression — low: peaceable, high: warlike
     [&["tranquilla", "benignus", "quieta"], &["bellicosa", "iratus", "truculenta"]],
+    // intelligence — low: dull and slow to notice, high: quick and watchful
+    [&["hebes", "stolida", "obtusus", "torpens"], &["sagax", "prudens", "callida", "argutus"]],
 ];
 
 /// A generated binomial.

@@ -33,6 +33,9 @@
 ///
 /// - 1 — first versioned build. Baseline: 7-float header, 19-float agent
 ///   stride, 35-float species row, 5 death causes, brain `5→12→12→12→8`.
-/// - 2 — brain gains two threat inputs: `7→12→12→12→8`, 604 weights. Inspect
+/// - 2 — brain gains two threat inputs: `7→12→12→12→8`, 512 weights. Inspect
 ///   buffer and its input labels grow with it.
-pub const SCHEMA_VERSION: u32 = 2;
+/// - 3 — `intelligence` becomes a live trait: 10 traits rather than 9, and it
+///   joins the species signature, so the composite buffer, the species row and
+///   the inspector's trait block all grow.
+pub const SCHEMA_VERSION: u32 = 3;

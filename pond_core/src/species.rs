@@ -36,7 +36,7 @@ use crate::naming::{self, Name};
 
 /// Trait indices used for the species signature: the seven mutable traits.
 /// Skips `energy_capacity` (3) and `mutation_rate` (4) — see module docs.
-pub const SIGNATURE_DIMS: [usize; 7] = [0, 1, 2, 5, 6, 7, 8];
+pub const SIGNATURE_DIMS: [usize; 8] = [0, 1, 2, 5, 6, 7, 8, 9];
 /// Length of a signature vector.
 pub const SIG_LEN: usize = SIGNATURE_DIMS.len();
 
@@ -715,6 +715,7 @@ pub fn signature(t: &Traits) -> [f64; SIG_LEN] {
         t.vision, t.speed, t.metabolism,
         t.energy_capacity, t.mutation_rate,
         t.reproduction_cost, t.attack, t.defense, t.aggression,
+        t.intelligence,
     ];
     let mut out = [0f64; SIG_LEN];
     for (slot, &d) in out.iter_mut().zip(SIGNATURE_DIMS.iter()) {
@@ -744,6 +745,7 @@ mod tests {
             let t = &mut g.traits;
             t.vision = level; t.speed = level.min(1.0); t.metabolism = level;
             t.attack = level; t.defense = level.min(1.07); t.aggression = level;
+            t.intelligence = level.min(1.05);
             t.reproduction_cost = level + 0.75;
             g.generation = generation;
         }

@@ -4,7 +4,7 @@
 
 const TRAIT_NAMES = [
     'vision', 'speed', 'metabolism', 'energy cap', 'mutation', 'repro cost',
-    'attack', 'defense', 'aggression',
+    'attack', 'defense', 'aggression', 'intelligence',
 ];
 // energy_capacity and mutation_rate are locked (no mutation drift) — display
 // them dimmed and exclude them from "dominant" highlighting.
@@ -40,7 +40,7 @@ const DEATH_ROWS = [
     [':/',    'starved'],
 ];
 
-const COMPOSITE_TRAITS = [0, 1, 2, 5, 6, 7, 8];   // skip the two locked traits
+const COMPOSITE_TRAITS = [0, 1, 2, 5, 6, 7, 8, 9];   // skip the two locked traits
 const LAYER_NAMES = ['in→h0', 'h0→h1', 'h1→h2', 'h2→out'];
 
 /**
@@ -78,12 +78,13 @@ export function initLegend(clusterRgb, onFamily, bounds) {
                 `<div class="comp-note">no living members</div>`;
             return;
         }
-        // [0]=count, [1..10)=trait means, [10..19)=trait sd,
-        // [19..23)=layer magnitude means, [23..27)=layer sd
+        // [0]=count, then trait means, trait sds, 4 layer magnitude means, 4
+        // layer sds. Offsets are derived from TRAIT_NAMES.length rather than
+        // written down — the trait list has grown once already.
         let html = `<div class="comp-head">family ${selected + 1} — ${c[0] | 0} members</div>`;
         for (const t of COMPOSITE_TRAITS) {
             const lo = bounds[t * 2], hi = bounds[t * 2 + 1];
-            const mean = c[1 + t], sd = c[10 + t];
+            const mean = c[1 + t], sd = c[1 + TRAIT_NAMES.length + t];
             const nm = Math.max(0, Math.min(1, (mean - lo) / (hi - lo)));
             const nsd = Math.max(0, Math.min(1, sd / (hi - lo)));
             const left = Math.max(0, (nm - nsd) * 100);
@@ -95,9 +96,10 @@ export function initLegend(clusterRgb, onFamily, bounds) {
                 `<div class="comp-sd" style="left:${left}%;width:${Math.min(100 - left, nsd * 200)}%"></div>` +
                 `</div><span class="v">${mean.toFixed(2)}</span></div>`;
         }
-        const maxMag = Math.max(1e-6, ...LAYER_NAMES.map((_, l) => c[19 + l]));
+        const LAYER_BASE = 1 + TRAIT_NAMES.length * 2;
+        const maxMag = Math.max(1e-6, ...LAYER_NAMES.map((_, l) => c[LAYER_BASE + l]));
         for (let l = 0; l < 4; l++) {
-            const mag = c[19 + l];
+            const mag = c[LAYER_BASE + l];
             html +=
                 `<div class="comp-row"><span class="k">${LAYER_NAMES[l]}</span>` +
                 `<div class="comp-track">` +

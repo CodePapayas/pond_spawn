@@ -17,11 +17,11 @@ const INPUT_LABELS = [
     'threat dist', 'threat angle',
 ];
 const OUTPUT_LABELS = ['seek', 'wander', 'separate', 'flee', 'eat', 'reproduce', 'attack', 'sleep'];
-const DORMANT_OUTPUTS = new Set([3, 6]);   // flee/attack: no live mechanic yet
+const DORMANT_OUTPUTS = new Set([6]);   // attack: routed through passive combat only
 
 const TRAIT_NAMES = [
     'vision', 'speed', 'metabolism', 'energy cap', 'mutation', 'repro cost',
-    'attack', 'defense', 'aggression',
+    'attack', 'defense', 'aggression', 'intelligence',
 ];
 
 // Columns pushed apart and shifted left on the widened canvas: output labels
@@ -60,7 +60,7 @@ export function initInspector(layerSizes) {
 
     function setTraits(buf) {
         traitsBox.innerHTML = '';
-        for (let i = 0; i < 9; i++) {
+        for (let i = 0; i < TRAIT_NAMES.length; i++) {
             const row = document.createElement('div');
             row.className = 'insp-bar-row';
             row.innerHTML =

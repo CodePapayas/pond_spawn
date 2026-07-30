@@ -9,7 +9,7 @@ use crate::brain::{forward as brain_forward, forward_traced, sigmoid_outputs, IN
 use crate::brain_cluster::BrainClusters;
 use crate::cluster::ClusterState;
 use crate::species::SpeciesRegistry;
-use crate::genome::Genome;
+use crate::genome::{Genome, TRAIT_COUNT};
 use crate::memory::{AgentMemory, SUCCESS_SCALAR};
 use crate::spatial::SpatialHashGrid;
 use crate::stats::{StatHistory, StatSample, CAUSE_COUNT, SAMPLE_INTERVAL};
@@ -18,7 +18,7 @@ use crate::stats::{StatHistory, StatSample, CAUSE_COUNT, SAMPLE_INTERVAL};
 const OUT_SEEK: usize = 0;       // force weight toward nearest food
 const OUT_WANDER: usize = 1;     // random perturbation weight
 const OUT_SEPARATE: usize = 2;   // repulsion from nearby agents
-// OUT_FLEE = 3  (dormant — future threat system)
+const OUT_FLEE: usize = 3;       // force weight directly away from a seen threat
 const OUT_EAT: usize = 4;        // discrete trigger gate
 const OUT_REPRODUCE: usize = 5;  // discrete trigger gate
 // OUT_ATTACK = 6  (dormant — routes through passive combat only)
@@ -91,6 +91,46 @@ const SLEEP_RECOVERY: f64 = 0.05;
 // Passive metabolism drain per tick, as a multiple of `metabolism`. Named only so
 // the sleep invariant above is checkable — the value is unchanged.
 const BASE_DRAIN: f64 = 0.1;
+
+// ── Intelligence ──────────────────────────────────────────────────────────────
+//
+// One trait, three consequences and a bill. A dull animal is not merely worse at
+// deciding — it decides *less often*, on older information, and pays less for the
+// privilege. That trade is the point: thinking is not free, so an agent in a
+// stable pond can profitably be stupid, and one under predation cannot.
+
+/// Ticks between decisions at the bottom of the intelligence range. The dullest
+/// agents re-decide every 10th tick and spend the other nine acting on a stale
+/// picture; the sharpest decide every tick.
+const DECISION_INTERVAL_MAX: u32 = 10;
+/// Ticks between a predator entering an agent's vision and the agent's brain
+/// being told about it, at the bottom of the range. The sharpest see it the tick
+/// it arrives.
+const THREAT_LAG_MAX: usize = 8;
+/// Energy per tick per unit of intelligence, scaled by metabolism like every
+/// other running cost. At the top of the range this is a fifth of `BASE_DRAIN` —
+/// enough that a pond with nothing to think about will drift dull.
+const INTELLIGENCE_UPKEEP: f64 = 0.02;
+
+/// Decision interval for an intelligence value: 1 tick at the top of the trait's
+/// range, `DECISION_INTERVAL_MAX` at the bottom.
+fn decision_interval(intelligence: f64) -> u32 {
+    let (lo, hi) = crate::genome::Traits::BOUNDS[9];
+    let norm = ((intelligence - lo) / (hi - lo)).clamp(0.0, 1.0);
+    let span = (DECISION_INTERVAL_MAX - 1) as f64;
+    1 + ((1.0 - norm) * span).round() as u32
+}
+
+/// Slots in each agent's threat pipeline: one per tick of possible lag, plus the
+/// current tick.
+const THREAT_RING: usize = THREAT_LAG_MAX + 1;
+
+/// Ticks before a seen threat reaches the brain. Zero at the top of the range.
+fn threat_lag(intelligence: f64) -> usize {
+    let (lo, hi) = crate::genome::Traits::BOUNDS[9];
+    let norm = ((intelligence - lo) / (hi - lo)).clamp(0.0, 1.0);
+    ((1.0 - norm) * THREAT_LAG_MAX as f64).round() as usize
+}
 
 // ── Predator adaptation ───────────────────────────────────────────────────────
 //
@@ -522,6 +562,25 @@ pub struct World {
     pub death_age: Vec<u32>,
     pub genome: Vec<Genome>,
     pub memory: Vec<AgentMemory>,
+    /// Ticks until this agent thinks again. Zero means it decides this tick.
+    decision_cooldown: Vec<u32>,
+    /// Threat pipeline per agent: `[dist_norm, angle_norm, away_x, away_y]` per
+    /// tick, oldest still-relevant entry first. Written every tick regardless of
+    /// the decision cadence — seeing is passive, only *thinking* is rationed —
+    /// and read `threat_lag(intelligence)` ticks late, which is how a dull agent
+    /// ends up steering away from where the predator was rather than where it is.
+    threat_ring: Vec<[[f32; 4]; THREAT_RING]>,
+    /// Next write position in each agent's ring.
+    threat_head: Vec<usize>,
+    /// The last decision each agent made, replayed on the ticks it does not
+    /// think. Physics still runs every tick for everyone — only the *deciding*
+    /// is rationed, so a dull agent keeps swimming on last tick's intent.
+    last_outputs: Vec<[f32; 8]>,
+    /// The perception that produced `last_outputs`, and the food direction that
+    /// came with it. Replayed alongside, so a stale decision is acted on with
+    /// the stale picture that justified it rather than a fresh one.
+    last_perception: Vec<[f32; INPUT_COUNT]>,
+    last_food_dir: Vec<(f32, f32)>,
     /// Combat wins per agent, shown in the inspector.
     pub kills: Vec<u32>,
     parent_defense_bonus: Vec<f64>,
@@ -603,6 +662,8 @@ pub struct World {
     scratch_acting: Vec<usize>,
     scratch_dead: Vec<usize>,
     scratch_perceptions: Vec<[f32; INPUT_COUNT]>,
+    /// Per acting slot: is this agent thinking this tick, or replaying?
+    scratch_deciding: Vec<bool>,
     scratch_food_dirs: Vec<(f32, f32)>,  // unit vector to nearest visible food; (0,0) if none
     scratch_outputs: Vec<[f32; 8]>,  // sigmoid-gated brain outputs per acting agent
 }
@@ -633,6 +694,12 @@ impl World {
             death_age: Vec::new(),
             genome: Vec::new(),
             memory: Vec::new(),
+            decision_cooldown: Vec::new(),
+            threat_ring: Vec::new(),
+            threat_head: Vec::new(),
+            last_outputs: Vec::new(),
+            last_perception: Vec::new(),
+            last_food_dir: Vec::new(),
             kills: Vec::new(),
             parent_defense_bonus: Vec::new(),
             parent_id: Vec::new(),
@@ -668,6 +735,7 @@ impl World {
             scratch_acting: Vec::new(),
             scratch_dead: Vec::new(),
             scratch_perceptions: Vec::new(),
+            scratch_deciding: Vec::new(),
             scratch_food_dirs: Vec::new(),
             scratch_outputs: Vec::new(),
         };
@@ -754,11 +822,11 @@ impl World {
         }
     }
 
-    /// Population mean of each of the 9 genome traits over living agents,
-    /// in Traits field order: vision, speed, metabolism, energy_capacity,
-    /// mutation_rate, reproduction_cost, attack, defense, aggression.
-    pub fn trait_means(&self) -> [f64; 9] {
-        let mut sums = [0f64; 9];
+    /// Population mean of each genome trait over living agents, in `Traits`
+    /// field order: vision, speed, metabolism, energy_capacity, mutation_rate,
+    /// reproduction_cost, attack, defense, aggression, intelligence.
+    pub fn trait_means(&self) -> [f64; TRAIT_COUNT] {
+        let mut sums = [0f64; TRAIT_COUNT];
         let mut count = 0usize;
         for i in 0..self.ids.len() {
             if self.cause_of_death[i].is_some() { continue; }
@@ -766,6 +834,7 @@ impl World {
             for (s, v) in sums.iter_mut().zip([
                 t.vision, t.speed, t.metabolism, t.energy_capacity,
                 t.mutation_rate, t.reproduction_cost, t.attack, t.defense, t.aggression,
+                t.intelligence,
             ]) { *s += v; }
             count += 1;
         }
@@ -1654,9 +1723,13 @@ impl World {
         let acting_len = self.scratch_acting.len();
         self.scratch_perceptions.resize(acting_len, [0f32; INPUT_COUNT]);
         self.scratch_food_dirs.resize(acting_len, (0f32, 0f32));
+        self.scratch_deciding.clear();
+        self.scratch_deciding.resize(acting_len, false);
+        self.sense_threats();
         self.perceive_all();
 
-        // Phase 5: brain forward → 8 sigmoid outputs per acting agent
+        // Phase 5: brain forward → 8 sigmoid outputs, for the agents thinking
+        // this tick. The rest replay their last decision.
         self.scratch_outputs.resize(acting_len, [0f32; 8]);
         self.steer_all();
 
@@ -1808,6 +1881,18 @@ impl World {
 
             let metabolism = self.genome[i].traits.metabolism;
             self.energy[i] -= BASE_DRAIN * metabolism;
+            // Thinking costs. Paid every tick by every agent, whether or not it
+            // decided this one — the brain is carried, not rented.
+            //
+            // Predators are exempt rather than merely floored: they run no brain
+            // at all, take no decision cadence and no detection lag, and hunt at
+            // full rate always. Charging them for a brain they do not have would
+            // be the first step toward a future refactor slowing them down by
+            // accident.
+            if !self.is_predator(i) {
+                self.energy[i] -=
+                    INTELLIGENCE_UPKEEP * self.genome[i].traits.intelligence * metabolism;
+            }
 
             if self.energy[i] <= 0.0 {
                 if self.immortal || self.is_predator(i) {
@@ -1841,22 +1926,124 @@ impl World {
         }
     }
 
-    fn perceive_all(&mut self) {
+    /// Look for predators, once per tick per agent, and push what was seen into
+    /// the agent's threat pipeline.
+    ///
+    /// Vision sets the range at which a predator registers at all; a hunter
+    /// outside it is simply not there as far as this agent is concerned, however
+    /// close it is about to be. Intelligence decides how long the sighting takes
+    /// to reach the brain — that part happens on read, in `perceive`.
+    ///
+    /// Scans `self.predators` rather than the spatial grid: there are at most a
+    /// dozen of them and usually one, so this is cheaper than a neighbourhood
+    /// query and does not care how crowded the pond is.
+    fn sense_threats(&mut self) {
+        let world_size = self.grid_size as f32;
+        // Positions first: the borrow checker will not let us read `self.pos_*`
+        // for predators while writing rings on `self`, and this is a handful of
+        // entries.
+        let hunters: Vec<(f32, f32)> = self.predators.iter()
+            .filter(|p| p.leaving.is_none())
+            .filter_map(|p| self.slot_of(p.id))
+            .map(|s| (self.pos_x[s], self.pos_y[s]))
+            .collect();
+
         for slot in 0..self.scratch_acting.len() {
             let idx = self.scratch_acting[slot];
-            let (perception, food_dir) = self.perceive(idx);
-            self.scratch_perceptions[slot] = perception;
-            self.scratch_food_dirs[slot] = food_dir;
+            let (px, py) = (self.pos_x[idx], self.pos_y[idx]);
+            let vision_radius = self.genome[idx].traits.vision as f32 * VISION_SCALE;
+
+            let mut best: Option<(f32, f32, f32)> = None;   // (dist, dx, dy)
+            for &(hx, hy) in &hunters {
+                let (dx, dy) = toroidal_delta(px, py, hx, hy, world_size);
+                let dist = (dx * dx + dy * dy).sqrt();
+                if dist > vision_radius { continue; }
+                if best.is_none() || dist < best.unwrap().0 { best = Some((dist, dx, dy)); }
+            }
+
+            let entry = match best {
+                None => [1.0, 0.0, 0.0, 0.0],
+                Some((dist, dx, dy)) => {
+                    let dist_norm = (dist / vision_radius.max(1e-6)).clamp(0.0, 1.0);
+                    // Bearing to the threat relative to heading, in [-1, 1] — the
+                    // same convention the food channel uses, so the brain reads
+                    // both angles the same way.
+                    let (vx, vy) = (self.vel_x[idx], self.vel_y[idx]);
+                    let angle_norm = if vx * vx + vy * vy > 1e-6 {
+                        let mut a = dy.atan2(dx) - vy.atan2(vx);
+                        while a > PI { a -= TAU; }
+                        while a < -PI { a += TAU; }
+                        a / PI
+                    } else {
+                        0.0
+                    };
+                    // Unit vector *away*, cached so the flee force needs no second
+                    // scan — exactly how food_dir works.
+                    let inv = 1.0 / dist.max(1e-6);
+                    [dist_norm, angle_norm, -dx * inv, -dy * inv]
+                }
+            };
+
+            let head = self.threat_head[idx];
+            self.threat_ring[idx][head] = entry;
+            self.threat_head[idx] = (head + 1) % THREAT_RING;
         }
     }
 
+    /// What this agent's brain is allowed to know about threats right now: the
+    /// pipeline entry from `threat_lag(intelligence)` ticks ago.
+    fn delayed_threat(&self, idx: usize) -> [f32; 4] {
+        let lag = threat_lag(self.genome[idx].traits.intelligence).min(THREAT_RING - 1);
+        // `threat_head` points at the *next* write, so the newest entry is one
+        // behind it.
+        let newest = (self.threat_head[idx] + THREAT_RING - 1) % THREAT_RING;
+        self.threat_ring[idx][(newest + THREAT_RING - lag) % THREAT_RING]
+    }
+
+    /// Perceive, but only for the agents whose turn it is to think. Everyone
+    /// else keeps the perception their last decision was made from — a dull
+    /// agent acts on an old picture, which is the whole cost of being dull.
+    ///
+    /// The cadence gate lives here rather than in `partition_agents_scratch`,
+    /// which is the obvious place and the wrong one: that list also drives
+    /// physics integration, so skipping an agent there would freeze it in the
+    /// water instead of leaving it swimming on a stale intent.
+    fn perceive_all(&mut self) {
+        for slot in 0..self.scratch_acting.len() {
+            let idx = self.scratch_acting[slot];
+            let thinking = self.decision_cooldown[idx] == 0;
+            self.scratch_deciding[slot] = thinking;
+            if thinking {
+                let (perception, food_dir) = self.perceive(idx);
+                self.scratch_perceptions[slot] = perception;
+                self.scratch_food_dirs[slot] = food_dir;
+                self.last_perception[idx] = perception;
+                self.last_food_dir[idx] = food_dir;
+                self.decision_cooldown[idx] =
+                    decision_interval(self.genome[idx].traits.intelligence) - 1;
+            } else {
+                self.scratch_perceptions[slot] = self.last_perception[idx];
+                self.scratch_food_dirs[slot] = self.last_food_dir[idx];
+                self.decision_cooldown[idx] -= 1;
+            }
+        }
+    }
+
+    /// Forward pass for the agents thinking this tick; the others get their
+    /// previous outputs back unchanged.
     fn steer_all(&mut self) {
         for slot in 0..self.scratch_acting.len() {
             let idx = self.scratch_acting[slot];
+            if !self.scratch_deciding[slot] {
+                self.scratch_outputs[slot] = self.last_outputs[idx];
+                continue;
+            }
             let weights = self.genome[idx].weights_array();
             let p = self.scratch_perceptions[slot];
             let logits = brain_forward(weights, p);
-            self.scratch_outputs[slot] = sigmoid_outputs(logits);
+            let outputs = sigmoid_outputs(logits);
+            self.scratch_outputs[slot] = outputs;
+            self.last_outputs[idx] = outputs;
         }
     }
 
@@ -1894,11 +2081,9 @@ impl World {
         let speed_norm = if max_speed > 0.0 { (cur_speed / max_speed).clamp(0.0, 1.0) } else { 0.0 };
 
         // [5,6] threat: distance and bearing to the nearest predator this agent
-        // can see. Zero for now — the scan lands with the flee mechanic, and a
-        // widened input vector with nothing in it is the smaller, checkable half
-        // of the change.
-        let threat_dist_norm = 1.0;
-        let threat_angle_norm = 0.0;
+        // can see, as of `threat_lag` ticks ago.
+        let threat = self.delayed_threat(idx);
+        let (threat_dist_norm, threat_angle_norm) = (threat[0], threat[1]);
 
         (
             [
@@ -2014,6 +2199,20 @@ impl World {
         let (sx, sy) = self.separation_force(idx, px, py, world_size);
         fx += sx * outputs[OUT_SEPARATE] * MAX_FORCE;
         fy += sy * outputs[OUT_SEPARATE] * MAX_FORCE;
+
+        // Flee — straight away from the threat the brain was told about, at the
+        // weight the brain chose. Gated on there being one (dist < 1.0), exactly
+        // as seek is gated on food being visible.
+        //
+        // Nothing here is a reflex. An agent whose threat→flee weights never
+        // evolved simply does not turn, and dies to something it could see
+        // coming. That is a valid outcome, and there is deliberately no fallback
+        // that saves it.
+        if perception[5] < 1.0 {
+            let threat = self.delayed_threat(idx);
+            fx += threat[2] * outputs[OUT_FLEE] * MAX_FORCE;
+            fy += threat[3] * outputs[OUT_FLEE] * MAX_FORCE;
+        }
 
         // Velocity integration
         let max_speed = speed_trait * MAX_SPEED;
@@ -2333,6 +2532,14 @@ impl World {
         self.death_age.push(death_age);
         self.genome.push(genome);
         self.memory.push(AgentMemory::new());
+        // Everything decides on its first tick; the cadence starts after that.
+        self.decision_cooldown.push(0);
+        // Born seeing nothing: dist 1.0 is "no threat in range".
+        self.threat_ring.push([[1.0, 0.0, 0.0, 0.0]; THREAT_RING]);
+        self.threat_head.push(0);
+        self.last_outputs.push([0f32; 8]);
+        self.last_perception.push([0f32; INPUT_COUNT]);
+        self.last_food_dir.push((0.0, 0.0));
         self.kills.push(0);
         self.parent_defense_bonus.push(parent_defense);
         self.parent_id.push(parent_id);
@@ -2394,6 +2601,12 @@ impl World {
                 self.death_age.swap_remove(i);
                 self.genome.swap_remove(i);
                 self.memory.swap_remove(i);
+                self.decision_cooldown.swap_remove(i);
+                self.threat_ring.swap_remove(i);
+                self.threat_head.swap_remove(i);
+                self.last_outputs.swap_remove(i);
+                self.last_perception.swap_remove(i);
+                self.last_food_dir.swap_remove(i);
                 self.kills.swap_remove(i);
                 self.parent_defense_bonus.swap_remove(i);
                 self.parent_id.swap_remove(i);
@@ -2416,6 +2629,12 @@ impl World {
                 self.death_age.pop();
                 self.genome.pop();
                 self.memory.pop();
+                self.decision_cooldown.pop();
+                self.threat_ring.pop();
+                self.threat_head.pop();
+                self.last_outputs.pop();
+                self.last_perception.pop();
+                self.last_food_dir.pop();
                 self.kills.pop();
                 self.parent_defense_bonus.pop();
                 self.parent_id.pop();
@@ -3186,6 +3405,212 @@ mod tests {
         for t in 1..PREDATOR_TIERS as u8 {
             assert!(!tier_resident(t), "tier {} must hit and run", t);
         }
+    }
+
+    // ── Intelligence ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn the_decision_interval_spans_the_trait_range() {
+        let (lo, hi) = crate::genome::Traits::BOUNDS[9];
+        assert_eq!(decision_interval(hi), 1, "the sharpest agents think every tick");
+        assert_eq!(decision_interval(lo), DECISION_INTERVAL_MAX);
+        // Monotone, so a mutation toward intelligence never makes an agent think
+        // less often.
+        let mut prev = u32::MAX;
+        for step in 0..=20 {
+            let v = lo + (hi - lo) * step as f64 / 20.0;
+            let interval = decision_interval(v);
+            assert!(interval <= prev, "interval rose with intelligence at {}", v);
+            prev = interval;
+        }
+        assert_eq!(threat_lag(hi), 0, "the sharpest notice a predator the tick it arrives");
+        assert_eq!(threat_lag(lo), THREAT_LAG_MAX);
+    }
+
+    #[test]
+    fn a_dull_agent_acts_on_a_stale_decision() {
+        let mut w = World::new(12, 40, 3);
+        w.set_automatic_predators(false);
+        // One dull animal and one sharp one, everything else out of the way.
+        for i in 0..w.ids.len() {
+            w.genome[i].traits.intelligence = crate::genome::Traits::BOUNDS[9].1;
+        }
+        let dull = 0;
+        w.genome[dull].traits.intelligence = crate::genome::Traits::BOUNDS[9].0;
+
+        w.step();
+        let first = w.last_outputs[dull];
+        // Through the dull agent's whole interval, the outputs it acts on are the
+        // ones it decided on the first tick — even as the pond moves around it.
+        for _ in 1..DECISION_INTERVAL_MAX {
+            w.step();
+            if w.cause_of_death[dull].is_some() { return; }
+            assert_eq!(w.last_outputs[dull], first, "a dull agent re-decided early");
+        }
+    }
+
+    #[test]
+    fn physics_still_runs_on_a_tick_an_agent_does_not_think() {
+        // The trap this design exists to avoid: rationing decisions must not
+        // ration movement. A dull agent keeps swimming on its last intent.
+        let mut w = World::new(12, 30, 11);
+        w.set_automatic_predators(false);
+        for i in 0..w.ids.len() {
+            w.genome[i].traits.intelligence = crate::genome::Traits::BOUNDS[9].0;
+        }
+        w.step();   // everyone decides on their first tick
+        let before: Vec<(f32, f32)> = w.pos_x.iter().copied().zip(w.pos_y.iter().copied()).collect();
+        w.step();   // nobody decides on this one
+        let moved = (0..w.ids.len()).filter(|&i| {
+            (w.pos_x[i], w.pos_y[i]) != before[i]
+        }).count();
+        assert!(moved > 0, "the pond froze on a no-decision tick");
+    }
+
+    #[test]
+    fn a_predator_never_thinks_slowly() {
+        // Predators are outside the brain path entirely, so cadence and lag must
+        // not reach them however dull the genome they were spawned with. This is
+        // the assertion that stops a later refactor quietly nerfing them.
+        let mut w = World::new(16, 60, 4);
+        let id = w.summon_predator(0.05, false).unwrap();
+        let slot = w.slot_of(id).unwrap();
+        w.genome[slot].traits.intelligence = crate::genome::Traits::BOUNDS[9].0;
+        for _ in 0..40 { w.step(); }
+        // Slots move as agents are reaped, so re-resolve rather than reusing the
+        // one from before the run.
+        let slot = w.slot_of(id).expect("the hunter is still in the pond");
+        // It is never in the deciding population at all.
+        assert!(!w.scratch_acting.contains(&slot), "a predator entered the brain path");
+        assert_eq!(w.decision_cooldown[slot], 0, "a predator was put on a decision cadence");
+    }
+
+    #[test]
+    fn thinking_costs_energy() {
+        let sharp = World::new(12, 1, 5);
+        let dull = World::new(12, 1, 5);
+        let (lo, hi) = crate::genome::Traits::BOUNDS[9];
+
+        let drain = |mut w: World, iq: f64| -> f64 {
+            w.set_automatic_predators(false);
+            w.genome[0].traits.intelligence = iq;
+            // Same metabolism, so upkeep is the only difference between them.
+            w.genome[0].traits.metabolism = 1.0;
+            let start = w.energy[0];
+            for _ in 0..20 { w.step(); }
+            start - w.energy[0]
+        };
+        assert!(drain(sharp, hi) > drain(dull, lo),
+            "intelligence must cost something, or every pond evolves to maximum");
+    }
+
+    // ── Threat perception and flee ────────────────────────────────────────────
+
+    #[test]
+    fn vision_sets_the_range_a_predator_registers_at() {
+        let mut w = World::new(20, 4, 21);
+        w.set_automatic_predators(false);
+        let id = w.summon_predator(0.05, false).unwrap();
+        let hunter = w.slot_of(id).unwrap();
+        let prey: Vec<usize> = (0..w.ids.len()).filter(|&i| i != hunter).collect();
+        let (blind, sharp) = (prey[0], prey[1]);
+
+        w.genome[blind].traits.vision = crate::genome::Traits::BOUNDS[0].0;
+        w.genome[sharp].traits.vision = crate::genome::Traits::BOUNDS[0].1;
+        // Everyone sees instantly, so this test is about vision alone.
+        for &i in &[blind, sharp] {
+            w.genome[i].traits.intelligence = crate::genome::Traits::BOUNDS[9].1;
+        }
+
+        // Parked at a distance the sharp eye covers and the dim one does not.
+        let blind_r = w.genome[blind].traits.vision as f32 * VISION_SCALE;
+        let sharp_r = w.genome[sharp].traits.vision as f32 * VISION_SCALE;
+        let gap = (blind_r + sharp_r) / 2.0;
+        w.pos_x[hunter] = 10.0; w.pos_y[hunter] = 10.0;
+        for &i in &[blind, sharp] {
+            w.pos_x[i] = 10.0 + gap;
+            w.pos_y[i] = 10.0;
+        }
+
+        w.scratch_acting.clear();
+        w.scratch_acting.extend([blind, sharp]);
+        w.sense_threats();
+
+        assert_eq!(w.delayed_threat(blind)[0], 1.0, "a predator outside vision registered");
+        assert!(w.delayed_threat(sharp)[0] < 1.0, "a predator inside vision went unseen");
+    }
+
+    #[test]
+    fn a_dull_agent_learns_of_a_threat_late() {
+        let mut w = World::new(20, 3, 22);
+        w.set_automatic_predators(false);
+        let id = w.summon_predator(0.05, false).unwrap();
+        let hunter = w.slot_of(id).unwrap();
+        let prey: Vec<usize> = (0..w.ids.len()).filter(|&i| i != hunter).collect();
+        let (dull, sharp) = (prey[0], prey[1]);
+        w.genome[dull].traits.intelligence = crate::genome::Traits::BOUNDS[9].0;
+        w.genome[sharp].traits.intelligence = crate::genome::Traits::BOUNDS[9].1;
+        for &i in &[dull, sharp] { w.genome[i].traits.vision = crate::genome::Traits::BOUNDS[0].1; }
+
+        w.pos_x[hunter] = 10.0; w.pos_y[hunter] = 10.0;
+        for &i in &[dull, sharp] { w.pos_x[i] = 10.5; w.pos_y[i] = 10.0; }
+
+        w.scratch_acting.clear();
+        w.scratch_acting.extend([dull, sharp]);
+        w.sense_threats();
+
+        assert!(w.delayed_threat(sharp)[0] < 1.0, "a sharp agent should see it at once");
+        assert_eq!(w.delayed_threat(dull)[0], 1.0,
+            "a dull agent should still be looking at an empty pond");
+
+        // It arrives once its lag has elapsed, and not before.
+        let lag = threat_lag(w.genome[dull].traits.intelligence);
+        for _ in 0..lag { w.sense_threats(); }
+        assert!(w.delayed_threat(dull)[0] < 1.0, "the sighting never arrived");
+    }
+
+    #[test]
+    fn flee_steers_away_and_only_when_the_brain_asks() {
+        let mut w = World::new(20, 2, 23);
+        w.set_automatic_predators(false);
+        let id = w.summon_predator(0.05, false).unwrap();
+        let hunter = w.slot_of(id).unwrap();
+        let prey = (0..w.ids.len()).find(|&i| i != hunter).unwrap();
+        w.genome[prey].traits.vision = crate::genome::Traits::BOUNDS[0].1;
+        w.genome[prey].traits.intelligence = crate::genome::Traits::BOUNDS[9].1;
+
+        // Hunter to the west, prey at rest.
+        w.pos_x[hunter] = 9.0; w.pos_y[hunter] = 10.0;
+        w.pos_x[prey] = 10.0;  w.pos_y[prey] = 10.0;
+        w.vel_x[prey] = 0.0;   w.vel_y[prey] = 0.0;
+        w.scratch_acting.clear();
+        w.scratch_acting.push(prey);
+        w.sense_threats();
+        let (perception, food_dir) = w.perceive(prey);
+        assert!(perception[5] < 1.0, "the prey cannot see the hunter");
+
+        // Flee gate open, everything else shut: it must accelerate east, away.
+        let mut outputs = [0f32; 8];
+        outputs[OUT_FLEE] = 1.0;
+        w.integrate_agent(prey, perception, food_dir, outputs);
+        assert!(w.vel_x[prey] > 0.0, "fled toward the predator, not away");
+
+        // Flee gate shut: no threat force at all. An agent that never evolved
+        // the weight does not move away, and that is allowed to kill it.
+        let mut w2 = World::new(20, 2, 23);
+        w2.set_automatic_predators(false);
+        let id2 = w2.summon_predator(0.05, false).unwrap();
+        let hunter2 = w2.slot_of(id2).unwrap();
+        let prey2 = (0..w2.ids.len()).find(|&i| i != hunter2).unwrap();
+        w2.pos_x[hunter2] = 9.0; w2.pos_y[hunter2] = 10.0;
+        w2.pos_x[prey2] = 10.0;  w2.pos_y[prey2] = 10.0;
+        w2.vel_x[prey2] = 0.0;   w2.vel_y[prey2] = 0.0;
+        w2.scratch_acting.clear();
+        w2.scratch_acting.push(prey2);
+        w2.sense_threats();
+        let (p2, fd2) = w2.perceive(prey2);
+        w2.integrate_agent(prey2, p2, fd2, [0f32; 8]);
+        assert_eq!(w2.vel_x[prey2], 0.0, "something fled without being asked to");
     }
 
     // ── Predator adaptation ───────────────────────────────────────────────────
