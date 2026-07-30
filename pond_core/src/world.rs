@@ -92,6 +92,36 @@ const SLEEP_RECOVERY: f64 = 0.05;
 // the sleep invariant above is checkable — the value is unchanged.
 const BASE_DRAIN: f64 = 0.1;
 
+// ── Defense upkeep ────────────────────────────────────────────────────────────
+//
+// Armour used to be free. Nothing anywhere charged for `defense`, while ordinary
+// combat paid out for it directly — the winner of a fight is decided by
+// `attack / (attack + defense)` — so mean defense climbed in every run and no
+// predator change could stop it. Measured across five seeds it went 0.955 →
+// 1.013 even after predation stopped subsidising it.
+//
+// It is treated as a physical addition: plating is carried, and carrying it
+// costs metabolism whether or not anything attacks you. Bracing against a hit
+// costs again, and scales the same way.
+
+/// Energy per tick per unit of defense above the trait's floor, scaled by
+/// metabolism.
+///
+/// Charged on the *margin* over `BOUNDS[7].0`, not on the raw value: the floor
+/// is the minimum the trait can take, so it is not armour, it is a body. An
+/// agent at the bottom of the range pays nothing and one at the top pays
+/// `0.05 × metabolism` a tick — half of `BASE_DRAIN`.
+const DEFENSE_UPKEEP: f64 = 0.09;
+/// Energy to brace against one attack, per unit of defense over the floor,
+/// scaled by metabolism. Bracing is work.
+const DEFENSE_BLOCK_COST: f64 = 0.6;
+
+/// Armour carried above the trait's floor. Everything charged for defense is
+/// charged on this, not on the raw trait.
+fn armour_margin(defense: f64) -> f64 {
+    (defense - crate::genome::Traits::BOUNDS[7].0).max(0.0)
+}
+
 // ── Intelligence ──────────────────────────────────────────────────────────────
 //
 // One trait, three consequences and a bill. A dull animal is not merely worse at
@@ -1416,7 +1446,6 @@ impl World {
         let tier = self.predators[pi].tier;
         let attack = self.predators[pi].attack;
         let automatic = self.predators[pi].automatic;
-        let automatic = self.predators[pi].automatic;
         let speed = self.predator_chase_speed(pi);
         let max_turn = TIER_MAX_TURN[(tier as usize).min(PREDATOR_TIERS - 1)];
         self.predators[pi].angle += tier_spin(tier);
@@ -1992,6 +2021,9 @@ impl World {
             if !self.is_predator(i) {
                 self.energy[i] -=
                     INTELLIGENCE_UPKEEP * self.genome[i].traits.intelligence * metabolism;
+                // Armour is mass, and mass is carried every tick.
+                self.energy[i] -=
+                    DEFENSE_UPKEEP * armour_margin(self.genome[i].traits.defense) * metabolism;
             }
 
             if self.energy[i] <= 0.0 {
@@ -2538,6 +2570,21 @@ impl World {
                     );
                     let metabolism = self.genome[attacker].traits.metabolism;
                     self.energy[attacker] -= 0.2 * metabolism;
+
+                    // Bracing costs the defender, scaled by the armour it is
+                    // bracing with. Being attacked is not free just because you
+                    // survive it, and a heavily armoured animal in a crowded
+                    // pond pays this over and over.
+                    let v_metabolism = self.genome[victim].traits.metabolism;
+                    self.energy[victim] -=
+                        DEFENSE_BLOCK_COST * armour_margin(self.genome[victim].traits.defense)
+                            * v_metabolism;
+                    if self.energy[victim] <= 0.0 && self.cause_of_death[victim].is_none() {
+                        self.cause_of_death[victim] = Some(CauseOfDeath::Starvation);
+                        self.lifespans.push(self.age[victim]);
+                        self.scratch_dead.push(victim);
+                        continue;
+                    }
 
                     // Attack cost can itself be lethal — check before the attacker
                     // fights on with <=0 energy and self-rescues via eat next tick.

@@ -30,6 +30,26 @@
 - 35–45% of tiles are permanently barren (fertility = 0, never regenerate), arranged in contiguous desert clusters with fertile oases between them
 - Each food unit provides **33.3 energy**
 
+### Defense upkeep
+
+Armour is a physical addition and costs metabolism to carry:
+
+- **Per tick**: `DEFENSE_UPKEEP (0.09) × armour margin × metabolism`, where the
+  margin is `defense - 0.5` — the floor of the trait's range is a body, not
+  plating, so an agent at the bottom pays nothing and one at the top pays half of
+  `BASE_DRAIN`.
+- **Per attack survived**: `DEFENSE_BLOCK_COST (0.6) × armour margin ×
+  metabolism`. Bracing is work, and a heavily armoured animal in a crowded pond
+  pays it over and over.
+
+Before this, nothing anywhere charged for `defense` while ordinary combat paid
+out for it directly, so mean defense climbed in every run and no predator change
+could stop it. Isolated over five seeds it took mean defense from **0.932 to
+0.709**, down in every seed, and carried attack (1.041 → 0.870), aggression
+(0.698 → 0.526) and speed (0.871 → 0.683) down with it — armour was propping up
+a whole aggressive strategy. Starvation deaths doubled and the population rose,
+which is what happens when the pond stops paying for plate it does not need.
+
 ## Agents ("Callums")
 
 ### Initialization
