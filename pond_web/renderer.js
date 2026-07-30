@@ -1609,6 +1609,10 @@ function draw_agents(buf, n, alpha, L, time_sec) {
         });
         // Strategy moved off hue and onto the halo when species took the hue.
         const glow = strategyGlow(a.morph);
+        // Agents with no lineage wear the title screen's lime as an edge. Grey
+        // alone read as something failing to render; an outline reads as a
+        // creature waiting for a name, which is what it is.
+        const outline = a.species === 0 ? IDLE_RGB : null;
         // Creatures are the subject; food orbs were drawn ~4x their size and the
         // pond read as a field of green dots with specks swimming in it.
         const base_r = scale_px * (0.105 + a.energyNorm * 0.07 + a.morph.pointiness * 0.05);
@@ -1625,6 +1629,7 @@ function draw_agents(buf, n, alpha, L, time_sec) {
             { tile_w, tile_h, scale_px, off_x, off_y, gridSize: GRID },
             { baseR: base_r, energyNorm: a.energyNorm, velX: a.velX, velY: a.velY, timeSec: time_sec },
             glow,
+            outline,
         );
     }
 

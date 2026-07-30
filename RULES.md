@@ -501,6 +501,11 @@ viewer can only say "different kinds" about things they can count. Proportions
 (eye size, segment spacing, envelope) stay continuous, because they are
 proportions and not parts.
 
+**Unassigned agents wear the title screen's lime as an outline.** The body is
+near-colourless — that is the point, promotion confers colour — but grey alone
+reads as something failing to render. An acid-lime edge reads as a creature
+waiting for a name, which is what it is.
+
 **Hue belongs to the lineage.** Each genus takes the next golden-angle hue on
 first promotion, so genera are maximally separated however many accumulate;
 species within a genus vary by lightness and chroma, so siblings look related

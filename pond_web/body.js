@@ -74,8 +74,12 @@ function buildHullPath(ctx, left, right, headCenter, headDir, headWidth, headPoi
  *   bright for an aggressive lineage, cool and faint for a passive one. Omitted
  *   (title screen, previews) the halo falls back to the body colour, which is
  *   what it always used to be.
+ * @param {number[]} [outline]  hull stroke, drawn over the core fill. Used to
+ *   mark agents belonging to no lineage: the body is near-colourless but the
+ *   edge is the title screen's acid lime, so an unassigned animal reads as
+ *   *pre-species* rather than as a rendering fault.
  */
-export function drawBody(ctx, chain, spec, palette, xform, motion, glow) {
+export function drawBody(ctx, chain, spec, palette, xform, motion, glow, outline) {
     const { segCount, envelope, headPointiness, fins, ornamentLen, ornamentPairs, armorBumps, eyeSize, eyeSpread, pulseRate } = spec;
     const { tile_w, tile_h, scale_px, off_x, off_y, gridSize } = xform;
     const { baseR, energyNorm, velX, velY, timeSec } = motion;
@@ -136,6 +140,15 @@ export function drawBody(ctx, chain, spec, palette, xform, motion, glow) {
     const coreA = 0.72 + energyNorm * 0.28;
     ctx.fillStyle = `rgba(${cr},${cg},${cb},${coreA})`;
     ctx.fill();
+
+    // Outline for the lineage-less. The path from the fill above is still
+    // current, so this is a stroke and not a second hull.
+    if (outline) {
+        const [orr, og, ob] = outline;
+        ctx.strokeStyle = `rgba(${orr},${og},${ob},${(0.55 + energyNorm * 0.35).toFixed(3)})`;
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+    }
 
     // Armor scalloping (defense): rings around the mid-body hull points.
     if (armorBumps > 0) {
