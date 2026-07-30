@@ -54,6 +54,28 @@ function choosePlan(pointiness, elongation, bulk, eyeSize) {
     return ranked[0][0];
 }
 
+/** Number of things a knob buys, at fixed thresholds.
+ *
+ *  Countable beats scalar. A viewer can say "that one has four spikes and three
+ *  rings" at a glance; nobody can compare two continuous width ratios across
+ *  eight dimensions, which is what this pipeline used to ask of them. Parts are
+ *  present or absent and counts are integers, so lineages read as different
+ *  *kinds* rather than as different sizes of the same thing.
+ *
+ *  `steps` are the lower bounds: the returned count is how many of them `v`
+ *  clears. Thresholds are deliberately coarse and unevenly spaced — evenly
+ *  spaced ones just reproduce a continuous ramp in five values.
+ */
+function countAt(v, steps) {
+    let n = 0;
+    for (const s of steps) if (v >= s) n++;
+    return n;
+}
+
+/** Segment counts, quantised. Odd numbers only: 5 vs 6 is unreadable at second
+ *  screen size, 5 vs 7 is obvious, and an odd count keeps a clear midsection. */
+const SEG_STEPS = [5, 7, 9, 11];
+
 /** morph: { pointiness, elongation, bulk, ornament, eyeSize, pulseRate, belly } (all 0..1) */
 export function deriveMorphology(morph) {
     const { pointiness, elongation, bulk, ornament, eyeSize, pulseRate, belly } = morph;
@@ -62,7 +84,10 @@ export function deriveMorphology(morph) {
     const plan = PLANS[planName];
 
     const segT = Math.max(0, Math.min(1, elongation + plan.segBias));
-    const segCount = Math.round(lerp(MIN_SEG_COUNT, MAX_SEG_COUNT, segT));
+    // Quantised rather than rounded off a continuous lerp: four distinguishable
+    // body lengths instead of seven near-identical ones.
+    const segCount = SEG_STEPS[Math.min(
+        SEG_STEPS.length - 1, countAt(segT, [0.001, 0.34, 0.62, 0.85]) - 1)] ?? MIN_SEG_COUNT;
 
     // aggression: mass shifts forward + narrows toward a spear profile as it rises
     const round = resample(ROUND_PROFILE, segCount);
@@ -86,13 +111,21 @@ export function deriveMorphology(morph) {
         headPointiness: pointiness,                        // aggression: wedge vs round cap
         taperPower: 1 + elongation * 1.5,                  // speed: harder tail falloff
         fins: {
-            count: plan.finCount,
+            // 0, 2, 4 or 6. Finless is a real look, and the plan only sets the
+            // floor now — speed decides whether a body is finned at all.
+            count: Math.max(plan.finCount - 2, 0) + 2 * countAt(elongation, [0.30, 0.70]),
             rake: pointiness * 0.6,                        // aggression: swept-back fins
             len: 0.14 + pointiness * 0.12,
         },
-        ornamentLen: ornament * 0.16,                      // attack: head spikes
-        ornamentPairs: ornament > 0.55 ? 2 : 1,            // attack: spike count
-        armorBumps: bulk > 0.4 ? Math.round(bulk * 4) : 0, // defense: scalloped hull
+        // Spikes: absent below the first threshold. Absence is the categorical
+        // read — "has spikes / doesn't" is a distinction anyone can make
+        // instantly, where "slightly longer spikes" is not.
+        ornamentPairs: countAt(ornament, [0.28, 0.55, 0.80]),
+        ornamentLen: 0.09 + ornament * 0.09,
+        // Armour rings: 0-3, each drawn on its own segment (body.js used to
+        // collapse every count onto the same two rings, so the number was
+        // decorative).
+        armorBumps: countAt(bulk, [0.35, 0.60, 0.82]),
         eyeSize: 0.28 * (1 + eyeSize * 0.6),               // vision: eye size
         eyeSpread: 0.45 * (1 + eyeSize * 0.4),             // vision: lateral spread
         glowIntensity: 1.0,

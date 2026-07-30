@@ -78,15 +78,16 @@ export function parseSpecies(flat, stride, names) {
     return out;
 }
 
-// Species swatch colour comes from the centroid pushed through the same
-// trait→colour path the bodies use (see `species_morph` in wasm.rs, then
-// genomeColor in color.js). Deliberately *not* an arbitrary per-species hue:
-// agent colour was moved off cluster labels onto continuous trait colour on
-// purpose, and inventing hues would undo that — a passive species could come out
-// magenta, breaking the "strategy is readable at a glance" property the ramps
-// exist for. Deriving it from the centroid means the legend swatch shows what
-// that lineage actually looks like swimming around. The renderer supplies the
-// lookup as `colorFor`.
+// Species swatch colour is the lineage's own hue — golden-angle by genus, with
+// species inside a genus varying by lightness and chroma. The renderer supplies
+// the lookup as `colorFor`.
+//
+// This used to be the species centroid pushed through the trait→colour ramps,
+// on the reasoning that inventing hues would break "strategy readable at a
+// glance". What actually happened is that a converged pond came out one colour,
+// because a scalar that converges cannot label anything. Strategy moved to the
+// glow, which is a channel it can have to itself; hue went to identity, which
+// is the thing colour is best at.
 
 /**
  * Build the species panel once and return an updater.

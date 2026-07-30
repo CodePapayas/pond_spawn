@@ -69,7 +69,13 @@ function buildHullPath(ctx, left, right, headCenter, headDir, headWidth, headPoi
  * xform:  { tile_w, tile_h, scale_px, off_x, off_y, gridSize }
  * motion: { baseR, energyNorm, velX, velY, timeSec }
  */
-export function drawBody(ctx, chain, spec, palette, xform, motion) {
+/**
+ * @param {{rgb: number[], weight: number}} [glow]  strategy halo — warm and
+ *   bright for an aggressive lineage, cool and faint for a passive one. Omitted
+ *   (title screen, previews) the halo falls back to the body colour, which is
+ *   what it always used to be.
+ */
+export function drawBody(ctx, chain, spec, palette, xform, motion, glow) {
     const { segCount, envelope, headPointiness, fins, ornamentLen, ornamentPairs, armorBumps, eyeSize, eyeSpread, pulseRate } = spec;
     const { tile_w, tile_h, scale_px, off_x, off_y, gridSize } = xform;
     const { baseR, energyNorm, velX, velY, timeSec } = motion;
@@ -109,11 +115,17 @@ export function drawBody(ctx, chain, spec, palette, xform, motion) {
     ctx.globalCompositeOperation = 'lighter';
 
     // Glow pass: same hull, scaled outward, low alpha.
+    //
+    // This carries *strategy* now. Hue belongs to the lineage, so the halo is
+    // where "what does this animal do" went: warm and strong for an aggressive
+    // one, cool and faint for a passive one. It used to be a brighter copy of
+    // the body, which carried no information at all.
     const glowLeft = left.map((pt, s) => scaleFromCenter(pt, centers[s], GLOW_SCALE));
     const glowRight = right.map((pt, s) => scaleFromCenter(pt, centers[s], GLOW_SCALE));
     buildHullPath(ctx, glowLeft, glowRight, centers[0], dirs[0], headWidth, headPointiness, GLOW_SCALE);
-    const glowA = 0.10 + energyNorm * 0.08 + pulse * 0.06;
-    ctx.fillStyle = `rgba(${cr},${cg},${cb},${glowA})`;
+    const [gr, gg, gb] = glow?.rgb ?? [cr, cg, cb];
+    const glowA = (0.10 + energyNorm * 0.08 + pulse * 0.06) * (glow?.weight ?? 1);
+    ctx.fillStyle = `rgba(${gr},${gg},${gb},${glowA})`;
     ctx.fill();
 
     // Core pass. Additive compositing saturates a bright fill straight to white
@@ -130,7 +142,11 @@ export function drawBody(ctx, chain, spec, palette, xform, motion) {
         ctx.strokeStyle = 'rgba(255,255,255,0.16)';
         ctx.lineWidth = 0.8;
         for (let b = 0; b < armorBumps; b++) {
-            const s = Math.min(2 + (b % 2), segCount - 1);
+            // One ring per segment, walking back from the shoulder. This used to
+            // be `2 + (b % 2)`, so every count above two drew over the same two
+            // segments and the number was decorative — three rings and four
+            // rings were the same animal.
+            const s = Math.min(2 + b, segCount - 1);
             // Hugs the hull. At 1.08 the widened bulk/belly envelope pushed these
             // into big free-floating rings that read as UI, not anatomy.
             const r = envelope[s] * baseR * 0.92;
@@ -140,17 +156,21 @@ export function drawBody(ctx, chain, spec, palette, xform, motion) {
         }
     }
 
-    // Head spikes (attack): short strokes outward from the head hull points.
-    // High-attack agents get a second pair further back along the head.
-    if (ornamentLen > 0.01) {
+    // Head spikes (attack): short strokes outward from the head hull points, one
+    // pair per segment walking back. `ornamentPairs` is 0-3 and **0 means no
+    // spikes at all** — presence or absence is the categorical read, where
+    // "slightly longer spikes" is not something anyone can see.
+    if (ornamentPairs > 0) {
         const spikeLen = ornamentLen * scale_px;
         ctx.strokeStyle = `rgba(${cr},${cg},${cb},0.9)`;
         ctx.lineWidth = 1.2;
-        const anchors = [left[0], right[0]];
-        if (ornamentPairs > 1 && segCount > 1) anchors.push(left[1], right[1]);
+        const anchors = [];
+        for (let p = 0; p < ornamentPairs && p < segCount; p++) {
+            anchors.push({ hp: left[p], seg: p }, { hp: right[p], seg: p });
+        }
         for (let ai = 0; ai < anchors.length; ai++) {
-            const hp = anchors[ai];
-            const c = centers[ai < 2 ? 0 : 1];
+            const { hp, seg } = anchors[ai];
+            const c = centers[seg];
             const dx = hp.x - c.x, dy = hp.y - c.y;
             const len = Math.sqrt(dx * dx + dy * dy) || 1;
             ctx.beginPath();
@@ -163,8 +183,10 @@ export function drawBody(ctx, chain, spec, palette, xform, motion) {
     // Fins (aggression): swept-back triangles. `fins.count` is a total, drawn as
     // count/2 pairs spread down the rear half of the body — a 4-fin spear reads
     // very differently from a 2-fin eel at the same proportions.
-    if (fins.len > 0.01) {
-        const pairs = Math.max(1, Math.round(fins.count / 2));
+    // Finless is a real body plan now, so this is gated on the count rather than
+    // on a length that was never zero.
+    if (fins.count > 0 && fins.len > 0.01) {
+        const pairs = Math.round(fins.count / 2);
         const finLen = fins.len * scale_px;
         const sweep = fins.rake;
         for (let f = 0; f < pairs; f++) {

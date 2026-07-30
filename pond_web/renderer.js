@@ -19,7 +19,7 @@ import { decodeAgent } from './decode.js';
 import { createChain, updateChain } from './chain.js';
 import { deriveMorphology } from './morphology.js';
 import { drawBody } from './body.js';
-import { oklchToRgb, genomeColor } from './color.js';
+import { oklchToRgb, speciesColor, unassignedColor, strategyGlow } from './color.js';
 import { initLegend, initGenomePanel } from './panels.js';
 import { initArchetypes, archetypeColor, summarize } from './archetypes.js';
 import {
@@ -48,7 +48,7 @@ let POPULATION = 100;
 let SEED = 42n;
 
 // Fallback family swatches. Bodies no longer use these — colour comes from the
-// genome (see genomeColor) — but the legend needs a swatch before any member of
+// genome — but the legend needs a swatch before any member of
 // a family has been seen, and these seed it.
 // Fallback family swatches, sampled along the same passive → middle →
 // aggressive palette the bodies use (see genomeColor).
@@ -767,14 +767,31 @@ function toggle_graphs() {
     // cleared; clear_run_panels owns timer teardown.
 }
 
-/** Swatch colour for a species row: its centroid through the body colour path. */
+// Hue registry: species id → [L, C, h]. Built from the roster in promotion
+// order, so a genus takes the next free hue the first time one of its species
+// is promoted and every later sibling shares it, varying by lightness and
+// chroma. Order of first appearance is stable for a run, so a lineage's colour
+// never changes under it.
+const species_lch = new Map();
+const genus_index = new Map();
+
+function rebuild_species_colors(rows) {
+    species_lch.clear();
+    const within = new Map();
+    for (const s of rows) {
+        const genus = String(s.name).split(' ')[0];
+        if (!genus_index.has(genus)) genus_index.set(genus, genus_index.size);
+        const gi = genus_index.get(genus);
+        const wi = within.get(genus) ?? 0;
+        within.set(genus, wi + 1);
+        species_lch.set(s.id, speciesColor(gi, wi));
+    }
+}
+
+/** Swatch colour for a species row: the lineage's own hue. */
 function species_swatch(s) {
-    const m = world.species_morph(s.index);
-    if (!m || m.length < 7) return [104, 116, 124];
-    const lch = genomeColor({
-        pointiness: m[0], elongation: m[1], bulk: m[2], ornament: m[3],
-        eyeSize: m[4], pulseRate: m[5], belly: m[6],
-    });
+    const lch = species_lch.get(s.id);
+    if (!lch) return [104, 116, 124];
     return oklchToRgb(lch);
 }
 
@@ -782,6 +799,7 @@ function refresh_species() {
     const flat = world.species_list();
     const stride = species_stride();
     species_rows = parseSpecies(flat, stride, world.species_names());
+    rebuild_species_colors(species_rows);
     species_rows.forEach((s, i) => { s.index = i; });
 
     const assigned = new Set(species_rows.filter(s => s.extinctAt === null).map(s => s.id));
@@ -1557,14 +1575,16 @@ function draw_agents(buf, n, alpha, L, time_sec) {
 
         if (a.id === selected_id) selected_pos = { x: hx_w, y: hy_w };
 
-        // Colour is a pure function of the (immutable) genome, so it's derived
-        // once per agent and cached. Live energy only dims it — no crossfade
-        // needed, because there is no longer any discontinuity to hide.
-        let lch = color_state.get(a.id);
-        if (!lch) {
-            lch = genomeColor(a.morph);
-            color_state.set(a.id, lch);
-        }
+        // Colour is the lineage's, not the strategy's. An agent takes its
+        // species' hue; an unassigned one is near-colourless, so promotion
+        // visibly confers an identity and a pond going from grey to coloured is
+        // the speciation story at a glance.
+        //
+        // Not cached by id like it used to be: an agent's species can change
+        // under it — membership is by nearest centroid and is recomputed every
+        // cluster tick — and a cached colour would leave it wearing a lineage it
+        // has drifted out of.
+        const lch = species_lch.get(a.species) ?? unassignedColor();
         // Energy dims the body, but only down to 72% lightness — at the old 55%
         // floor a starving neon body desaturated into brown, which read as a
         // rendering fault rather than as a hungry creature.
@@ -1587,6 +1607,8 @@ function draw_agents(buf, n, alpha, L, time_sec) {
             cluster: a.genomeCluster, brainCluster: a.brainCluster,
             species: a.species, rgb: palette,
         });
+        // Strategy moved off hue and onto the halo when species took the hue.
+        const glow = strategyGlow(a.morph);
         // Creatures are the subject; food orbs were drawn ~4x their size and the
         // pond read as a field of green dots with specks swimming in it.
         const base_r = scale_px * (0.105 + a.energyNorm * 0.07 + a.morph.pointiness * 0.05);
@@ -1602,6 +1624,7 @@ function draw_agents(buf, n, alpha, L, time_sec) {
             ctx, chain, spec, palette,
             { tile_w, tile_h, scale_px, off_x, off_y, gridSize: GRID },
             { baseR: base_r, energyNorm: a.energyNorm, velX: a.velX, velY: a.velY, timeSec: time_sec },
+            glow,
         );
     }
 

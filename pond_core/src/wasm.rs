@@ -394,7 +394,15 @@ impl WasmWorld {
             buf[off + A_AGE_NORM] = (w.age[i] as f64 / w.death_age[i] as f64).clamp(0.0, 1.0) as f32;
             buf[off + A_ID] = w.ids[i] as f32;
 
-            let morph = MorphParams::from_traits(&w.genome[i].traits);
+            // Anchored to the lineage's founding shape when it has one, so a
+            // species looks like a kind rather than a spread. Unassigned agents
+            // have no lineage to vary around and are simply themselves.
+            let species_id = w.species_ids.get(i).copied().unwrap_or(0);
+            let morph = match w.species.get(species_id) {
+                Some(sp) => MorphParams::from_species_deviation(
+                    &w.genome[i].traits, &sp.founding_centroid),
+                None => MorphParams::from_traits(&w.genome[i].traits),
+            };
             buf[off + A_MORPH_POINTINESS] = morph.pointiness;
             buf[off + A_MORPH_ELONGATION] = morph.elongation;
             buf[off + A_MORPH_BULK] = morph.bulk;

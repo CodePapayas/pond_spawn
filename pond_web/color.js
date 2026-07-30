@@ -149,6 +149,74 @@ export function genomeColor(morph) {
     );
 }
 
+// ── Species identity ──────────────────────────────────────────────────────────
+//
+// Hue belongs to the lineage, not to the strategy.
+//
+// Keying hue to the aggression ramp meant a converged pond was one colour —
+// every screenshot came out green — and colour is the strongest categorical
+// channel there is, the only one that survives at second-screen size. Spending
+// it on a scalar that converges wastes it. A promoted species has an identity
+// worth a hue of its own.
+//
+// Genus shares the hue family and species vary within it by lightness and
+// chroma, so siblings look related and the taxonomy is legible in the palette:
+// the two Thalura are both amber, one paler than the other.
+
+/// Golden angle, in radians. Successive genera land maximally far apart on the
+/// hue circle no matter how many there end up being — no palette to run out of,
+/// no two adjacent genera reading as the same colour.
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+/// Where genus 0 starts. Chosen so the first lineage is a warm amber rather
+/// than the pond's own blue-green.
+const HUE_ORIGIN = 0.6;
+/// Lightness and chroma bands species step through within their genus.
+const SPECIES_L = [0.78, 0.62, 0.88, 0.70];
+const SPECIES_C = [0.16, 0.20, 0.11, 0.14];
+
+/**
+ * Colour for a promoted species.
+ *
+ * @param {number} genusIndex    order of first appearance of the genus
+ * @param {number} withinGenus   order of this species within that genus
+ */
+export function speciesColor(genusIndex, withinGenus) {
+    const h = (HUE_ORIGIN + genusIndex * GOLDEN_ANGLE) % (Math.PI * 2);
+    const i = withinGenus % SPECIES_L.length;
+    return [SPECIES_L[i], SPECIES_C[i], h];
+}
+
+/// An agent belonging to no species. Deliberately almost colourless: promotion
+/// then visibly *confers* an identity, and a pond going from grey to coloured is
+/// the speciation story told in one glance.
+const UNASSIGNED_LCH = [0.62, 0.035, 4.1];   // desaturated grey-blue
+
+export function unassignedColor() {
+    return UNASSIGNED_LCH.slice();
+}
+
+/**
+ * Strategy colour, for the glow hull only.
+ *
+ * The halo used to be a brighter copy of the body, carrying no information at
+ * all. It now carries what hue used to: warm and bright for an aggressive
+ * lineage, cool and faint for a passive one. Species identity in the body,
+ * strategy in the light coming off it, energy still in the alpha.
+ *
+ * Returns `{ rgb, weight }` — weight in [0,1] scales the glow's opacity.
+ */
+export function strategyGlow(morph) {
+    const { pointiness, ornament, bulk } = morph;
+    const combat = Math.min(1, Math.max(0,
+        pointiness * 0.55 + ornament * 0.25 + (1 - bulk) * 0.20));
+    // Cool teal → hot orange through the same Oklch space the bodies use, so the
+    // halo never fights the body for saturation.
+    const cool = [0.80, 0.10, 3.4];
+    const hot  = [0.78, 0.19, 0.55];
+    const lch = lerpOklch(cool, hot, combat);
+    return { rgb: oklchToRgb(lch), weight: 0.35 + combat * 0.65 };
+}
+
 /**
  * Frame-rate-independent exponential smoother over Oklch.
  * `state` = current [L,C,h] (mutated in place), `target` = target [L,C,h],

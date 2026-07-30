@@ -462,6 +462,36 @@ resurrection would make the timeline lie. Ids are monotonic and never reused.
 Live species are capped at 12; at the cap promotion is refused rather than
 evicting a live species, which would write a false `extinct_at`.
 
+### Appearance
+
+**Shape is anchored to the lineage.** An agent's morphology comes from its
+species' `founding_centroid` plus `INDIVIDUAL_VARIATION` (0.35) of its own
+deviation from it, so every member of a species is drawn around the shape that
+lineage had when it was promoted. The anchor must not be `Species::centroid`,
+which EMA-tracks the live member mean every cluster tick: keyed to that, an
+animal's appearance changes when its *neighbours* change and a species has no
+stable look at all. Unassigned agents have no lineage to vary around and are
+drawn from their own traits.
+
+**Parts are categorical.** Counts are integers at fixed thresholds — 0–3 spike
+pairs, 0–3 armour rings, 0/2/4/6 fins, 5/7/9/11 segments — and absence is a real
+state. Continuous knobs across eight dimensions read as "different sizes"; a
+viewer can only say "different kinds" about things they can count. Proportions
+(eye size, segment spacing, envelope) stay continuous, because they are
+proportions and not parts.
+
+**Hue belongs to the lineage.** Each genus takes the next golden-angle hue on
+first promotion, so genera are maximally separated however many accumulate;
+species within a genus vary by lightness and chroma, so siblings look related
+and the taxonomy is legible in the palette. Unassigned agents are a desaturated
+grey-blue — promotion visibly confers an identity.
+
+**Strategy moved to the glow.** The additive halo carries the combat profile:
+warm and strong for aggressive, cool and faint for passive. Hue previously
+encoded that, which meant a converged pond was a single colour — a scalar that
+converges cannot label anything, and colour is the strongest categorical channel
+available.
+
 ### Ancestry
 
 Every promoted species records a `parent_id`: the nearest species — live or
