@@ -21,7 +21,7 @@ const DORMANT_OUTPUTS = new Set([6]);   // attack: routed through passive combat
 
 const TRAIT_NAMES = [
     'vision', 'speed', 'metabolism', 'energy cap', 'mutation', 'repro cost',
-    'attack', 'defense', 'aggression', 'intelligence',
+    'attack', 'defense', 'aggression', 'intelligence', 'immunity',
 ];
 
 // Columns pushed apart and shifted left on the widened canvas: output labels

@@ -28,6 +28,15 @@ pub struct Traits {
     /// `defense` and `aggression` by one would have been a silent misread in
     /// each of them.
     pub intelligence: f64,
+    /// Resistance to catching a disease: scales the per-contact infection
+    /// probability by `1 - immunity`. It does nothing once an agent is already
+    /// infected — there is no recovery in this model, by design, so never
+    /// catching it is the only defence there is.
+    ///
+    /// Appended for the same reason `intelligence` was: every index after a
+    /// trait is mirrored by hand in `wasm.rs`, `species.rs`, the inspector and
+    /// the panels.
+    pub immunity: f64,
 }
 
 /// Number of genome traits. One source for every `[f64; N]` that mirrors the
@@ -39,7 +48,7 @@ impl Traits {
     /// these, `mutate()` clamps to them, `species.rs` normalizes by them, and
     /// `wasm::trait_bounds()` exports them. One table, so a bounds change can't
     /// half-land.
-    pub const BOUNDS: [(f64, f64); 10] = [
+    pub const BOUNDS: [(f64, f64); 11] = [
         (0.5, 1.05),   // vision
         (0.5, 1.0),    // speed
         (0.5, 1.05),   // metabolism
@@ -50,6 +59,7 @@ impl Traits {
         (0.5, 1.07),   // defense
         (0.0, 1.05),   // aggression
         (0.5, 1.05),   // intelligence
+        (0.0, 1.0),    // immunity
     ];
 
     /// Generate random founding trait values within JSON-defined bounds.
@@ -66,6 +76,7 @@ impl Traits {
             defense:                 rng.gen_range(0.5_f64..=1.07),
             aggression:              rng.gen_range(0.0_f64..=1.05),
             intelligence:            rng.gen_range(0.5_f64..=1.05),
+            immunity:                rng.gen_range(0.0_f64..=1.0),
         }
     }
 
@@ -98,6 +109,7 @@ impl Traits {
             defense:                 maybe_mutate!(self.defense, 0.5, 1.07),
             aggression:              maybe_mutate!(self.aggression, 0.0, 1.05),
             intelligence:            maybe_mutate!(self.intelligence, 0.5, 1.05),
+            immunity:                maybe_mutate!(self.immunity, 0.0, 1.0),
         }
     }
 }

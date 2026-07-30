@@ -214,7 +214,7 @@ impl WasmWorld {
             vision: raw[0], speed: raw[1], metabolism: raw[2],
             energy_capacity: raw[3], mutation_rate: raw[4],
             reproduction_cost: raw[5], attack: raw[6], defense: raw[7],
-            aggression: raw[8], intelligence: raw[9],
+            aggression: raw[8], intelligence: raw[9], immunity: raw[10],
         };
         let m = MorphParams::from_traits(&traits);
         vec![m.pointiness, m.elongation, m.bulk, m.ornament, m.eye_size, m.pulse_rate, m.belly]
@@ -402,7 +402,8 @@ impl WasmWorld {
         let traits_of = |i: usize| {
             let t = &w.genome[i].traits;
             [t.vision, t.speed, t.metabolism, t.energy_capacity, t.mutation_rate,
-             t.reproduction_cost, t.attack, t.defense, t.aggression, t.intelligence]
+             t.reproduction_cost, t.attack, t.defense, t.aggression, t.intelligence,
+             t.immunity]
         };
 
         let mut means = [0f32; TRAIT_COUNT];

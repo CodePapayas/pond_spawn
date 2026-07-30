@@ -31,14 +31,14 @@ const S_PROBATION_GENERATIONS = 12;
 // Same lookup that lends the genus, so name and ancestry always agree.
 const S_PARENT = 13;
 const S_CENTROID = 14;
-const SIG_LEN = 8;   // species signature dims; mirrors species::SIG_LEN
+const SIG_LEN = 9;   // species signature dims; mirrors species::SIG_LEN
 const S_FOUNDING_CENTROID = S_CENTROID + SIG_LEN;
 const S_POPULATION_CENTROID = S_FOUNDING_CENTROID + SIG_LEN;
 const SIGNATURE_NAMES = [
     'vision', 'speed', 'metabolism', 'reproduction cost',
-    'attack', 'defense', 'aggression', 'intelligence',
+    'attack', 'defense', 'aggression', 'intelligence', 'immunity',
 ];
-const SIGNATURE_DIMS = [0, 1, 2, 5, 6, 7, 8, 9];
+const SIGNATURE_DIMS = [0, 1, 2, 5, 6, 7, 8, 9, 10];
 
 /** How long an extinction stays in the live list, struck through, before it
  *  drops into the collapsed fossil record. Long enough to notice, short enough

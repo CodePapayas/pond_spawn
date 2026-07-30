@@ -4,7 +4,7 @@
 
 const TRAIT_NAMES = [
     'vision', 'speed', 'metabolism', 'energy cap', 'mutation', 'repro cost',
-    'attack', 'defense', 'aggression', 'intelligence',
+    'attack', 'defense', 'aggression', 'intelligence', 'immunity',
 ];
 // energy_capacity and mutation_rate are locked (no mutation drift) — display
 // them dimmed and exclude them from "dominant" highlighting.
@@ -40,7 +40,7 @@ const DEATH_ROWS = [
     [':/',    'starved'],
 ];
 
-const COMPOSITE_TRAITS = [0, 1, 2, 5, 6, 7, 8, 9];   // skip the two locked traits
+const COMPOSITE_TRAITS = [0, 1, 2, 5, 6, 7, 8, 9, 10];   // skip the two locked traits
 const LAYER_NAMES = ['in→h0', 'h0→h1', 'h1→h2', 'h2→out'];
 
 /**

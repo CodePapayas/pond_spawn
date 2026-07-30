@@ -82,9 +82,9 @@ fn main() {
     // Population trait means. Balance work turns on these — "predators select
     // for defense" is a claim about this line, not about the death tally.
     let means = world.trait_means();
-    const TRAIT_NAMES: [&str; 10] = [
+    const TRAIT_NAMES: [&str; 11] = [
         "vision", "speed", "metabolism", "energy_cap", "mutation",
-        "repro_cost", "attack", "defense", "aggression", "intelligence",
+        "repro_cost", "attack", "defense", "aggression", "intelligence", "immunity",
     ];
     println!("\ntrait means:");
     for (name, m) in TRAIT_NAMES.iter().zip(means.iter()) {

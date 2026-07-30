@@ -272,6 +272,7 @@ mod tests {
             // Part of the signature since intelligence was wired up: left random,
             // it is noise across every blob and the partition stops being clean.
             t.intelligence = level.min(1.05);
+            t.immunity = level.min(1.0);
             t.reproduction_cost = level + 0.25;
         }
         let a = ClusterState::run(&genomes, 6, 100, None);

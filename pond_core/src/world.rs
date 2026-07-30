@@ -120,6 +120,15 @@ const DEFENSE_UPKEEP: f64 = 0.09;
 /// scaled by metabolism. Bracing is work.
 const DEFENSE_BLOCK_COST: f64 = 0.6;
 
+/// Energy per tick per unit of immunity, scaled by metabolism.
+///
+/// An immune system is expensive to run, and without a price this trait goes
+/// straight to fixation and stops being a decision — which is exactly what
+/// defense did for the entire life of the project. Set against the fact that
+/// disease appears in roughly half of runs: in a clean pond this is pure
+/// overhead, so a lineage that has never met a pathogen should drift *down*.
+const IMMUNITY_UPKEEP: f64 = 0.035;
+
 /// Armour carried above the trait's floor. Everything charged for defense is
 /// charged on this, not on the raw trait.
 fn armour_margin(defense: f64) -> f64 {
@@ -904,7 +913,7 @@ impl World {
             for (s, v) in sums.iter_mut().zip([
                 t.vision, t.speed, t.metabolism, t.energy_capacity,
                 t.mutation_rate, t.reproduction_cost, t.attack, t.defense, t.aggression,
-                t.intelligence,
+                t.intelligence, t.immunity,
             ]) { *s += v; }
             count += 1;
         }
@@ -952,7 +961,7 @@ impl World {
         // it silently.
         for v in [t.vision, t.speed, t.metabolism, t.energy_capacity,
                   t.mutation_rate, t.reproduction_cost, t.attack, t.defense,
-                  t.aggression, t.intelligence] {
+                  t.aggression, t.intelligence, t.immunity] {
             out.push(v as f32);
         }
         debug_assert_eq!(out.len(), Self::inspect_buffer_len(),
@@ -2077,6 +2086,9 @@ impl World {
                 // Armour is mass, and mass is carried every tick.
                 self.energy[i] -=
                     DEFENSE_UPKEEP * armour_margin(self.genome[i].traits.defense) * metabolism;
+                // So is an immune system.
+                self.energy[i] -=
+                    IMMUNITY_UPKEEP * self.genome[i].traits.immunity * metabolism;
                 // Being ill costs. Severity is a drain rather than a death roll,
                 // so an outbreak lands on the food economy and takes the
                 // already-marginal first.
@@ -2178,13 +2190,18 @@ impl World {
                 if self.is_predator(j) { continue; }
                 // Once a pathogen has jumped it is nobody's disease in
                 // particular and spreads at full contagion to anything.
+                // Immunity is resistance to *catching* it and nothing else. An
+                // infected agent carries it to the grave however immune it is:
+                // recovery would be a restoring force and would damp exactly the
+                // oscillation this mechanic exists to create.
+                let resist = 1.0 - self.genome[j].traits.immunity.clamp(0.0, 1.0);
                 let host = jumped || self.species_ids.get(j).copied() == Some(origin);
                 if host {
-                    let p = contagion * crowd;
+                    let p = contagion * crowd * resist;
                     if p > 0.0 && self.rng.gen_bool(p.clamp(0.0, 1.0)) {
                         caught.push((j, disease_id));
                     }
-                } else if self.rng.gen_bool(CROSS_SPECIES_JUMP) {
+                } else if self.rng.gen_bool(CROSS_SPECIES_JUMP * resist) {
                     caught.push((j, disease_id));
                     jumps.push(disease_id);
                 }
@@ -3870,7 +3887,12 @@ mod tests {
             let mut w = World::new(40, n, 8);
             w.set_automatic_predators(false);
             let id = plant_disease(&mut w, 0.0, 0.5, 0);
-            for i in 0..w.ids.len() { w.species_ids[i] = 0; }
+            for i in 0..w.ids.len() {
+                w.species_ids[i] = 0;
+                // Uniform susceptibility: this test is about locality, and
+                // random immunity would vary between the two ponds' clusters.
+                w.genome[i].traits.immunity = 0.0;
+            }
             // A tight cluster of eight; everything else is scattered far away.
             for i in 0..w.ids.len().min(8) {
                 w.pos_x[i] = 5.0 + (i % 3) as f32 * 0.2;
@@ -3915,6 +3937,64 @@ mod tests {
         assert_eq!(scrum(false), 1, "a pathogen leaked into another species");
         // Once it has jumped, the same scrum goes up like tinder.
         assert!(scrum(true) > 30, "a jumped pathogen should spread to anything");
+    }
+
+    #[test]
+    fn immunity_resists_catching_but_does_not_cure() {
+        let caught_with = |immunity: f64| -> usize {
+            let mut w = World::new(20, 40, 77);
+            w.set_automatic_predators(false);
+            let id = plant_disease(&mut w, 0.0, 0.6, 0);
+            for i in 0..w.ids.len() {
+                w.pos_x[i] = 10.0;
+                w.pos_y[i] = 10.0;
+                w.species_ids[i] = 0;
+                w.genome[i].traits.immunity = immunity;
+            }
+            w.spatial.rebuild(&w.pos_x, &w.pos_y);
+            w.infection[0] = id;
+            // One tick. Given enough of them a 0.03 chance against forty
+            // neighbours still infects everyone — resistance slows an outbreak,
+            // it does not wall it off, and the measurement has to respect that.
+            w.tick_disease();
+            w.infection.iter().filter(|&&v| v != 0).count()
+        };
+        let susceptible = caught_with(0.0);
+        let resistant = caught_with(0.95);
+        assert!(resistant < susceptible,
+            "immunity did not resist: {} caught vs {}", resistant, susceptible);
+        assert!(susceptible > 5, "the control scrum barely spread: {}", susceptible);
+    }
+
+    #[test]
+    fn immunity_does_not_save_an_agent_already_infected() {
+        // There is no recovery, at any immunity. Never catching it is the whole
+        // defence — a curable disease is a restoring force and damps the
+        // oscillation the mechanic exists to create.
+        let mut w = World::new(12, 6, 44);
+        w.set_automatic_predators(false);
+        let id = plant_disease(&mut w, 5.0, 0.0, 0);
+        w.infection[0] = id;
+        w.genome[0].traits.immunity = 1.0;
+        w.energy[0] = 1.0;
+        for _ in 0..10 { w.step(); }
+        assert!(w.death_counts()[CauseOfDeath::Disease.code() as usize] > 0,
+            "a fully immune agent shrugged off an infection it already had");
+    }
+
+    #[test]
+    fn immunity_costs_energy() {
+        let drain = |immunity: f64| -> f64 {
+            let mut w = World::new(12, 1, 5);
+            w.set_automatic_predators(false);
+            w.genome[0].traits.immunity = immunity;
+            w.genome[0].traits.metabolism = 1.0;
+            let start = w.energy[0];
+            for _ in 0..20 { w.step(); }
+            start - w.energy[0]
+        };
+        assert!(drain(1.0) > drain(0.0),
+            "an immune system must cost something, or every pond evolves to maximum");
     }
 
     #[test]
@@ -4547,11 +4627,15 @@ mod tests {
     }
 
     #[test]
-    fn no_predator_while_under_the_cap() {
+    fn no_cull_pack_while_under_the_cap() {
+        // The ambient resident is always there above the prey floor — that is
+        // the point of it. What must not happen under the cap is a *cull*: a
+        // hunter carrying a population target.
         let mut w = World::new(16, 20, 11);
         for _ in 0..400 { w.step(); }
         assert!(w.prey_count() < w.cull_trigger_pop());
-        assert!(w.predators.is_empty(), "predator arrived under the cap");
+        assert!(w.predators.iter().all(|p| p.target_pop == 0),
+            "a culling hunter arrived under the cap");
     }
 
     #[test]

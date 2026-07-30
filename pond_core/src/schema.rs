@@ -38,4 +38,6 @@
 /// - 3 — `intelligence` becomes a live trait: 10 traits rather than 9, and it
 ///   joins the species signature, so the composite buffer, the species row and
 ///   the inspector's trait block all grow.
-pub const SCHEMA_VERSION: u32 = 3;
+/// - 4 — `immunity` joins the traits and the species signature: 11 traits,
+///   `SIG_LEN` 9, so the species row and the composite buffer grow again.
+pub const SCHEMA_VERSION: u32 = 4;

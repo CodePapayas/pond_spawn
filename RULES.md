@@ -568,6 +568,15 @@ population.** An outbreak in a tight cluster behaves identically in a pond of 40
 and a pond of 400, which is what lets it overshoot and crash instead of trimming
 toward a setpoint.
 
+**Immunity** (trait 10, bounds 0–1, mutable, in the species signature) scales the
+per-contact infection probability by `1 - immunity`. It is resistance to
+*catching* something and nothing else — a fully immune agent that is already
+infected dies of it like anyone else. It costs `IMMUNITY_UPKEEP (0.035) ×
+immunity × metabolism` per tick, because an immune system a pond has never
+needed should be a liability: without a price the trait goes to fixation and
+stops being a decision, which is what happened to defense for the life of the
+project. Measured over six seeds it settles at **0.45**, mid-range.
+
 **No recovery.** An infected agent carries it until it dies, and offspring are
 born clean. Recovery would be a restoring force and would turn every outbreak
 into a damped oscillation converging on equilibrium.

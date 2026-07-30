@@ -43,7 +43,7 @@ mod tests {
             vision: 1.05, speed: 1.0, metabolism: 1.05,
             energy_capacity: 1.05, mutation_rate: 0.1,
             reproduction_cost: 1.0, attack: 1.25, defense: 1.07,
-            aggression: 1.05, intelligence: 1.05,
+            aggression: 1.05, intelligence: 1.05, immunity: 1.0,
         };
         let m = MorphParams::from_traits(&t);
         for v in [m.pointiness, m.elongation, m.bulk, m.ornament, m.eye_size, m.pulse_rate, m.belly] {
@@ -57,7 +57,7 @@ mod tests {
             vision: 0.5, speed: 0.5, metabolism: 0.5,
             energy_capacity: 0.95, mutation_rate: 0.1,
             reproduction_cost: 1.0, attack: 0.5, defense: 0.5,
-            aggression: 0.0, intelligence: 0.5,
+            aggression: 0.0, intelligence: 0.5, immunity: 0.0,
         };
         let m = MorphParams::from_traits(&t);
         for v in [m.pointiness, m.elongation, m.bulk, m.ornament, m.eye_size, m.pulse_rate, m.belly] {
