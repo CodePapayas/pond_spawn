@@ -598,6 +598,8 @@ struct PendingAgent {
     y: f32,
     parent_defense: f64,
     parent_id: u32,
+    /// The parent's species, inherited at birth. See `push_agent`.
+    species: u32,
 }
 
 // ── Public stats ──────────────────────────────────────────────────────────────
@@ -995,7 +997,7 @@ impl World {
             let x = (cx + radius * angle.cos()).rem_euclid(world_size);
             let y = (cy + radius * angle.sin()).rem_euclid(world_size);
             let genome = Genome::generate(&mut self.rng);
-            self.push_agent(x, y, 50.0, genome, 0.0, None);
+            self.push_agent(x, y, 50.0, genome, 0.0, None, crate::species::UNASSIGNED);
         }
         self.spatial.rebuild(&self.pos_x, &self.pos_y);
     }
@@ -1232,7 +1234,7 @@ impl World {
 
         let x = self.rng.gen::<f32>() * self.grid_size as f32;
         let y = self.rng.gen::<f32>() * self.grid_size as f32;
-        self.push_agent(x, y, MAX_ENERGY_BASE, genome, 0.0, None);
+        self.push_agent(x, y, MAX_ENERGY_BASE, genome, 0.0, None, crate::species::UNASSIGNED);
 
         let id = *self.ids.last().unwrap();
         self.predators.push(Predator {
@@ -2723,6 +2725,7 @@ impl World {
             y: cy,
             parent_defense,
             parent_id: self.ids[idx],
+            species: self.species_ids.get(idx).copied().unwrap_or(crate::species::UNASSIGNED),
         })
     }
 
@@ -2842,7 +2845,11 @@ impl World {
 
     fn spawn_offspring(&mut self, offspring: Vec<PendingAgent>) {
         for child in offspring {
-            self.push_agent(child.x, child.y, child.energy, child.genome, child.parent_defense, Some(child.parent_id));
+            let species = child.species;
+            self.push_agent(
+                child.x, child.y, child.energy, child.genome, child.parent_defense,
+                Some(child.parent_id), species,
+            );
         }
     }
 
@@ -2859,6 +2866,7 @@ impl World {
         genome: Genome,
         parent_defense: f64,
         parent_id: Option<u32>,
+        species: u32,
     ) {
         let id = self.next_id;
         self.next_id += 1;
@@ -2904,9 +2912,21 @@ impl World {
         self.max_offspring.push(max_offspring);
         self.last_reproduced_age.push(None);
         self.reproduction_cooldown.push(cooldown);
-        // Membership is recomputed on the next species tick. Keeping the vector
-        // index-aligned in between is what makes names reliable in every view.
-        self.species_ids.push(crate::species::UNASSIGNED);
+        // Offspring are born into their parent's species. Membership is still
+        // recomputed from scratch on the next species tick — by nearest centroid,
+        // so a child that inherited a lineage it has already drifted out of loses
+        // it there — but until then it belongs where it came from.
+        //
+        // It used to be born `UNASSIGNED` and wait up to 50 steps for the next
+        // cluster run to notice it. That is wrong on its face: a newborn has its
+        // parent's genome, so calling it lineage-less is a statement about the
+        // scheduler, not about the animal. It was also visible, since a species
+        // now carries a hue and a body shape — every pond had a churn of grey
+        // unassigned newborns that turned into their parents 50 steps later.
+        //
+        // Founders and poured agents pass `UNASSIGNED`: they have no parent, and
+        // inventing a lineage for them would be a different lie.
+        self.species_ids.push(species);
     }
 
     fn reap_dead(&mut self, mut dead: Vec<usize>) {
@@ -3012,7 +3032,7 @@ impl World {
             let x = self.rng.gen::<f32>() * world_size;
             let y = self.rng.gen::<f32>() * world_size;
             let genome = Genome::generate(&mut self.rng);
-            self.push_agent(x, y, 100.0, genome, 0.0, None);
+            self.push_agent(x, y, 100.0, genome, 0.0, None, crate::species::UNASSIGNED);
         }
     }
 }
@@ -3990,6 +4010,32 @@ mod tests {
         w.tick_disease();
         assert!(w.infection.iter().filter(|&&v| v != 0).count() > 1,
             "turning it back on did not resume transmission");
+    }
+
+    #[test]
+    fn offspring_are_born_into_their_parents_species() {
+        // Membership is asserted directly rather than waiting for a promotion:
+        // this is about what a newborn inherits, not about the registry, and a
+        // real promotion needs a few thousand steps of the right pond.
+        let mut w = World::new(12, 60, 42);
+        w.set_automatic_predators(false);
+        for _ in 0..60 { w.step(); }
+        let parent = 0;
+        let species = 7u32;
+        w.species_ids[parent] = species;
+
+        // Force a birth from that parent and check what the child is born as.
+        w.energy[parent] = MAX_ENERGY_BASE;
+        w.age[parent] = MATURITY_AGE + 1;
+        w.reproduction_cooldown[parent] = 0;
+        w.last_reproduced_age[parent] = None;
+        let before = w.ids.len();
+        let child = w.do_reproduce(parent).expect("parent did not reproduce");
+        assert_eq!(child.species, species, "child inherited no lineage");
+        w.spawn_offspring(vec![child]);
+        assert_eq!(w.ids.len(), before + 1);
+        assert_eq!(*w.species_ids.last().unwrap(), species,
+            "a newborn was filed as unassigned until the next cluster tick");
     }
 
     #[test]

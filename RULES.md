@@ -449,6 +449,13 @@ Promotion is therefore an experiment, not an observation: a shape still riding
 mutation toward a fit, or one k-means merely happened to bracket, loses its
 share once frozen and never promotes.
 
+**Offspring are born into their parent's species.** Membership is still
+recomputed from scratch on the next species tick, so a child that inherited a
+lineage it has already drifted out of loses it then — but it is never born
+lineage-less. A newborn carries its parent's genome; filing it as unassigned for
+up to 50 steps described the scheduler, not the animal, and became visible once
+species carried a hue and a body shape.
+
 **Membership** is by nearest species centroid within `MEMBERSHIP_RADIUS`, not by
 k-means label — so a species keeps its identity when k-means reshuffles, splits,
 or merges its slots, and an agent can drift out of its species. Agents outside
