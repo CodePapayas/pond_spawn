@@ -586,11 +586,19 @@ function refresh_inspector() {
     }
     inspector.update(buf, insp_first);
 
-    // Species membership. Traits sit at [60..69) in the inspect buffer.
+    // Species membership. The trait block sits after the whole traced forward
+    // pass plus energy, age and kills — derived from the engine's own layer
+    // sizes rather than written down. It was hardcoded as [60..69), which after
+    // the input vector widened was feeding age, kills and traits 0-6 into the
+    // distance calculation.
     const agent = last_agents.find(a => a.id === selected_id);
     const sp = agent ? species_rows.find(s => s.id === agent.species) : null;
     if (sp) {
-        const traits = Array.from(buf.slice(60, 69));
+        const sizes = Array.from(brain_layer_sizes());
+        const traits_at = sizes.reduce((a, b) => a + b, 0)   // inputs + hidden + logits
+            + sizes[sizes.length - 1]                        // sigmoid gates
+            + 3;                                             // energy, age, kills
+        const traits = Array.from(buf.slice(traits_at));
         inspector.setSpecies(
             sp.name,
             centroidDistance(traits, sp.centroid, TRAIT_BOUNDS),

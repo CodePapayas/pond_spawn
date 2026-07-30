@@ -142,6 +142,12 @@ export function initGod(root, api) {
         refresh_dismiss();
     });
     immortal_box.addEventListener('change', () => set_immortal(immortal_box.checked));
+    // Registered here with the other listeners. It was inside `effects()`, which
+    // the renderer calls every frame: a new listener was added per frame, and
+    // `effects()` returned this object instead of the frame's effects.
+    predators_box.addEventListener('change', () => {
+        api.setAutomaticPredators(predators_box.checked);
+    });
 
     set_enabled(false);
 
@@ -212,11 +218,7 @@ export function initGod(root, api) {
 
     /** Effects the renderer should draw this frame, in world coordinates. */
     function effects(now_sec) {
-        predators_box.addEventListener('change', () => {
-        api.setAutomaticPredators(predators_box.checked);
-    });
-
-    return {
+        return {
             comets: comets.map(c => ({
                 x: c.x, y: c.y,
                 t: (now_sec - c.t0) / COMET_SEC,

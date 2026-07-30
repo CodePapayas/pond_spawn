@@ -945,11 +945,31 @@ impl World {
         out.push(energy_norm);
         out.push(age_norm);
         out.push(self.kills[idx] as f32);
+        // Every trait, in field order. This listed nine and omitted
+        // `intelligence`, which left the buffer one float short of what the
+        // inspector iterates — `undefined.toFixed()` threw and the whole panel
+        // went dead. The count is asserted below so a future trait cannot repeat
+        // it silently.
         for v in [t.vision, t.speed, t.metabolism, t.energy_capacity,
-                  t.mutation_rate, t.reproduction_cost, t.attack, t.defense, t.aggression] {
+                  t.mutation_rate, t.reproduction_cost, t.attack, t.defense,
+                  t.aggression, t.intelligence] {
             out.push(v as f32);
         }
+        debug_assert_eq!(out.len(), Self::inspect_buffer_len(),
+            "inspect buffer length drifted from its documented layout");
         Some(out)
+    }
+
+    /// Length of the `inspect_agent` buffer, derived from the brain's shape and
+    /// the trait count rather than written down. The JS side derives its offsets
+    /// the same way (see `brain_layer_sizes`).
+    pub fn inspect_buffer_len() -> usize {
+        let sizes = crate::brain::LAYER_SIZES;
+        let outputs = sizes[sizes.len() - 1];
+        sizes.iter().sum::<usize>()   // inputs + hidden layers + logits
+            + outputs                 // sigmoid gates
+            + 3                       // energy_norm, age_norm, kills
+            + TRAIT_COUNT
     }
 
     /// Spawn agents at random positions within `radius` tiles of (cx, cy).
