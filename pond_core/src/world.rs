@@ -1975,8 +1975,11 @@ impl World {
             self.brain_clusters.begin(&self.genome, 24, self.step_count);
             // Speciation reads the fresh clustering and consumes no RNG, so a
             // run with it enabled steps identically to one without.
-            self.species_ids =
-                self.species.update(&self.genome, &self.cluster, self.step_count);
+            // Membership is carried, not recomputed: `update` only releases the
+            // members of an extinct species and seats a new one's founders.
+            let mut assignment = std::mem::take(&mut self.species_ids);
+            self.species.update(&self.genome, &self.cluster, self.step_count, &mut assignment);
+            self.species_ids = assignment;
 
             // A promotion is the only thing that can introduce a pathogen. The
             // roll lives here rather than in `species.rs` because it needs the
@@ -2715,6 +2718,7 @@ impl World {
         // taken away. Transient, not heritable — see Genome::mutate.
         let clamp = self.species.clamp_for(&self.genome[idx].traits);
         let child_genome = self.genome[idx].mutate(&mut self.rng, suppression, clamp);
+        let child_traits = child_genome.traits.clone();
         let parent_defense = self.genome[idx].traits.defense;
         let child_energy = cost * BIRTH_ENERGY_YIELD;
 
@@ -2725,7 +2729,23 @@ impl World {
             y: cy,
             parent_defense,
             parent_id: self.ids[idx],
-            species: self.species_ids.get(idx).copied().unwrap_or(crate::species::UNASSIGNED),
+            // The child is measured against its parent's species definition
+            // once, here, and never again. Mutation is the only thing that can
+            // put it outside — which is exactly where new lineages come from: a
+            // child born past its parents' definition is unassigned, and enough
+            // of those clustering together is what the candidate machinery
+            // promotes into the next species.
+            species: {
+                let parent_species =
+                    self.species_ids.get(idx).copied().unwrap_or(crate::species::UNASSIGNED);
+                if parent_species != crate::species::UNASSIGNED
+                    && self.species.admits(parent_species, &child_traits)
+                {
+                    parent_species
+                } else {
+                    crate::species::UNASSIGNED
+                }
+            },
         })
     }
 
@@ -4025,8 +4045,11 @@ mod tests {
         let mut w = World::new(12, 60, 42);
         w.set_automatic_predators(false);
         for _ in 0..60 { w.step(); }
+        // A real lineage, defined on the parent's own signature so the parent is
+        // comfortably inside it and only mutation can push a child out.
         let parent = 0;
-        let species = 7u32;
+        let centre = crate::species::signature(&w.genome[parent].traits);
+        let species = w.species.plant_for_test(centre, "Thalura");
         w.species_ids[parent] = species;
 
         // Force a birth from that parent and check what the child is born as.
@@ -4041,6 +4064,37 @@ mod tests {
         assert_eq!(w.ids.len(), before + 1);
         assert_eq!(*w.species_ids.last().unwrap(), species,
             "a newborn was filed as unassigned until the next cluster tick");
+    }
+
+    #[test]
+    fn a_child_that_mutates_past_the_definition_is_born_outside_it() {
+        // The mechanism speciation runs on: a lineage is a definition fixed at
+        // promotion, and mutation is the only thing that can put a child outside
+        // it. Enough of those born-outside children clustering together is what
+        // the candidate machinery promotes into the next species.
+        let mut w = World::new(12, 60, 8);
+        w.set_automatic_predators(false);
+        for _ in 0..60 { w.step(); }
+        let parent = 0;
+
+        // A definition centred a long way from this parent's own shape: whatever
+        // the child inherits, it cannot land inside.
+        let far = [0.0; crate::species::SIG_LEN];
+        let mut near = crate::species::signature(&w.genome[parent].traits);
+        for v in near.iter_mut() { *v = (*v + 0.9).min(1.0); }
+        let elsewhere = w.species.plant_for_test(far, "Vorixa");
+        w.species_ids[parent] = elsewhere;
+        assert!(!w.species.admits(elsewhere, &w.genome[parent].traits),
+            "the fixture's parent is inside the definition, so nothing is tested");
+
+        w.energy[parent] = MAX_ENERGY_BASE;
+        w.age[parent] = MATURITY_AGE + 1;
+        w.reproduction_cooldown[parent] = 0;
+        w.last_reproduced_age[parent] = None;
+        let child = w.do_reproduce(parent).expect("parent did not reproduce");
+        assert_eq!(child.species, crate::species::UNASSIGNED,
+            "a child outside the definition was seated in it anyway");
+        let _ = near;
     }
 
     #[test]

@@ -282,35 +282,57 @@ impl SpeciesRegistry {
     /// first, then candidates are formed only from what is left over. Forming
     /// candidates over all agents would let a cluster that is already a species
     /// be promoted a second time at the same centroid.
+    /// Advance the registry against the current population.
+    ///
+    /// `assignment` is the per-agent membership, carried by the world and
+    /// mutated in place. It is **not** recomputed from geometry every run:
+    /// membership is decided once, at birth (see `World::do_reproduce`) or at
+    /// promotion, and then held for life.
+    ///
+    /// The old rule re-measured every agent against every live centroid every
+    /// tick, which meant an animal could lose its species without changing —
+    /// centroids track their members at `CENTROID_TRACKING` per run, so a
+    /// lineage drifting away from one of its own members evicted it. Every other
+    /// heritable thing here is fixed at birth; membership had no business being
+    /// the exception.
+    ///
+    /// What this run still changes: members of a species that goes extinct are
+    /// released, and a promotion assigns its founding members.
     pub fn update(
         &mut self,
         genomes: &[Genome],
         cluster: &ClusterState,
         step: u32,
-    ) -> Vec<u32> {
+        assignment: &mut Vec<u32>,
+    ) {
         let n = genomes.len();
+        assignment.resize(n, UNASSIGNED);
         if n == 0 {
             self.retire_empty_species(step);
             self.candidates.clear();
-            return Vec::new();
+            assignment.clear();
+            return;
         }
 
         let points: Vec<[f64; SIG_LEN]> = genomes.iter().map(|g| signature(&g.traits)).collect();
         let mean_generation =
             genomes.iter().map(|g| g.generation as f64).sum::<f64>() / n as f64;
 
-        // ── Membership ───────────────────────────────────────────────────────
-        let assignment: Vec<u32> = points.iter().map(|p| self.nearest_species(p)).collect();
-
         // ── Species bookkeeping ──────────────────────────────────────────────
-        self.update_species(&points, &assignment, step);
+        self.update_species(&points, assignment, step);
+        // Anyone whose species just went extinct is released.
+        for a in assignment.iter_mut() {
+            if *a != UNASSIGNED && self.get(*a).map(|s| !s.is_alive()).unwrap_or(true) {
+                *a = UNASSIGNED;
+            }
+        }
 
         // ── Candidates, over unassigned agents only ──────────────────────────
         let min_members = min_members(n);
         for c in self.candidates.iter_mut() {
             c.seen_this_run = false;
         }
-        for group in unassigned_groups(&points, &assignment, cluster) {
+        for group in unassigned_groups(&points, assignment, cluster) {
             self.observe_candidate(group, min_members, mean_generation as f32, step);
         }
         // A candidate whose cluster vanished this run has broken its streak.
@@ -332,11 +354,66 @@ impl SpeciesRegistry {
         for v in population_centroid.iter_mut() {
             *v /= n as f64;
         }
-        self.promote_ready(step, mean_generation as f32, n as u32, &population_centroid);
+        let founded = self.promote_ready(step, mean_generation as f32, n as u32,
+                                         &population_centroid);
 
-        // Promotion may have created a species the leftover agents now belong
-        // to, so resolve membership once more for the returned assignment.
-        points.iter().map(|p| self.nearest_species(p)).collect()
+        // Founding members: the unassigned agents that sit inside a brand-new
+        // species' definition join it, once. This is the only path into a
+        // species other than being born into one — after this the lineage grows
+        // by reproduction alone, exactly as a family does.
+        for id in founded {
+            let Some(sp) = self.get(id) else { continue };
+            let centre = sp.founding_centroid;
+            for (i, p) in points.iter().enumerate() {
+                if assignment[i] != UNASSIGNED { continue; }
+                if dist_sq(p, &centre) < MEMBERSHIP_RADIUS * MEMBERSHIP_RADIUS {
+                    assignment[i] = id;
+                }
+            }
+        }
+    }
+
+    /// Plant a species directly. Tests only: promotion takes thousands of steps
+    /// of the right population, which is not what most tests are about.
+    #[cfg(test)]
+    pub(crate) fn plant_for_test(&mut self, centroid: [f64; SIG_LEN], genus: &str) -> u32 {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.species.push(Species {
+            name: Name { genus: genus.to_string(), epithet: "ferox".into() },
+            id,
+            parent_id: UNASSIGNED,
+            centroid,
+            founding_centroid: centroid,
+            founding_population_centroid: centroid,
+            founded_step: 0,
+            founder_generation: 0.0,
+            founder_members: 1,
+            founder_population: 1,
+            promotion_streak: STABILITY_RUNS,
+            promotion_drift: 0.0,
+            promotion_spread: 0.0,
+            entry_generation_advance: PROBATION_ENTRY_GENERATIONS,
+            probation_generation_advance: PROBATION_TEST_GENERATIONS,
+            extinct_at: None,
+            peak_members: 1,
+            members: 1,
+            empty_runs: 0,
+        });
+        id
+    }
+
+    /// Does this genome fall inside `species`'s founding definition?
+    ///
+    /// Measured against `founding_centroid`, the shape the lineage was promoted
+    /// with, not against the drifting live centroid. A species is a definition
+    /// fixed at promotion; a child that mutates past it is born outside, which
+    /// is where new lineages come from.
+    pub fn admits(&self, species_id: u32, traits: &Traits) -> bool {
+        let Some(sp) = self.get(species_id) else { return false };
+        if !sp.is_alive() { return false; }
+        dist_sq(&signature(traits), &sp.founding_centroid)
+            < MEMBERSHIP_RADIUS * MEMBERSHIP_RADIUS
     }
 
     /// Mutation clamp for an agent about to reproduce: `PROBATION_MUTATION_CLAMP`
@@ -366,17 +443,6 @@ impl SpeciesRegistry {
         self.candidates.iter().filter(|c| c.on_probation()).count()
     }
 
-    /// Nearest live species within `MEMBERSHIP_RADIUS`, else `UNASSIGNED`.
-    fn nearest_species(&self, p: &[f64; SIG_LEN]) -> u32 {
-        let mut best = (MEMBERSHIP_RADIUS * MEMBERSHIP_RADIUS, UNASSIGNED);
-        for s in self.species.iter().filter(|s| s.is_alive()) {
-            let d = dist_sq(p, &s.centroid);
-            if d < best.0 {
-                best = (d, s.id);
-            }
-        }
-        best.1
-    }
 
     /// Recount members, track centroids toward them, and retire the empty.
     fn update_species(&mut self, points: &[[f64; SIG_LEN]], assignment: &[u32], step: u32) {
@@ -504,13 +570,16 @@ impl SpeciesRegistry {
             .map(|(_, s)| s)
     }
 
+    /// Returns the ids promoted this run, so the caller can seat their founding
+    /// members.
     fn promote_ready(
         &mut self,
         step: u32,
         mean_generation: f32,
         population: u32,
         population_centroid: &[f64; SIG_LEN],
-    ) {
+    ) -> Vec<u32> {
+        let mut founded: Vec<u32> = Vec::new();
         let mut promoted: Vec<usize> = Vec::new();
         for (i, c) in self.candidates.iter().enumerate() {
             // Only a cluster that survived having its mutability taken away is
@@ -581,11 +650,13 @@ impl SpeciesRegistry {
                 empty_runs: 0,
             });
             self.events.push(SpeciesEvent::Promoted { id, name, step, members });
+            founded.push(id);
         }
 
         for &i in promoted.iter().rev() {
             self.candidates.remove(i);
         }
+        founded
     }
 }
 
@@ -757,9 +828,20 @@ mod tests {
         genomes
     }
 
+    /// One registry run against a fresh population. Membership is carried
+    /// between runs now, so the test harness carries it too — a caller that
+    /// starts from an empty assignment every time would be testing a rule the
+    /// sim does not use.
     fn run(reg: &mut SpeciesRegistry, genomes: &[Genome], step: u32) -> Vec<u32> {
+        run_with(reg, genomes, step, &mut Vec::new())
+    }
+
+    fn run_with(
+        reg: &mut SpeciesRegistry, genomes: &[Genome], step: u32, assignment: &mut Vec<u32>,
+    ) -> Vec<u32> {
         let cluster = ClusterState::run(genomes, 6, step, None);
-        reg.update(genomes, &cluster, step)
+        reg.update(genomes, &cluster, step, assignment);
+        assignment.clone()
     }
 
     #[test]
@@ -790,10 +872,13 @@ mod tests {
     #[test]
     fn stable_blobs_promote_once_generations_advance() {
         let mut reg = SpeciesRegistry::new(42);
+        // Membership is carried between runs by the world; the harness carries
+        // it too, or every run would start from an empty roster.
+        let mut assign_reg: Vec<u32> = Vec::new();
         // Hold the population still but advance generations, one per run.
         for r in 0..(STABILITY_RUNS + 3) {
             let genomes = blobs(60, r);
-            run(&mut reg, &genomes, 100 + r * 50);
+            run_with(&mut reg, &genomes,  100 + r * 50, &mut assign_reg);
         }
         assert_eq!(reg.live_count(), 3, "three separated blobs → three species");
         let ids: Vec<u32> = reg.all().iter().map(|s| s.id).collect();
@@ -813,11 +898,14 @@ mod tests {
     #[test]
     fn probation_clamps_its_members_and_nobody_else() {
         let mut reg = SpeciesRegistry::new(42);
+        // Membership is carried between runs by the world; the harness carries
+        // it too, or every run would start from an empty roster.
+        let mut assign_reg: Vec<u32> = Vec::new();
         // Advance to the point where clusters are under test but not yet named.
         let mut r = 0;
         while reg.probation_count() == 0 && r < 40 {
             let genomes = blobs(60, r);
-            run(&mut reg, &genomes, 100 + r * 50);
+            run_with(&mut reg, &genomes,  100 + r * 50, &mut assign_reg);
             if reg.live_count() > 0 {
                 break;
             }
@@ -840,9 +928,12 @@ mod tests {
     #[test]
     fn promoted_species_are_named_and_names_are_unique() {
         let mut reg = SpeciesRegistry::new(42);
+        // Membership is carried between runs by the world; the harness carries
+        // it too, or every run would start from an empty roster.
+        let mut assign_reg: Vec<u32> = Vec::new();
         for r in 0..(STABILITY_RUNS + 12) {
             let genomes = blobs(60, r);
-            run(&mut reg, &genomes, 100 + r * 50);
+            run_with(&mut reg, &genomes,  100 + r * 50, &mut assign_reg);
         }
         assert!(reg.live_count() > 0);
         let names: Vec<String> = reg.all().iter().map(|s| s.name.full()).collect();
@@ -859,13 +950,22 @@ mod tests {
     #[test]
     fn names_replay_identically_for_a_seed() {
         let mut a = SpeciesRegistry::new(7);
+        // Membership is carried between runs by the world; the harness carries
+        // it too, or every run would start from an empty roster.
+        let mut assign_a: Vec<u32> = Vec::new();
         let mut b = SpeciesRegistry::new(7);
+        // Membership is carried between runs by the world; the harness carries
+        // it too, or every run would start from an empty roster.
+        let mut assign_b: Vec<u32> = Vec::new();
         let mut c = SpeciesRegistry::new(8);
+        // Membership is carried between runs by the world; the harness carries
+        // it too, or every run would start from an empty roster.
+        let mut assign_c: Vec<u32> = Vec::new();
         for r in 0..(STABILITY_RUNS + 12) {
             let genomes = blobs(60, r);
-            run(&mut a, &genomes, 100 + r * 50);
-            run(&mut b, &genomes, 100 + r * 50);
-            run(&mut c, &genomes, 100 + r * 50);
+            run_with(&mut a, &genomes,  100 + r * 50, &mut assign_a);
+            run_with(&mut b, &genomes,  100 + r * 50, &mut assign_b);
+            run_with(&mut c, &genomes,  100 + r * 50, &mut assign_c);
         }
         let names = |reg: &SpeciesRegistry| -> Vec<String> {
             reg.all().iter().map(|s| s.name.full()).collect()
@@ -952,6 +1052,9 @@ mod tests {
         let landing = scout.all().first().expect("expected a promotion").founding_centroid;
 
         let mut reg = SpeciesRegistry::new(42);
+        // Membership is carried between runs by the world; the harness carries
+        // it too, or every run would start from an empty roster.
+        let mut assign_reg: Vec<u32> = Vec::new();
         // Far enough that the planted lineage does not simply absorb the members
         // (MEMBERSHIP_RADIUS), close enough to still be kin (GENUS_RADIUS).
         let mut planted_at = landing;
@@ -959,7 +1062,7 @@ mod tests {
         planted(&mut reg, 900, planted_at, "Kinara");
         for r in 0..(STABILITY_RUNS + 40) {
             let genomes = blobs(60, r);
-            run(&mut reg, &genomes, 100 + r * 50);
+            run_with(&mut reg, &genomes,  100 + r * 50, &mut assign_reg);
             if reg.all().iter().any(|s| s.id != 900) { break; }
         }
 
@@ -1016,10 +1119,13 @@ mod tests {
     #[test]
     fn probation_precedes_every_promotion() {
         let mut reg = SpeciesRegistry::new(42);
+        // Membership is carried between runs by the world; the harness carries
+        // it too, or every run would start from an empty roster.
+        let mut assign_reg: Vec<u32> = Vec::new();
         let mut saw_probation = false;
         for r in 0..(STABILITY_RUNS + 12) {
             let genomes = blobs(60, r);
-            run(&mut reg, &genomes, 100 + r * 50);
+            run_with(&mut reg, &genomes,  100 + r * 50, &mut assign_reg);
             for ev in reg.drain_events() {
                 match ev {
                     SpeciesEvent::ProbationStarted { .. } => saw_probation = true,
@@ -1037,11 +1143,14 @@ mod tests {
     #[test]
     fn no_promotion_without_generation_advance() {
         let mut reg = SpeciesRegistry::new(42);
+        // Membership is carried between runs by the world; the harness carries
+        // it too, or every run would start from an empty roster.
+        let mut assign_reg: Vec<u32> = Vec::new();
         // Identical populations, frozen at generation 0: perfectly stable
         // clusters, but nothing was ever inherited, so nothing is a species.
         for r in 0..(STABILITY_RUNS + 5) {
             let genomes = blobs(60, 0);
-            run(&mut reg, &genomes, 100 + r * 50);
+            run_with(&mut reg, &genomes,  100 + r * 50, &mut assign_reg);
         }
         assert_eq!(reg.live_count(), 0);
     }
@@ -1049,6 +1158,9 @@ mod tests {
     #[test]
     fn drifting_blobs_never_promote() {
         let mut reg = SpeciesRegistry::new(42);
+        // Membership is carried between runs by the world; the harness carries
+        // it too, or every run would start from an empty roster.
+        let mut assign_reg: Vec<u32> = Vec::new();
         for r in 0..(STABILITY_RUNS + 5) {
             let mut genomes = blobs(60, r);
             // One tight blob walking steadily across trait space. Offsets are
@@ -1061,44 +1173,59 @@ mod tests {
                 t.attack = 0.5 + 0.03 * step;       //                0.040
                 t.vision = 0.5 + 0.02 * step;       //                0.036
             }
-            run(&mut reg, &genomes, 100 + r * 50);
+            run_with(&mut reg, &genomes,  100 + r * 50, &mut assign_reg);
         }
         assert_eq!(reg.live_count(), 0, "a moving cluster is not a lineage");
     }
 
     #[test]
-    fn members_assign_to_nearest_species_and_outliers_stay_unassigned() {
+    fn founding_members_are_seated_once_and_outliers_are_not() {
         let mut reg = SpeciesRegistry::new(42);
+        // Membership is carried between runs by the world; the harness carries
+        // it too, or every run would start from an empty roster.
+        let mut assign_reg: Vec<u32> = Vec::new();
         for r in 0..(STABILITY_RUNS + 3) {
             let genomes = blobs(60, r);
-            run(&mut reg, &genomes, 100 + r * 50);
+            run_with(&mut reg, &genomes,  100 + r * 50, &mut assign_reg);
         }
         assert_eq!(reg.live_count(), 3);
 
+        // The population that was there at promotion is seated in it. Membership
+        // is not re-measured after that — an agent joins at promotion or is born
+        // in, and nothing else moves it.
+        let assigned = assign_reg.iter().filter(|&&a| a != UNASSIGNED).count();
+        assert!(assigned > 50, "founding members were not seated: {}", assigned);
+
+        // An outlier that was never near any of them stays out, permanently.
         let mut genomes = blobs(60, 20);
-        // One agent parked at a corner of trait space belongs to nobody.
         let t = &mut genomes[0].traits;
         t.vision = 0.5; t.speed = 0.5; t.metabolism = 1.05;
         t.reproduction_cost = 1.50; t.attack = 1.25; t.defense = 0.5; t.aggression = 0.0;
-
-        let assignment = run(&mut reg, &genomes, 1000);
-        assert_eq!(assignment[0], UNASSIGNED);
-        let assigned = assignment.iter().filter(|&&a| a != UNASSIGNED).count();
-        assert!(assigned > 50, "the rest still belong somewhere: {}", assigned);
+        t.intelligence = 0.5; t.immunity = 0.0;
+        let mut fresh: Vec<u32> = Vec::new();
+        let assignment = run_with(&mut reg, &genomes, 1000, &mut fresh);
+        assert_eq!(assignment[0], UNASSIGNED, "an outlier was seated anyway");
     }
 
     #[test]
     fn extinction_is_recorded_and_ids_are_never_reused() {
         let mut reg = SpeciesRegistry::new(42);
+        // Membership is carried between runs by the world; the harness carries
+        // it too, or every run would start from an empty roster.
+        let mut assign_reg: Vec<u32> = Vec::new();
         for r in 0..(STABILITY_RUNS + 3) {
             let genomes = blobs(60, r);
-            run(&mut reg, &genomes, 100 + r * 50);
+            run_with(&mut reg, &genomes,  100 + r * 50, &mut assign_reg);
         }
         let founded = reg.live_count();
         assert_eq!(founded, 3);
         let max_id = reg.all().iter().map(|s| s.id).max().unwrap();
 
-        // Replace the population with agents far from every species centroid.
+        // Every member dies and a different population takes the pond. Under
+        // carried membership that is what extinction *is*: nobody is re-measured
+        // out of a species, they simply stop existing. The world drops an
+        // agent's assignment entry with the agent; here the whole vector goes.
+        assign_reg.clear();
         for r in 0..EXTINCTION_RUNS + 1 {
             let mut genomes = blobs(60, 20 + r);
             for g in genomes.iter_mut() {
@@ -1107,16 +1234,17 @@ mod tests {
                 t.reproduction_cost = 0.75; t.attack = 0.5; t.defense = 1.07;
                 t.aggression = 1.05;
             }
-            run(&mut reg, &genomes, 1000 + r * 50);
+            run_with(&mut reg, &genomes,  1000 + r * 50, &mut assign_reg);
         }
         assert_eq!(reg.live_count(), 0, "abandoned species go extinct");
         assert_eq!(reg.all().len(), 3, "extinct species stay in the record");
         assert!(reg.all().iter().all(|s| s.extinct_at.is_some()));
 
         // Bring the original blobs back: convergent, so new ids, not a revival.
+        assign_reg.clear();
         for r in 0..(STABILITY_RUNS + 3) {
             let genomes = blobs(60, 40 + r);
-            run(&mut reg, &genomes, 2000 + r * 50);
+            run_with(&mut reg, &genomes,  2000 + r * 50, &mut assign_reg);
         }
         assert!(reg.live_count() > 0, "the old shape re-promotes");
         assert!(
@@ -1128,6 +1256,9 @@ mod tests {
     #[test]
     fn live_species_never_exceed_the_cap() {
         let mut reg = SpeciesRegistry::new(42);
+        // Membership is carried between runs by the world; the harness carries
+        // it too, or every run would start from an empty roster.
+        let mut assign_reg: Vec<u32> = Vec::new();
         for r in 0..40u32 {
             let mut rng = ChaCha8Rng::seed_from_u64(r as u64);
             let genomes: Vec<Genome> = (0..200)
@@ -1137,7 +1268,7 @@ mod tests {
                     g
                 })
                 .collect();
-            run(&mut reg, &genomes, 100 + r * 50);
+            run_with(&mut reg, &genomes,  100 + r * 50, &mut assign_reg);
             assert!(reg.live_count() <= MAX_SPECIES, "cap breached: {}", reg.live_count());
         }
     }
@@ -1157,6 +1288,8 @@ mod tests {
     fn empty_population_is_handled() {
         let mut reg = SpeciesRegistry::new(42);
         let cluster = ClusterState::run(&[], 6, 50, None);
-        assert!(reg.update(&[], &cluster, 50).is_empty());
+        let mut assignment = Vec::new();
+        reg.update(&[], &cluster, 50, &mut assignment);
+        assert!(assignment.is_empty());
     }
 }

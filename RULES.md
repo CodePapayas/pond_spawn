@@ -449,17 +449,31 @@ Promotion is therefore an experiment, not an observation: a shape still riding
 mutation toward a fit, or one k-means merely happened to bracket, loses its
 share once frozen and never promotes.
 
-**Offspring are born into their parent's species.** Membership is still
-recomputed from scratch on the next species tick, so a child that inherited a
-lineage it has already drifted out of loses it then — but it is never born
-lineage-less. A newborn carries its parent's genome; filing it as unassigned for
-up to 50 steps described the scheduler, not the animal, and became visible once
-species carried a hue and a body shape.
+**Membership is decided once and held for life.** There are exactly two ways
+into a species:
 
-**Membership** is by nearest species centroid within `MEMBERSHIP_RADIUS`, not by
-k-means label — so a species keeps its identity when k-means reshuffles, splits,
-or merges its slots, and an agent can drift out of its species. Agents outside
-every radius are unassigned (species id 0).
+1. **Birth.** A child is measured against its parent's species *definition* —
+   `founding_centroid` within `MEMBERSHIP_RADIUS` — once, at birth, after
+   mutation. Inside, it inherits the lineage; outside, it is born unassigned.
+2. **Founding.** At promotion, the unassigned agents inside the new species'
+   definition are seated in it. That is the only time an existing agent joins.
+
+Nothing else moves an agent between species. Leaving happens by dying, or by the
+species going extinct and releasing its members.
+
+**Why not by proximity.** Membership used to be re-measured every cluster tick
+as "nearest live centroid within the radius" — but `Species::centroid` tracks
+the member mean at `CENTROID_TRACKING` per run, so an agent could lose its
+species without changing at all: the lineage drifted off it, or a neighbouring
+one drifted onto it. Genome and brain weights are fixed at birth and evolution
+happens only through reproduction; membership had no business being the one
+heritable thing that was continuously re-measured against the neighbours.
+
+**What this buys.** A species is a definition fixed at promotion, and mutation is
+the only thing that can put a child outside it. As a lineage drifts, more of its
+offspring are born outside its own definition; those accumulate as unassigned,
+cluster, and are promoted as the next species. Speciation by budding, rather than
+by an accounting rule.
 
 **Drift and extinction.** A species centroid tracks its members at `0.05` per
 run. Zero members for 2 consecutive runs sets `extinct_at`; the record is kept
