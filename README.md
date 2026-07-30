@@ -64,7 +64,7 @@ Click on any agent and view their genome and neural network to see how an agent 
 ## Features
 *************************
 
-- **Evolving neural-network agents** — feedforward brain (`5→12→12→12→8`,
+- **Evolving neural-network agents** — feedforward brain (`7→12→12→12→8`,
   512 weights) per agent, weights inherited and mutated on reproduction. No
   backprop; evolution is the optimizer.
 - **Continuous-space physics** — agents steer via seek/wander/separate forces
