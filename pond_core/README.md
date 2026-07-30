@@ -31,7 +31,7 @@ cargo run --bin run --release --features native -- [grid] [pop] [steps] [seed]
 ```
 src/
   biome.rs    BiomeTile — fertility, food, movement_speed, visibility
-  brain.rs    Hand-rolled 5→12→12→12→8 MLP, 488 weights, ReLU, sigmoid output gates
+  brain.rs    Hand-rolled 7→12→12→12→8 MLP, 512 weights, ReLU, sigmoid output gates
   genome.rs   Genome + Traits (9 trait fields), mutation, effective_mutation_rate
   morphology.rs MorphParams — maps genome traits → normalized [0,1] shape knobs for the renderer
   memory.rs   AgentMemory — 10-action ring buffer, success detection, mutation suppression
@@ -149,7 +149,7 @@ Body segments follow a size envelope (narrow head → widest mid-body → taperi
 |-------|---------------|-------------|
 | **Legend** (right, `L` toggles, on by default) | Cluster color swatches with live per-cluster counts, shape→trait glyph key, tile-color key | client-side tally + static key |
 | **Average genome** (right, under legend) | Population mean of each of the 9 traits as bars normalized to trait bounds, with sparkline history; dominant traits highlighted | `trait_means()`, `trait_bounds()` |
-| **Inspector** (left, click an agent) | Selected agent's live brain: 5→12→12→12→8 node activations (brightness = magnitude), input/output labels, sigmoid gate bars, energy/age/traits | `inspect_agent(id)` — a pure traced forward pass, no sim mutation |
+| **Inspector** (left, click an agent) | Selected agent's live brain: 7→12→12→12→8 node activations (brightness = magnitude), input/output labels, sigmoid gate bars, energy/age/traits | `inspect_agent(id)` — a pure traced forward pass, no sim mutation |
 | **God mode** (top right, checkbox) | Comet (click-to-place blast), salt (spreading kill ring), sweep clean (wipe animation that empties the pond), ultra predator (pale-white articulated triangle chains that cull the pond back into its ±10% capacity band, reinforcing while it keeps climbing, then swim off), and immortality with a performance warning | `smite_radius`, `smite_band`, `smite_all`, `summon_predator`, `predators_state`, `set_immortal` |
 | **Automatic predators** (HUD button) | Enables/disables grid-scaled automatic triangle ecology; disabling sends automatic residents away without affecting god-mode summons | `set_automatic_predators`, `automatic_predators_enabled` |
 | **Setup** (centre, `N` toggles, open on load) | Grid size, starting population, and seed — the three arguments `World::new` takes. Starting a run rebuilds the world and clears every per-run cache | `new WasmWorld(grid, pop, seed)` |
@@ -235,7 +235,7 @@ and `pond_web/inspector.js` (legend + inspector).
 Currently `OUT_FLEE` (output index 3) is dormant — no threat inputs exist and the flee force is never computed.
 
 **What's needed:**
-- Add two new NN inputs: `threat_dist_norm` (distance to nearest high-aggression agent / vision_radius) and `threat_angle_norm` (angle to that agent relative to velocity, in [−1, 1]). This expands the input vector from 5 → 7 and changes the MLP to `7→12→12→12→8` (new weight count: 604).
+- Add two new NN inputs: `threat_dist_norm` (distance to nearest high-aggression agent / vision_radius) and `threat_angle_norm` (angle to that agent relative to velocity, in [−1, 1]). This expands the input vector from 5 → 7 and changes the MLP to `7→12→12→12→8` (new weight count: 512).
 - In `perceive()`: scan `spatial.agents_near()` for agents where `aggression > threshold` and `genome[other].traits.attack > own_defense`. Emit distance + angle to the nearest qualifying threat.
 - In `integrate_agent()`: wire `outputs[OUT_FLEE]` as a steering force directly opposite the threat direction (flee = push away).
 - Update `brain.rs` (`WEIGHT_COUNT`, layer constants), `genome.rs` (brain weight vec length), and this README's NN contract table.
@@ -278,7 +278,7 @@ Currently reproduction is asexual — one parent mutates its own genome. Two-par
 Delivered as the **inspector panel** (left side) rather than a radial menu:
 click an agent to select it (a drag threshold distinguishes select from stir),
 draw a pulsing ring on its head, and open a panel showing its live brain
-(5→12→12→12→8 node activations + sigmoid gate bars), energy/age, and all 9
+(7→12→12→12→8 node activations + sigmoid gate bars), energy/age, and all 9
 trait values. Backed by the `inspect_agent(id)` WASM export — a pure traced
 forward pass that never mutates sim state.
 

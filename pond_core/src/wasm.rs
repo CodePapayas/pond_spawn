@@ -7,9 +7,28 @@ use crate::world::{World, DT};
 //
 // get_state() returns a flat Float32Array with this layout:
 //
-//   [0..HEADER_LEN]                          — sim-wide header (6 floats)
+//   [0..HEADER_LEN]                          — sim-wide header (HEADER_LEN floats)
 //   [HEADER_LEN .. HEADER_LEN + n*AGENT_STRIDE] — per-agent data (AGENT_STRIDE floats each)
 //   [above + gs*gs*TILE_STRIDE]              — per-tile data (3 floats each)
+
+/// Wire format version. The page checks this against its own constant at boot
+/// and refuses to run on a mismatch — see `schema.rs` for why a silent misread
+/// is the failure mode worth spending an integer to prevent.
+#[wasm_bindgen]
+pub fn schema_version() -> u32 { crate::schema::SCHEMA_VERSION }
+
+/// Brain layer sizes, input first: `[inputs, h0, h1, h2, outputs]`. The
+/// inspector derives its node columns and buffer offsets from this rather than
+/// hardcoding them, so widening the input vector does not silently shift every
+/// index it reads.
+#[wasm_bindgen]
+pub fn brain_layer_sizes() -> Vec<u32> {
+    crate::brain::LAYER_SIZES.iter().map(|&n| n as u32).collect()
+}
+
+/// Number of weights in one genome's brain.
+#[wasm_bindgen]
+pub fn brain_weight_count() -> u32 { crate::brain::WEIGHT_COUNT as u32 }
 
 #[wasm_bindgen]
 pub fn state_header_len() -> u32 { HEADER_LEN as u32 }

@@ -2,12 +2,20 @@
 // agent (from WasmWorld.inspect_agent) as node columns on a small dedicated
 // canvas — completely separate from the main grid canvas.
 //
-// inspect_agent buffer layout (68 floats):
-//   [0..5)   inputs        [5..17)  h0        [17..29) h1
-//   [29..41) h2            [41..49) logits    [49..57) sigmoid gates
-//   [57] energy_norm  [58] age_norm  [59] kills  [60..69) traits
+// inspect_agent buffer layout, in blocks:
+//   [inputs | h0 | h1 | h2 | logits | gates | energy_norm | age_norm | kills |
+//    9 traits]
+//
+// Every offset below is *derived* from the layer sizes the engine reports
+// (brain_layer_sizes), not written down. They used to be literals — buf[57],
+// buf[58], buf[59], slice(49,57), buf[60+i] — and widening the input vector
+// from 5 to 7 would have shifted all of them by two, silently: energy would
+// have read the last logit, and nothing would have thrown.
 
-const INPUT_LABELS = ['energy', 'food dist', 'food angle', 'crowding', 'speed'];
+const INPUT_LABELS = [
+    'energy', 'food dist', 'food angle', 'crowding', 'speed',
+    'threat dist', 'threat angle',
+];
 const OUTPUT_LABELS = ['seek', 'wander', 'separate', 'flee', 'eat', 'reproduce', 'attack', 'sleep'];
 const DORMANT_OUTPUTS = new Set([3, 6]);   // flee/attack: no live mechanic yet
 
@@ -16,12 +24,27 @@ const TRAIT_NAMES = [
     'attack', 'defense', 'aggression',
 ];
 
-const LAYER_SIZES = [5, 12, 12, 12, 8];
 // Columns pushed apart and shifted left on the widened canvas: output labels
 // ("reproduce" is the longest) were running into the right edge.
 const LAYER_X = [62, 104, 142, 180, 214];
 
-export function initInspector() {
+/**
+ * @param {number[]} layerSizes  from brain_layer_sizes(): [inputs, h0, h1, h2, outputs]
+ */
+export function initInspector(layerSizes) {
+    const LAYER_SIZES = layerSizes;
+    // Block offsets into the inspect buffer, derived once.
+    const OFF = {};
+    {
+        let o = 0;
+        for (const [i, size] of LAYER_SIZES.entries()) { OFF[`l${i}`] = o; o += size; }
+        OFF.gates = o;                       // sigmoid gates follow the logits
+        o += LAYER_SIZES[LAYER_SIZES.length - 1];
+        OFF.energy = o++;
+        OFF.age = o++;
+        OFF.kills = o++;
+        OFF.traits = o;
+    }
     const panel = document.getElementById('inspector');
     const swatch = document.getElementById('insp-swatch');
     const idEl = document.getElementById('insp-id');
@@ -42,7 +65,7 @@ export function initInspector() {
             row.className = 'insp-bar-row';
             row.innerHTML =
                 `<span class="trait-name">${TRAIT_NAMES[i]}</span>` +
-                `<span class="trait-val" style="width:auto">${buf[60 + i].toFixed(2)}</span>`;
+                `<span class="trait-val" style="width:auto">${buf[OFF.traits + i].toFixed(2)}</span>`;
             traitsBox.appendChild(row);
         }
     }
@@ -82,11 +105,11 @@ export function initInspector() {
         /** New inspect buffer for the currently shown agent. */
         update(buf, isFirst) {
             statusEl.textContent = '';
-            energyFill.style.width = `${(buf[57] * 100).toFixed(0)}%`;
-            ageFill.style.width = `${(buf[58] * 100).toFixed(0)}%`;
-            killsEl.textContent = `${buf[59] | 0}`;
+            energyFill.style.width = `${(buf[OFF.energy] * 100).toFixed(0)}%`;
+            ageFill.style.width = `${(buf[OFF.age] * 100).toFixed(0)}%`;
+            killsEl.textContent = `${buf[OFF.kills] | 0}`;
             if (isFirst) setTraits(buf);   // traits are immutable per life
-            drawNetwork(ctx, net.width, net.height, buf);
+            drawNetwork(ctx, net.width, net.height, buf, LAYER_SIZES, OFF);
         },
 
         /** `cause` is the human-readable phrase from the sim's death event;
@@ -103,7 +126,7 @@ function nodeY(count, i, H) {
     return count === 1 ? H / 2 : top + (i / (count - 1)) * (bottom - top);
 }
 
-function drawNetwork(ctx, W, H, buf) {
+function drawNetwork(ctx, W, H, buf, LAYER_SIZES, OFF) {
     ctx.clearRect(0, 0, W, H);
     ctx.font = '9px "Courier New", monospace';
 
@@ -115,7 +138,9 @@ function drawNetwork(ctx, W, H, buf) {
         layers.push(buf.slice(off, off + size));
         off += size;
     }
-    layers[4] = buf.slice(49, 57);   // display gates, not raw logits
+    // Display the gates, not the raw logits — same values the sim acts on.
+    layers[LAYER_SIZES.length - 1] =
+        buf.slice(OFF.gates, OFF.gates + LAYER_SIZES[LAYER_SIZES.length - 1]);
 
     for (let l = 0; l < LAYER_SIZES.length; l++) {
         const vals = layers[l];

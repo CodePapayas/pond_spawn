@@ -5,7 +5,7 @@ use rand::{Rng, SeedableRng, seq::SliceRandom};
 use rand_chacha::ChaCha8Rng;
 
 use crate::biome::{BiomeTile, MAX_FOOD_PER_TILE};
-use crate::brain::{forward as brain_forward, forward_traced, sigmoid_outputs};
+use crate::brain::{forward as brain_forward, forward_traced, sigmoid_outputs, INPUT_COUNT};
 use crate::brain_cluster::BrainClusters;
 use crate::cluster::ClusterState;
 use crate::species::SpeciesRegistry;
@@ -602,7 +602,7 @@ pub struct World {
     // Pre-allocated scratch buffers — cleared and reused each step
     scratch_acting: Vec<usize>,
     scratch_dead: Vec<usize>,
-    scratch_perceptions: Vec<[f32; 5]>,
+    scratch_perceptions: Vec<[f32; INPUT_COUNT]>,
     scratch_food_dirs: Vec<(f32, f32)>,  // unit vector to nearest visible food; (0,0) if none
     scratch_outputs: Vec<[f32; 8]>,  // sigmoid-gated brain outputs per acting agent
 }
@@ -778,8 +778,10 @@ impl World {
     /// Debug snapshot of one agent's brain for the inspector panel. Runs a
     /// pure traced forward pass on the agent's current perception — no RNG
     /// consumed, no state mutated, so calling it never perturbs the sim.
-    /// Layout: [5 inputs | 12 h0 | 12 h1 | 12 h2 | 8 logits | 8 sigmoid gates
-    ///          | energy_norm | age_norm | kills | 9 traits] = 69 floats.
+    /// Layout: [7 inputs | 12 h0 | 12 h1 | 12 h2 | 8 logits | 8 sigmoid gates
+    ///          | energy_norm | age_norm | kills | 9 traits] = 71 floats. The JS
+    /// side derives these offsets from `brain_layer_sizes()` rather than
+    /// hardcoding them — see `schema.rs`.
     /// Returns None if the id is not alive.
     pub fn inspect_agent(&self, id: u32) -> Option<Vec<f32>> {
         let idx = self.ids.iter().position(|&i| i == id)?;
@@ -794,7 +796,7 @@ impl World {
         let age_norm = (self.age[idx] as f64 / self.death_age[idx] as f64).clamp(0.0, 1.0) as f32;
         let t = &self.genome[idx].traits;
 
-        let mut out = Vec::with_capacity(69);
+        let mut out = Vec::with_capacity(71);
         out.extend_from_slice(&input);
         out.extend_from_slice(&h0);
         out.extend_from_slice(&h1);
@@ -1650,7 +1652,7 @@ impl World {
 
         // Phase 4: perception → 5-input vector per acting agent
         let acting_len = self.scratch_acting.len();
-        self.scratch_perceptions.resize(acting_len, [0f32; 5]);
+        self.scratch_perceptions.resize(acting_len, [0f32; INPUT_COUNT]);
         self.scratch_food_dirs.resize(acting_len, (0f32, 0f32));
         self.perceive_all();
 
@@ -1861,7 +1863,7 @@ impl World {
     /// Build 5-input perception vector for one agent, plus the unit direction
     /// to the nearest visible food tile ((0,0) if none) so the steering pass
     /// doesn't have to re-scan the same tiles.
-    fn perceive(&self, idx: usize) -> ([f32; 5], (f32, f32)) {
+    fn perceive(&self, idx: usize) -> ([f32; INPUT_COUNT], (f32, f32)) {
         let px = self.pos_x[idx];
         let py = self.pos_y[idx];
         let vx = self.vel_x[idx];
@@ -1891,7 +1893,20 @@ impl World {
         let max_speed = speed_trait * MAX_SPEED;
         let speed_norm = if max_speed > 0.0 { (cur_speed / max_speed).clamp(0.0, 1.0) } else { 0.0 };
 
-        ([energy_norm, food_dist_norm, food_angle_norm, agent_density_norm, speed_norm], food_dir)
+        // [5,6] threat: distance and bearing to the nearest predator this agent
+        // can see. Zero for now — the scan lands with the flee mechanic, and a
+        // widened input vector with nothing in it is the smaller, checkable half
+        // of the change.
+        let threat_dist_norm = 1.0;
+        let threat_angle_norm = 0.0;
+
+        (
+            [
+                energy_norm, food_dist_norm, food_angle_norm, agent_density_norm,
+                speed_norm, threat_dist_norm, threat_angle_norm,
+            ],
+            food_dir,
+        )
     }
 
     fn nearest_food_inputs(
@@ -1968,7 +1983,7 @@ impl World {
     fn integrate_agent(
         &mut self,
         idx: usize,
-        perception: [f32; 5],
+        perception: [f32; INPUT_COUNT],
         food_dir: (f32, f32),
         outputs: [f32; 8],
     ) -> Option<PendingAgent> {
@@ -3084,21 +3099,33 @@ mod tests {
         let pslot = w.slot_of(id).unwrap();
         let prey: Vec<usize> = (0..w.ids.len()).filter(|&i| i != pslot).collect();
 
-        // Symmetrically placed either side of the hunter's course.
+        // Symmetrically placed either side of the hunter's course, and both
+        // inside PREDATOR_COMMIT_RANGE — outside it, commitment is *supposed* to
+        // lapse every tick, so a wider spacing tests nothing. The old fixture
+        // sat them 20 apart and passed on the luck of which way the hunter's
+        // random initial heading pointed.
         w.pos_x[pslot] = 30.0;
         w.pos_y[pslot] = 30.0;
         w.pos_x[prey[0]] = 30.0;
-        w.pos_y[prey[0]] = 10.0;
+        w.pos_y[prey[0]] = 30.0 - PREDATOR_COMMIT_RANGE * 0.5;
         w.pos_x[prey[1]] = 30.0;
-        w.pos_y[prey[1]] = 50.0;
+        w.pos_y[prey[1]] = 30.0 + PREDATOR_COMMIT_RANGE * 0.5;
 
         w.hunt_one(id);
         let first = w.predators[0].target_id;
         assert!(first.is_some(), "hunter picked no target");
+        let mut held = 0;
         for _ in 0..PREDATOR_COMMIT_TICKS - 1 {
             w.hunt_one(id);
+            // Catching and eating the target ends the commitment legitimately —
+            // that is a hunt succeeding, not a hunter dithering. Inside the
+            // commit range a hunter closes 0.95 units a tick, so it will often
+            // reach its prey well before the window is up.
+            if first.map(|t| w.slot_of(t).is_none()).unwrap_or(false) { break; }
             assert_eq!(w.predators[0].target_id, first, "hunter re-picked mid-commitment");
+            held += 1;
         }
+        assert!(held > 0, "commitment did not survive even one tick");
     }
 
 

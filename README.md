@@ -29,7 +29,7 @@ and [`pond_core/README.md`](pond_core/README.md) for the engine + renderer spec.
 
 What the refactor changed at a glance:
 
-- **Engine:** Python + PyTorch → hand-rolled Rust MLP (`5→12→12→12→8`, 488
+- **Engine:** Python + PyTorch → hand-rolled Rust MLP (`7→12→12→12→8`, 512
   weights), SoA `World`, `ChaCha8Rng` determinism, native + WASM targets.
 - **Physics:** discrete tile actions (MOVE/TURN/EAT) → continuous-space
   steering forces (seek/wander/separate) + sigmoid trigger gates
@@ -65,7 +65,7 @@ Click on any agent and view their genome and neural network to see how an agent 
 *************************
 
 - **Evolving neural-network agents** — feedforward brain (`5→12→12→12→8`,
-  488 weights) per agent, weights inherited and mutated on reproduction. No
+  512 weights) per agent, weights inherited and mutated on reproduction. No
   backprop; evolution is the optimizer.
 - **Continuous-space physics** — agents steer via seek/wander/separate forces
   and sigmoid trigger gates (eat/reproduce/sleep) instead of discrete grid

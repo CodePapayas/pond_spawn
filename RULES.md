@@ -359,9 +359,9 @@ decision-making later.
 
 ## Neural Network (Brain)
 
-- Architecture: `5 → 12 → 12 → 12 → 8` (4 linear layers, width 12, 8 outputs)
+- Architecture: `7 → 12 → 12 → 12 → 8` (4 linear layers, width 12, 8 outputs)
 - Activations: ReLU between each linear layer
-- Weights loaded from genome (488 total; hand-rolled MLP in `pond_core/src/brain.rs`)
+- Weights loaded from genome (512 total; hand-rolled MLP in `pond_core/src/brain.rs`)
 
 **Output selection differs between implementations (refactor change):**
 

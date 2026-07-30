@@ -10,6 +10,8 @@ import init, {
     stats_sample_stride,
     trait_bounds,
     tunable_ranges,
+    schema_version,
+    brain_layer_sizes,
 } from '../pond_core/pkg/pond_core.js';
 import { decodeAgent } from './decode.js';
 import { createChain, updateChain } from './chain.js';
@@ -27,6 +29,13 @@ import { initGod } from './god.js';
 import { initInspector } from './inspector.js';
 import { openPhylogeny, refreshPhylogeny } from './phylogeny.js';
 import { closeFloatingPrefix } from './floating.js';
+
+// Wire format this page was written against. The engine reports its own; a
+// mismatch means pond_core/pkg and pond_web were built from different commits,
+// and every flat buffer the page reads would be off by some number of floats —
+// silently, producing plausible wrong numbers rather than an error. See
+// pond_core/src/schema.rs.
+const EXPECTED_SCHEMA = 2;
 
 // ── Sim config ────────────────────────────────────────────────────────────────
 // Set from the setup panel (`N`) and fixed for the life of a run — changing any
@@ -153,6 +162,20 @@ const GENOME_SAMPLE_EVERY = 10;   // sim steps between average-genome samples
 async function boot() {
     await init();
 
+    const engine_schema = schema_version();
+    if (engine_schema !== EXPECTED_SCHEMA) {
+        // Loud, and before anything reads a buffer. A stale pkg/ against a fresh
+        // page reads the right number of floats from the wrong places, which
+        // looks like a simulation bug for as long as it takes to notice.
+        const msg = `schema mismatch: engine reports ${engine_schema}, ` +
+            `this page expects ${EXPECTED_SCHEMA}. Rebuild with ` +
+            `\`wasm-pack build pond_core --target web --features wasm\`.`;
+        document.body.innerHTML =
+            `<pre style="color:#ff69a5;font:13px/1.6 'Courier New',monospace;padding:24px">` +
+            `${msg}</pre>`;
+        throw new Error(msg);
+    }
+
     world = new WasmWorld(GRID, POPULATION, SEED);
     HEADER_LEN  = state_header_len();
     AGENT_STRIDE = state_agent_stride();
@@ -178,7 +201,7 @@ async function boot() {
         gridSize: () => GRID,
         onChange: update_cursor,
     });
-    inspector = initInspector();
+    inspector = initInspector(Array.from(brain_layer_sizes()));
 
     resize();
     layout_right_column();
