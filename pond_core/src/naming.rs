@@ -145,6 +145,46 @@ pub fn generate(
     Name { genus, epithet: epithet(&mut rng, deviation) }
 }
 
+/// Endings that turn a host's name into the name of what it is dying of. Real
+/// pathological suffixes, so the result reads as a diagnosis rather than as
+/// another animal.
+const DISEASE_SUFFIX: [&str; 8] =
+    ["osis", "itis", "aemia", "pestis", "tabes", "rubor", "necrosis", "morbus"];
+/// Nonsense infixes. A disease is not a tidy derivation of its host — it is the
+/// host's name mangled by whoever wrote it on the specimen jar.
+const DISEASE_INFIX: [&str; 8] =
+    ["ul", "andr", "iv", "oxy", "ther", "quil", "amb", "erg"];
+/// Second word: what it does to you.
+const DISEASE_EPITHET: [&str; 10] = [
+    "vexans", "putrida", "livida", "maligna", "spumosa",
+    "carnifex", "sordida", "gravescens", "atrata", "lenta",
+];
+
+/// Name a disease after the species it emerged in.
+///
+/// *Thalura ferox* becomes something like *Thalurulosis vexans*: the host's
+/// genus, a nonsense infix, a pathological ending, and a second word for what
+/// it does. Deterministic from `(disease_id, world_seed)` with a private RNG,
+/// exactly like species naming — drawing from the world's stream would shift
+/// every subsequent simulation draw.
+pub fn disease_name(host_genus: &str, disease_id: u32, world_seed: u64) -> String {
+    let mut rng = ChaCha8Rng::seed_from_u64(
+        world_seed ^ (disease_id as u64).wrapping_mul(0xD1B5_4A32_D192_ED03),
+    );
+
+    // Trim the host genus back to a stem so the suffix lands cleanly: Thalura →
+    // Thalur, Vorixa → Vorix.
+    let stem = {
+        let t = host_genus.trim_end_matches(['a', 'i', 'o', 'u', 'e']);
+        if t.is_empty() { host_genus } else { t }
+    };
+
+    let infix = if rng.gen_bool(0.65) { *DISEASE_INFIX.choose(&mut rng).unwrap() } else { "" };
+    let suffix = DISEASE_SUFFIX.choose(&mut rng).unwrap();
+    let epithet = DISEASE_EPITHET.choose(&mut rng).unwrap();
+    format!("{}{}{} {}", stem, infix, suffix, epithet)
+}
+
 fn genus(rng: &mut ChaCha8Rng) -> String {
     let head = GENUS_HEAD.choose(rng).unwrap();
     let mid = if rng.gen_bool(0.55) { *GENUS_MID.choose(rng).unwrap() } else { "" };
@@ -192,6 +232,18 @@ mod tests {
 
     fn flat() -> [f64; SIG_LEN] {
         [0.0; SIG_LEN]
+    }
+
+    #[test]
+    fn a_disease_is_named_after_its_host() {
+        // Reads as a diagnosis rather than as another animal, and replays.
+        let a = disease_name("Thalura", 1, 42);
+        assert_eq!(a, disease_name("Thalura", 1, 42), "disease names must replay for a seed");
+        assert_ne!(disease_name("Thalura", 2, 42), a, "two diseases, one name");
+        assert!(a.starts_with("Thalur"), "lost the host's stem: {}", a);
+        let (first, second) = a.split_once(' ').expect("expected two words");
+        assert!(!second.is_empty());
+        assert!(DISEASE_SUFFIX.iter().any(|e| first.ends_with(e)), "not pathologised: {}", a);
     }
 
     #[test]

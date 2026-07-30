@@ -1343,11 +1343,15 @@ function reap_stale(chains_map, morph_map, color_map, predator_map, live_ids) {
 
 // Epitaph per cause of death. Codes come from CauseOfDeath::code() in world.rs
 // and must stay in sync with it.
+// Codes mirror CauseOfDeath::code() in world.rs. Both maps were missing 4
+// (Smitten) and fell through to 'unknown'; 5 is Disease.
 const EPITAPH = {
     0: ':/',      // Starvation — in a pond this full? really?
     1: '[RIP]',   // OldAge
     2: 'X_X',     // KilledInCombat
     3: 'X_X',     // EatenAlive
+    4: '*',       // Smitten
+    5: '///',     // Disease
 };
 
 const DEATH_CAUSE = {
@@ -1355,6 +1359,8 @@ const DEATH_CAUSE = {
     1: 'old age',
     2: 'killed in combat',
     3: 'eaten alive',
+    4: 'smitten',
+    5: 'disease',
 };
 
 // Cause by agent id, kept only long enough for the inspector to report it. The

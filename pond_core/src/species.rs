@@ -254,6 +254,10 @@ impl SpeciesRegistry {
         }
     }
 
+    /// The seed this registry names from. Diseases derive their own names from
+    /// it too, so a run's pathogens replay with its species.
+    pub fn world_seed(&self) -> u64 { self.world_seed }
+
     pub fn all(&self) -> &[Species] {
         &self.species
     }

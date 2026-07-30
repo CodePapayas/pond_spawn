@@ -8,6 +8,10 @@ use crate::biome::{BiomeTile, MAX_FOOD_PER_TILE};
 use crate::brain::{forward as brain_forward, forward_traced, sigmoid_outputs, INPUT_COUNT};
 use crate::brain_cluster::BrainClusters;
 use crate::cluster::ClusterState;
+use crate::disease::{
+    Disease, CONTACT_RADIUS, CONTAGION_RANGE, CROSS_SPECIES_JUMP, CROWDING_FULL,
+    DISEASE_CHANCE, SEVERITY_RANGE,
+};
 use crate::species::SpeciesRegistry;
 use crate::genome::{Genome, TRAIT_COUNT};
 use crate::memory::{AgentMemory, SUCCESS_SCALAR};
@@ -542,6 +546,11 @@ pub enum CauseOfDeath {
     /// from the natural causes so the death graph doesn't attribute an act of
     /// god to the ecology.
     Smitten,
+    /// Ran out of energy while infected. Severity is an energy drain, so this
+    /// death is a starvation mechanically — but attributing it to starvation
+    /// would hide every outbreak inside the food economy, which is exactly the
+    /// thing an outbreak is not.
+    Disease,
 }
 
 impl CauseOfDeath {
@@ -554,6 +563,7 @@ impl CauseOfDeath {
             CauseOfDeath::KilledInCombat => 2,
             CauseOfDeath::EatenAlive => 3,
             CauseOfDeath::Smitten => 4,
+            CauseOfDeath::Disease => 5,
         }
     }
 }
@@ -660,6 +670,11 @@ pub struct World {
     /// Promoted lineages and the fossil record. Advanced on the same schedule
     /// as `cluster`, since a species is a judgement about clusters over time.
     pub species: SpeciesRegistry,
+    /// Every pathogen this run has produced, live or burned out. Indexed by
+    /// `id - 1`; id 0 means "healthy" in `infection`.
+    pub diseases: Vec<Disease>,
+    /// Disease id per agent, 0 for healthy. Parallel to the agent arrays.
+    pub infection: Vec<u32>,
     /// Species id per agent, parallel to the agent arrays and refreshed on
     /// cluster runs. Stale between runs in exactly the way `cluster` is —
     /// `swap_remove` reshuffles slots, so consumers index defensively.
@@ -771,6 +786,8 @@ impl World {
             brain_clusters: BrainClusters::new(),
             species: SpeciesRegistry::new(seed),
             species_ids: Vec::new(),
+            diseases: Vec::new(),
+            infection: Vec::new(),
             immortal: false,
             predators: Vec::new(),
             predator_ids: HashSet::new(),
@@ -1884,6 +1901,11 @@ impl World {
             }
         }
 
+        // Phase 6b: contagion. After actions, so this tick's crowding is the
+        // crowding the agents actually chose, and before the reap so a death
+        // this tick is not also a source of infection.
+        self.tick_disease();
+
         // Phase 7: passive combat per tile
         self.resolve_combat_spatial();
 
@@ -1919,6 +1941,17 @@ impl World {
             // run with it enabled steps identically to one without.
             self.species_ids =
                 self.species.update(&self.genome, &self.cluster, self.step_count);
+
+            // A promotion is the only thing that can introduce a pathogen. The
+            // roll lives here rather than in `species.rs` because it needs the
+            // world RNG, and that module is deliberately RNG-free.
+            let promoted: Vec<(u32, String)> = self.species.all().iter()
+                .filter(|s| s.founded_step == self.step_count)
+                .map(|s| (s.id, s.name.genus.clone()))
+                .collect();
+            for (id, genus) in promoted {
+                self.maybe_seed_disease(id, &genus);
+            }
             // Hunters re-read the pond on the same tick the labels are rebuilt.
             self.review_predator_search_images();
         }
@@ -2024,6 +2057,14 @@ impl World {
                 // Armour is mass, and mass is carried every tick.
                 self.energy[i] -=
                     DEFENSE_UPKEEP * armour_margin(self.genome[i].traits.defense) * metabolism;
+                // Being ill costs. Severity is a drain rather than a death roll,
+                // so an outbreak lands on the food economy and takes the
+                // already-marginal first.
+                if self.infection[i] != 0 {
+                    if let Some(d) = self.disease_of(i) {
+                        self.energy[i] -= d.severity * metabolism;
+                    }
+                }
             }
 
             if self.energy[i] <= 0.0 {
@@ -2033,11 +2074,107 @@ impl World {
                     // permanently dying instead of merely starving.
                     self.energy[i] = IMMORTAL_ENERGY_FLOOR;
                 } else {
-                    self.cause_of_death[i] = Some(CauseOfDeath::Starvation);
+                    // An infected agent that runs out is a death from the
+                    // disease, not from the food economy it was pushed into.
+                    self.cause_of_death[i] = Some(if self.infection[i] != 0 {
+                        CauseOfDeath::Disease
+                    } else {
+                        CauseOfDeath::Starvation
+                    });
                     self.lifespans.push(self.age[i]);
                     self.scratch_dead.push(i);
                 }
             }
+        }
+    }
+
+    /// The pathogen an agent is carrying, if any.
+    pub fn disease_of(&self, idx: usize) -> Option<&Disease> {
+        let id = *self.infection.get(idx)?;
+        if id == 0 { return None; }
+        self.diseases.get(id as usize - 1)
+    }
+
+    /// Roll for a pathogen in a newly promoted species, and infect its first
+    /// case.
+    ///
+    /// Flat probability: not weighted by population, species age or dominance.
+    /// A disease more likely to appear in a crowded pond is a density-dependent
+    /// cull wearing a costume, and the point of this mechanic is to be a
+    /// disturbance that arrives on its own schedule.
+    fn maybe_seed_disease(&mut self, species_id: u32, genus: &str) {
+        if !self.rng.gen_bool(DISEASE_CHANCE) { return; }
+
+        let id = self.diseases.len() as u32 + 1;
+        let severity = self.rng.gen_range(SEVERITY_RANGE.0..=SEVERITY_RANGE.1);
+        let contagion = self.rng.gen_range(CONTAGION_RANGE.0..=CONTAGION_RANGE.1);
+        let name = crate::naming::disease_name(genus, id, self.species.world_seed());
+        self.diseases.push(Disease {
+            id, name, origin_species: species_id, severity, contagion,
+            emerged_step: self.step_count, jumped: false,
+        });
+
+        // Patient zero: one member of the species it emerged in. Without a first
+        // case the pathogen exists on paper and never infects anything.
+        let first = (0..self.ids.len()).find(|&i| {
+            self.cause_of_death[i].is_none() && !self.is_predator(i)
+                && self.species_ids.get(i).copied() == Some(species_id)
+        });
+        if let Some(i) = first { self.infection[i] = id; }
+    }
+
+    /// Spread every live infection by contact.
+    ///
+    /// Density-dependent and *locally* so: the chance of catching something is
+    /// set by how many agents are within `CONTACT_RADIUS`, clamped at
+    /// `CROWDING_FULL`. Nothing here reads the total population, which is what
+    /// lets an outbreak overshoot and crash rather than trimming the pond toward
+    /// a setpoint — a lineage that becomes numerous *and* clustered is what
+    /// makes an epidemic, not a lineage that is merely numerous.
+    fn tick_disease(&mut self) {
+        if self.diseases.is_empty() { return; }
+
+        // Collected first: the roll below mutates `infection`, and an agent
+        // infected this tick must not go on to infect others in the same tick —
+        // that would make transmission depend on iteration order.
+        let carriers: Vec<(usize, u32)> = (0..self.ids.len())
+            .filter(|&i| self.infection[i] != 0 && self.cause_of_death[i].is_none())
+            .filter(|&i| !self.is_predator(i))
+            .map(|i| (i, self.infection[i]))
+            .collect();
+        if carriers.is_empty() { return; }
+
+        let mut caught: Vec<(usize, u32)> = Vec::new();
+        let mut jumps: Vec<u32> = Vec::new();
+        for (i, disease_id) in carriers {
+            let Some(d) = self.diseases.get(disease_id as usize - 1) else { continue };
+            let (contagion, origin, jumped) = (d.contagion, d.origin_species, d.jumped);
+            let (px, py) = (self.pos_x[i], self.pos_y[i]);
+            let neighbours = self.spatial.agents_near(px, py, CONTACT_RADIUS);
+
+            let crowd = (neighbours.len() as f64 / CROWDING_FULL).clamp(0.0, 1.0);
+            for &j in &neighbours {
+                if j == i || self.infection[j] != 0 || self.cause_of_death[j].is_some() { continue; }
+                if self.is_predator(j) { continue; }
+                // Once a pathogen has jumped it is nobody's disease in
+                // particular and spreads at full contagion to anything.
+                let host = jumped || self.species_ids.get(j).copied() == Some(origin);
+                if host {
+                    let p = contagion * crowd;
+                    if p > 0.0 && self.rng.gen_bool(p.clamp(0.0, 1.0)) {
+                        caught.push((j, disease_id));
+                    }
+                } else if self.rng.gen_bool(CROSS_SPECIES_JUMP) {
+                    caught.push((j, disease_id));
+                    jumps.push(disease_id);
+                }
+            }
+        }
+        for (j, id) in caught {
+            if self.infection[j] == 0 { self.infection[j] = id; }
+        }
+        for id in jumps {
+            if let Some(d) = self.diseases.get_mut(id as usize - 1) { d.jumped = true; }
         }
     }
 
@@ -2688,6 +2825,10 @@ impl World {
         // Born seeing nothing: dist 1.0 is "no threat in range".
         self.threat_ring.push([[1.0, 0.0, 0.0, 0.0]; THREAT_RING]);
         self.threat_head.push(0);
+        // Born healthy. Vertical transmission is deliberately absent: a disease
+        // that infected every newborn of a lineage would be a property of the
+        // lineage, not an outbreak, and would never crash.
+        self.infection.push(0);
         self.last_outputs.push([0f32; 8]);
         self.last_perception.push([0f32; INPUT_COUNT]);
         self.last_food_dir.push((0.0, 0.0));
@@ -2755,6 +2896,7 @@ impl World {
                 self.decision_cooldown.swap_remove(i);
                 self.threat_ring.swap_remove(i);
                 self.threat_head.swap_remove(i);
+                self.infection.swap_remove(i);
                 self.last_outputs.swap_remove(i);
                 self.last_perception.swap_remove(i);
                 self.last_food_dir.swap_remove(i);
@@ -2783,6 +2925,7 @@ impl World {
                 self.decision_cooldown.pop();
                 self.threat_ring.pop();
                 self.threat_head.pop();
+                self.infection.pop();
                 self.last_outputs.pop();
                 self.last_perception.pop();
                 self.last_food_dir.pop();
@@ -3660,6 +3803,125 @@ mod tests {
         };
         assert!(drain(sharp, hi) > drain(dull, lo),
             "intelligence must cost something, or every pond evolves to maximum");
+    }
+
+    // ── Disease ───────────────────────────────────────────────────────────────
+
+    /// Plant a pathogen directly, so transmission can be tested without waiting
+    /// for a promotion to roll one.
+    fn plant_disease(w: &mut World, severity: f64, contagion: f64, origin: u32) -> u32 {
+        let id = w.diseases.len() as u32 + 1;
+        w.diseases.push(Disease {
+            id, name: format!("Testibus morbus {}", id), origin_species: origin,
+            severity, contagion, emerged_step: w.step_count, jumped: false,
+        });
+        id
+    }
+
+    #[test]
+    fn infection_spreads_by_contact_and_needs_a_carrier() {
+        let mut w = World::new(20, 30, 31);
+        w.set_automatic_predators(false);
+        let id = plant_disease(&mut w, 0.0, 1.0, 0);
+
+        // Everyone piled onto one spot: crowding is maximal, contagion is 1.0.
+        for i in 0..w.ids.len() {
+            w.pos_x[i] = 10.0;
+            w.pos_y[i] = 10.0;
+            w.species_ids[i] = 0;
+        }
+        w.spatial.rebuild(&w.pos_x, &w.pos_y);
+        // No carrier: nothing happens, however crowded.
+        w.tick_disease();
+        assert!(w.infection.iter().all(|&v| v == 0), "infection appeared from nowhere");
+
+        w.infection[0] = id;
+        w.tick_disease();
+        let infected = w.infection.iter().filter(|&&v| v != 0).count();
+        assert!(infected > 1, "a full-contagion carrier in a scrum infected nobody");
+    }
+
+    #[test]
+    fn transmission_is_local_not_population_wide() {
+        // The property that makes this a disturbance rather than a controller:
+        // an outbreak reads local crowding only. Two ponds, same tight cluster,
+        // wildly different totals — the cluster must fare the same in both.
+        let seeded = |n: usize| -> usize {
+            let mut w = World::new(40, n, 8);
+            w.set_automatic_predators(false);
+            let id = plant_disease(&mut w, 0.0, 0.5, 0);
+            for i in 0..w.ids.len() { w.species_ids[i] = 0; }
+            // A tight cluster of eight; everything else is scattered far away.
+            for i in 0..w.ids.len().min(8) {
+                w.pos_x[i] = 5.0 + (i % 3) as f32 * 0.2;
+                w.pos_y[i] = 5.0 + (i / 3) as f32 * 0.2;
+            }
+            for i in 8..w.ids.len() {
+                w.pos_x[i] = 25.0 + (i % 10) as f32;
+                w.pos_y[i] = 25.0 + (i / 10) as f32 % 10.0;
+            }
+            w.spatial.rebuild(&w.pos_x, &w.pos_y);
+            w.infection[0] = id;
+            for _ in 0..3 { w.tick_disease(); }
+            w.infection.iter().take(8).filter(|&&v| v != 0).count()
+        };
+        let small = seeded(20);
+        let large = seeded(200);
+        assert_eq!(small, large,
+            "the same cluster caught differently in a bigger pond — something is \
+             reading total population");
+    }
+
+    #[test]
+    fn a_pathogen_stays_in_its_own_species_until_it_jumps() {
+        let scrum = |jumped: bool| -> usize {
+            let mut w = World::new(20, 60, 12);
+            w.set_automatic_predators(false);
+            let id = plant_disease(&mut w, 0.0, 1.0, 1);
+            w.diseases[0].jumped = jumped;
+            for i in 0..w.ids.len() {
+                w.pos_x[i] = 10.0;
+                w.pos_y[i] = 10.0;
+                w.species_ids[i] = 2;      // nobody is of the origin species
+            }
+            w.spatial.rebuild(&w.pos_x, &w.pos_y);
+            w.infection[0] = id;
+            for _ in 0..40 { w.tick_disease(); }
+            w.infection.iter().filter(|&&v| v != 0).count()
+        };
+
+        // Full contagion, maximal crowding, forty ticks — and it stays put,
+        // because none of these animals are its host.
+        assert_eq!(scrum(false), 1, "a pathogen leaked into another species");
+        // Once it has jumped, the same scrum goes up like tinder.
+        assert!(scrum(true) > 30, "a jumped pathogen should spread to anything");
+    }
+
+    #[test]
+    fn dying_infected_is_recorded_as_disease_not_starvation() {
+        let mut w = World::new(12, 6, 44);
+        w.set_automatic_predators(false);
+        let id = plant_disease(&mut w, 5.0, 0.0, 0);   // brutal, non-contagious
+        w.infection[0] = id;
+        w.energy[0] = 1.0;
+        for _ in 0..5 { w.step(); }
+        assert!(w.death_counts()[CauseOfDeath::Disease.code() as usize] > 0,
+            "an infected agent starved without the outbreak being credited");
+    }
+
+    #[test]
+    fn a_disease_only_ever_arrives_with_a_species() {
+        // Flat chance at promotion is the only origin. No promotions, no
+        // pathogens, however long the pond runs or how crowded it gets.
+        let mut w = World::new(12, 80, 6);
+        for _ in 0..600 { w.step(); }
+        if w.species.all().is_empty() {
+            assert!(w.diseases.is_empty(), "a disease appeared with no species to carry it");
+        }
+        for d in &w.diseases {
+            assert!(w.species.get(d.origin_species).is_some(),
+                "disease {} has no host species", d.name);
+        }
     }
 
     // ── Threat perception and flee ────────────────────────────────────────────
@@ -4577,3 +4839,4 @@ mod predation_selection {
             mean(&eaten), mean(&pond), selection);
     }
 }
+

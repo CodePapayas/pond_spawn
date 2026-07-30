@@ -16,9 +16,9 @@ pub const HISTORY_LEN: usize = 600;
 /// Steps between samples.
 pub const SAMPLE_INTERVAL: u32 = 10;
 /// Death causes tracked, matching `CauseOfDeath::code()`.
-pub const CAUSE_COUNT: usize = 5;
+pub const CAUSE_COUNT: usize = 6;
 /// Floats per sample in the flat export buffer. Must match `StatSample::write_to`.
-pub const SAMPLE_STRIDE: usize = 14;
+pub const SAMPLE_STRIDE: usize = 9 + CAUSE_COUNT;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct StatSample {
@@ -168,11 +168,11 @@ impl StatHistory {
         let mut out = String::from(
             "step,alive,total_food,avg_energy,interval_median_lifespan,age_p10,age_p90,\
              deaths_starvation,deaths_old_age,deaths_combat,deaths_eaten,deaths_smitten,\
-             mean_generation,max_generation\n",
+             deaths_disease,mean_generation,max_generation\n",
         );
         for s in self.iter_chrono() {
             out.push_str(&format!(
-                "{},{},{},{:.4},{:.2},{},{},{},{},{},{},{},{:.3},{}\n",
+                "{},{},{},{:.4},{:.2},{},{},{},{},{},{},{},{},{:.3},{}\n",
                 s.step,
                 s.alive,
                 s.total_food,
@@ -185,6 +185,7 @@ impl StatHistory {
                 s.deaths[2],
                 s.deaths[3],
                 s.deaths[4],
+                s.deaths[5],
                 s.mean_generation,
                 s.max_generation,
             ));
@@ -242,15 +243,18 @@ mod tests {
     #[test]
     fn interval_deaths_difference_cumulative() {
         let mut h = StatHistory::new();
-        assert_eq!(h.interval_deaths([3, 0, 1, 0, 0]), [3, 0, 1, 0, 0]);
-        assert_eq!(h.interval_deaths([5, 2, 1, 0, 4]), [2, 2, 0, 0, 4]);
-        assert_eq!(h.interval_deaths([5, 2, 1, 0, 4]), [0, 0, 0, 0, 0]);
+        assert_eq!(h.interval_deaths([3, 0, 1, 0, 0, 0]), [3, 0, 1, 0, 0, 0]);
+        assert_eq!(h.interval_deaths([5, 2, 1, 0, 4, 1]), [2, 2, 0, 0, 4, 1]);
+        assert_eq!(h.interval_deaths([5, 2, 1, 0, 4, 1]), [0, 0, 0, 0, 0, 0]);
     }
 
     #[test]
     fn interval_deaths_sum_to_cumulative() {
         let mut h = StatHistory::new();
-        let tallies = [[1, 0, 0, 0, 0], [4, 1, 0, 0, 2], [4, 3, 2, 0, 2], [9, 3, 2, 5, 7]];
+        let tallies = [
+            [1, 0, 0, 0, 0, 0], [4, 1, 0, 0, 2, 0],
+            [4, 3, 2, 0, 2, 1], [9, 3, 2, 5, 7, 3],
+        ];
         let mut summed = [0u32; CAUSE_COUNT];
         for t in tallies {
             let interval = h.interval_deaths(t);

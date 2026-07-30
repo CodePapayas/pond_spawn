@@ -90,6 +90,18 @@ fn main() {
     for (name, m) in TRAIT_NAMES.iter().zip(means.iter()) {
         println!("  {:<12} {:.3}", name, m);
     }
+    if !world.diseases.is_empty() {
+        println!("\ndiseases:");
+        for d in &world.diseases {
+            let carriers = world.infection.iter().filter(|&&v| v == d.id).count();
+            println!(
+                "  {:<28} from species {:<3} emerged {:<6} severity {:.3} contagion {:.3}{}  carriers {}",
+                d.name, d.origin_species, d.emerged_step, d.severity, d.contagion,
+                if d.jumped { " JUMPED" } else { "       " }, carriers,
+            );
+        }
+    }
+
     if !world.predators.is_empty() {
         println!("\npredators:");
         for p in &world.predators {

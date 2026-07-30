@@ -546,6 +546,44 @@ combat is the larger mortality source and still rewards armour directly. It
 removes predation's contribution to the ratchet, no more. See DEVLOG for the
 measured five-seed comparison.
 
+## Disease
+
+A disease arrives with a lineage, not with a population level.
+
+**Origin.** On each promotion, a flat `DISEASE_CHANCE` (0.30) that the new
+species turns out to be carrying something. Not weighted by population, species
+age or dominance — a pathogen more likely to appear in a crowded pond is a
+density-dependent cull wearing a costume. The rate is read per *promotion*, and
+a 3000-step run sees about two, so this puts a disease in roughly half of runs.
+
+**Severity** (0.02–0.14) is an energy drain per tick, scaled by metabolism.
+Death is attributed to `Disease` rather than `Starvation`, so an outbreak is not
+hidden inside the food economy — but mechanically it *is* starvation, which is
+the point: an outbreak lands on the economy and takes the already-marginal first.
+
+**Contagion** (0.02–0.30) is a per-contact chance at full local crowding.
+Transmission reads neighbours within `CONTACT_RADIUS` (1.1 tiles), scaled by
+crowding up to `CROWDING_FULL` (6) and clamped. **Nothing scales with total
+population.** An outbreak in a tight cluster behaves identically in a pond of 40
+and a pond of 400, which is what lets it overshoot and crash instead of trimming
+toward a setpoint.
+
+**No recovery.** An infected agent carries it until it dies, and offspring are
+born clean. Recovery would be a restoring force and would turn every outbreak
+into a damped oscillation converging on equilibrium.
+
+**Cross-species jump** at `CROSS_SPECIES_JUMP` (1.5e-6) per contact, once per
+pathogen: after it jumps it belongs to nobody and spreads at full contagion to
+anything. The rate is small because the roll fires against every susceptible
+neighbour of every carrier every tick — an outbreak makes on the order of 100k
+rolls, and at 4e-5 two of the first three measured outbreaks jumped, which is
+not the rare event this is meant to be.
+
+**Names** are the host's genus mangled — stem, a nonsense infix, a pathological
+ending, and a word for what it does: *Thalorandrpestis spumosa*, *Surnecrosis
+maligna*, *Lumoxytabes vexans*. Deterministic from `(disease_id, world_seed)`
+with a private RNG, like species names.
+
 ### Names
 
 Promoted species get a binomial, generated deterministically from

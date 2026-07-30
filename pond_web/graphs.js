@@ -34,6 +34,7 @@ const DEATH_SERIES = [
     { label: 'combat',  color: 'rgba(120, 160, 255, 0.95)' },
     { label: 'eaten',   color: 'rgba(190, 120, 255, 0.95)' },
     { label: 'smitten', color: 'rgba(255, 60, 220, 0.95)' },
+    { label: 'disease', color: 'rgba(180, 230, 60, 0.95)' },
 ];
 
 // `log: true` panels autoscale logarithmically. Counts in this sim are spiky by
