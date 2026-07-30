@@ -9,15 +9,16 @@
 // Pure DOM + Canvas2D, redrawn on a 1 Hz timer rather than per frame — a
 // population curve has nothing to say at 60 fps, and five canvases per frame is
 // exactly the cost the renderer cannot absorb.
+import { openFloating, updateFloating } from './floating.js';
 
 // Field offsets within one sample; mirrors StatSample::write_to in stats.rs.
 const S_STEP = 0;
 const S_ALIVE = 1;
 const S_FOOD = 2;
 const S_ENERGY = 3;
-const S_MEDIAN_LIFESPAN = 4;
-const S_MIN_AGE = 5;
-const S_MAX_AGE = 6;
+const S_MEDIAN_LIFESPAN = 4;   // per-interval, not cumulative
+const S_AGE_P10 = 5;
+const S_AGE_P90 = 6;
 const S_DEATHS = 7;   // 5 consecutive; see DEATH_SERIES for the order
 
 const PANEL_H = 74;
@@ -39,7 +40,7 @@ const PANELS = [
     { key: 'pop',      title: 'population', color: 'rgba(60, 220, 180, 0.95)' },
     { key: 'food',     title: 'food',       color: 'rgba(110, 230, 120, 0.95)' },
     { key: 'energy',   title: 'avg energy', color: 'rgba(255, 185, 0, 0.95)' },
-    { key: 'lifespan', title: 'lifespan',   color: 'rgba(190, 150, 255, 0.95)' },
+    { key: 'lifespan', title: 'lifespan p10\u2013p90', color: 'rgba(190, 150, 255, 0.95)' },
     { key: 'deaths',   title: 'deaths / interval', color: null },
 ];
 
@@ -57,6 +58,7 @@ export function initGraphs(root) {
 
     const ctxs = {};
     const canvases = [];
+    let expanded = null;
     for (const p of PANELS) {
         const cell = document.createElement('div');
         cell.className = 'graph-cell';
@@ -71,6 +73,21 @@ export function initGraphs(root) {
         strip.appendChild(cell);
         ctxs[p.key] = cv.getContext('2d');
         canvases.push(cv);
+        cell.addEventListener('mouseenter', e => {
+            if (!expanded) return;
+            showHover(p, e);
+        });
+        cell.addEventListener('mousemove', positionHover);
+        cell.addEventListener('mouseleave', hideHover);
+        cell.addEventListener('click', () => {
+            if (!expanded) return;
+            openFloating({
+                key: `graph:${p.key}`,
+                title: p.title,
+                className: 'graph-window',
+                render: body => renderExpanded(body, p, expanded),
+            });
+        });
     }
 
     const footer = document.createElement('div');
@@ -135,13 +152,14 @@ export function initGraphs(root) {
         const food = series(S_FOOD);
         const energy = series(S_ENERGY);
         const median = series(S_MEDIAN_LIFESPAN);
-        const minAge = series(S_MIN_AGE);
-        const maxAge = series(S_MAX_AGE);
+        const ageP10 = series(S_AGE_P10);
+        const ageP90 = series(S_AGE_P90);
         const deaths = DEATH_SERIES.map((_, d) => {
             const out = new Array(n);
             for (let i = 0; i < n; i++) out[i] = at(i, S_DEATHS + d);
             return out;
         });
+        expanded = { alive, food, energy, median, ageP10, ageP90, deaths, n };
 
         drawLine(ctxs.pop, [{ data: alive, color: PANELS[0].color }]);
         drawLine(ctxs.food, [{ data: food, color: PANELS[1].color }]);
@@ -149,9 +167,12 @@ export function initGraphs(root) {
         drawLine(
             ctxs.lifespan,
             [{ data: median, color: PANELS[3].color }],
-            { band: { lo: minAge, hi: maxAge, color: 'rgba(190, 150, 255, 0.16)' } },
+            { band: { lo: ageP10, hi: ageP90, color: 'rgba(190, 150, 255, 0.16)' } },
         );
         drawLine(ctxs.deaths, deaths.map((data, i) => ({ data, color: DEATH_SERIES[i].color })));
+        for (const p of PANELS) {
+            updateFloating(`graph:${p.key}`, body => renderExpanded(body, p, expanded));
+        }
 
         setCur('pop', alive[n - 1]);
         setCur('food', food[n - 1]);
@@ -179,6 +200,68 @@ export function initGraphs(root) {
     }
 
     return update;
+
+    function showHover(panel, event) {
+        let hover = document.getElementById('graph-hover-preview');
+        if (!hover) {
+            hover = document.createElement('div');
+            hover.id = 'graph-hover-preview';
+            document.body.appendChild(hover);
+        }
+        hover.style.display = 'block';
+        renderExpanded(hover, panel, expanded, true);
+        positionHover(event);
+    }
+
+    function positionHover(event) {
+        const hover = document.getElementById('graph-hover-preview');
+        if (!hover || hover.style.display === 'none') return;
+        const gap = 14;
+        const w = hover.offsetWidth, h = hover.offsetHeight;
+        hover.style.left = `${Math.max(8, Math.min(event.clientX + gap, window.innerWidth - w - 8))}px`;
+        hover.style.top = `${Math.max(8, Math.min(event.clientY - h - gap, window.innerHeight - h - 8))}px`;
+    }
+
+    function hideHover() {
+        const hover = document.getElementById('graph-hover-preview');
+        if (hover) hover.style.display = 'none';
+    }
+}
+
+function renderExpanded(body, panel, data, transient = false) {
+    if (!data) return;
+    body.innerHTML = transient ? `<div class="float-title">${panel.title}</div>` : '';
+    const cv = document.createElement('canvas');
+    cv.className = 'graph-expanded';
+    body.appendChild(cv);
+    const dpr = window.devicePixelRatio || 1;
+    const width = Math.min(520, Math.max(300, window.innerWidth - 48));
+    const height = 220;
+    cv.style.width = `${width}px`;
+    cv.style.height = `${height}px`;
+    cv.width = Math.round(width * dpr);
+    cv.height = Math.round(height * dpr);
+    const c = cv.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    if (panel.key === 'pop') drawLine(c, [{ data: data.alive, color: panel.color }]);
+    if (panel.key === 'food') drawLine(c, [{ data: data.food, color: panel.color }]);
+    if (panel.key === 'energy') drawLine(c, [{ data: data.energy, color: panel.color }]);
+    if (panel.key === 'lifespan') {
+        drawLine(c, [{ data: data.median, color: panel.color }], {
+            band: { lo: data.ageP10, hi: data.ageP90, color: 'rgba(190, 150, 255, 0.16)' },
+        });
+    }
+    if (panel.key === 'deaths') {
+        drawLine(c, data.deaths.map((series, i) => ({
+            data: series, color: DEATH_SERIES[i].color,
+        })));
+        const key = document.createElement('div');
+        key.className = 'graph-expanded-key';
+        key.innerHTML = DEATH_SERIES
+            .map(d => `<span style="color:${d.color}">${d.label}</span>`).join(' · ');
+        body.appendChild(key);
+    }
 }
 
 /**

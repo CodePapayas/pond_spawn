@@ -49,8 +49,13 @@ export function initGod(root, api) {
         `<span class="god-hint">click the pond — spreads outward, killing</span></div>` +
         `<div class="god-row"><button id="god-sweep" class="god-tool">sweep clean</button>` +
         `<span class="god-hint">wipes the pond empty</span></div>` +
-        `<div class="god-row"><button id="god-predator" class="god-tool">ultra predator</button>` +
+        `<div class="god-row"><button id="god-octagon" class="god-tool">octagon</button>` +
         `<span class="god-hint">unkillable hunter — eats until 1/5 remain, then leaves</span></div>` +
+        `<div class="god-row"><button id="god-rectangle" class="god-tool">R E C T A N G L E</button>` +
+        `<span class="god-hint">rotating sweep — kills everything its edges touch, ` +
+        `however armoured</span></div>` +
+        `<div class="god-row"><button id="god-dismiss" class="god-tool">dismiss hunters</button>` +
+        `<span class="god-hint">calls off every summoned hunt — they swim away</span></div>` +
         `<div class="god-row"><label class="god-toggle">` +
         `<input type="checkbox" id="god-immortal"> immortality</label></div>` +
         `<div class="god-hint">nothing dies of age, hunger or combat</div>` +
@@ -61,6 +66,7 @@ export function initGod(root, api) {
     const enable_box = el('god-enable');
     const body = el('god-body');
     const immortal_box = el('god-immortal');
+    const dismiss_btn = el('god-dismiss');
     const warn = el('god-warn');
     const tool_buttons = {
         [TOOLS.COMET]: el('god-comet'),
@@ -75,7 +81,18 @@ export function initGod(root, api) {
             arm(null);
             if (immortal) set_immortal(false);
         }
+        // Deliberately does *not* dismiss the hunters already in the water:
+        // closing the panel to watch what a rectangle does should not delete it.
+        refresh_dismiss();
         api.onChange?.();
+    }
+
+    /** Label the off switch with what it would act on, and disable it when there
+     *  is no summoned hunt to call off. */
+    function refresh_dismiss() {
+        const n = api.summonedHunterCount();
+        dismiss_btn.textContent = n > 0 ? `dismiss hunters (${n})` : 'dismiss hunters';
+        dismiss_btn.disabled = n === 0;
     }
 
     function arm(tool) {
@@ -101,8 +118,22 @@ export function initGod(root, api) {
     tool_buttons[TOOLS.COMET].addEventListener('click', () => arm(TOOLS.COMET));
     tool_buttons[TOOLS.SALT].addEventListener('click', () => arm(TOOLS.SALT));
     el('god-sweep').addEventListener('click', () => start_sweep());
-    el('god-predator').addEventListener('click', () => {
-        if (enabled) api.summonPredator();
+    // The triangles are the pond's own answer to overpopulation and arrive on
+    // their own. These two never do — they exist only here.
+    el('god-octagon').addEventListener('click', () => {
+        if (enabled) api.summonOctagon();
+        refresh_dismiss();
+    });
+    el('god-rectangle').addEventListener('click', () => {
+        if (enabled) api.summonRectangle();
+        refresh_dismiss();
+    });
+    // The off switch for the two shapes above. The HUD's `predators` toggle is
+    // the ecology's, and deliberately spares player summons, so without this an
+    // octagon or a rectangle could only be waited out.
+    el('god-dismiss').addEventListener('click', () => {
+        if (enabled) api.dismissHunters();
+        refresh_dismiss();
     });
     immortal_box.addEventListener('change', () => set_immortal(immortal_box.checked));
 
@@ -135,6 +166,10 @@ export function initGod(root, api) {
      *  god does not need the pond's permission. */
     function update(now_sec) {
         const grid = api.gridSize();
+
+        // Hunters leave on their own when their cull is done, so the off switch
+        // has to track the pond rather than only the player's clicks.
+        if (enabled) refresh_dismiss();
 
         for (let i = comets.length - 1; i >= 0; i--) {
             if (now_sec - comets[i].t0 > COMET_SEC) comets.splice(i, 1);

@@ -29,6 +29,8 @@ export function initInspector() {
     const energyFill = document.getElementById('insp-energy');
     const ageFill = document.getElementById('insp-age');
     const traitsBox = document.getElementById('insp-traits');
+    const speciesNameEl = document.getElementById('insp-species-name');
+    const speciesDistEl = document.getElementById('insp-species-dist');
     const killsEl = document.getElementById('insp-kills');
     const net = document.getElementById('insp-net');
     const ctx = net.getContext('2d');
@@ -54,6 +56,27 @@ export function initInspector() {
             swatch.style.background = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
             swatch.style.color = swatch.style.background;
             traitsBox.innerHTML = '';
+        },
+
+        /** Species membership for this agent.
+         *
+         *  The distance is the interesting number: it is how you watch an
+         *  individual drift out of its species before the population does. A
+         *  member sitting near the membership radius is on its way out. */
+        setSpecies(name, distance, radius) {
+            if (!name) {
+                speciesNameEl.textContent = 'unassigned';
+                speciesNameEl.style.opacity = '0.5';
+                speciesDistEl.textContent = '';
+                return;
+            }
+            speciesNameEl.textContent = name;
+            speciesNameEl.style.opacity = '0.9';
+            const frac = radius > 0 ? distance / radius : 0;
+            speciesDistEl.textContent = `${distance.toFixed(2)} from centroid`;
+            // Fades toward the edge of membership, so "about to drift out" reads
+            // without having to know what the radius is.
+            speciesDistEl.style.opacity = (0.35 + Math.min(1, frac) * 0.5).toFixed(2);
         },
 
         /** New inspect buffer for the currently shown agent. */

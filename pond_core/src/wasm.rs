@@ -19,12 +19,33 @@ pub fn state_agent_stride() -> u32 { AGENT_STRIDE as u32 }
 pub fn state_tile_stride() -> u32 { TILE_STRIDE as u32 }
 #[wasm_bindgen]
 pub fn state_death_stride() -> u32 { DEATH_STRIDE as u32 }
+#[wasm_bindgen]
+pub fn species_stride() -> u32 { SPECIES_STRIDE as u32 }
+#[wasm_bindgen]
+pub fn predator_state_stride() -> u32 { PREDATOR_STATE_STRIDE as u32 }
+/// Distance at which an agent stops belonging to a species. The inspector shows
+/// an agent's distance from its centroid against this, so drifting out is
+/// visible before it happens.
+#[wasm_bindgen]
+pub fn species_membership_radius() -> f32 { crate::species::MEMBERSHIP_RADIUS as f32 }
 
 const HEADER_LEN: usize = 7;
-const AGENT_STRIDE: usize = 18;
+const AGENT_STRIDE: usize = 19;
 const TILE_STRIDE: usize = 3;
 /// Death record: [id, x, y, cause]. Appended after the tile block.
 const DEATH_STRIDE: usize = 4;
+/// Species row:
+/// [id, members, peak, founded, extinct,
+///  founder_members, founder_population, founder_generation,
+///  promotion_streak, promotion_drift, promotion_spread,
+///  entry_generation_advance, probation_generation_advance,
+///  7 × current centroid, 7 × founding centroid,
+///  7 × founding population centroid].
+/// `extinct` is -1 while alive — a Float32Array has no null, and f32 represents
+/// integers exactly far past any step count.
+const SPECIES_STRIDE: usize = 13 + crate::species::SIG_LEN * 3;
+/// Predator record: [id, leaving, tier, angle, reach].
+const PREDATOR_STATE_STRIDE: usize = 5;
 
 // Header field indices
 const H_AGENT_COUNT: usize = 0;
@@ -55,6 +76,10 @@ const A_MORPH_ORNAMENT: usize = 14;
 const A_MORPH_EYE_SIZE: usize = 15;
 const A_MORPH_PULSE_RATE: usize = 16;
 const A_MORPH_BELLY: usize = 17;
+/// Promoted species id, 0 = unassigned. `A_GENOME_CLUSTER` stays alongside it:
+/// the raw k-means label is how you tell "speciation is wrong" apart from
+/// "clustering is wrong" when something looks off.
+const A_SPECIES: usize = 18;
 
 // Tile field offsets within stride
 const T_FOOD: usize = 0;
@@ -100,6 +125,103 @@ impl WasmWorld {
         if self.accumulator > TICK_MS * 3.0 {
             self.accumulator = TICK_MS * 3.0;
         }
+    }
+
+    /// All species, live and extinct, in promotion order. Flat, same convention
+    /// as `get_state()`: `len / species_stride()` rows.
+    ///
+    /// Extinct species are included — the roster is the fossil record, not a
+    /// live set, and the UI wants to show what died.
+    pub fn species_list(&self) -> Vec<f32> {
+        let all = self.inner.species.all();
+        let mut buf = Vec::with_capacity(all.len() * SPECIES_STRIDE);
+        for s in all {
+            buf.push(s.id as f32);
+            buf.push(s.members as f32);
+            buf.push(s.peak_members as f32);
+            buf.push(s.founded_step as f32);
+            buf.push(s.extinct_at.map(|e| e as f32).unwrap_or(-1.0));
+            buf.push(s.founder_members as f32);
+            buf.push(s.founder_population as f32);
+            buf.push(s.founder_generation);
+            buf.push(s.promotion_streak as f32);
+            buf.push(s.promotion_drift as f32);
+            buf.push(s.promotion_spread as f32);
+            buf.push(s.entry_generation_advance);
+            buf.push(s.probation_generation_advance);
+            for v in s.centroid {
+                buf.push(v as f32);
+            }
+            for v in s.founding_centroid {
+                buf.push(v as f32);
+            }
+            for v in s.founding_population_centroid {
+                buf.push(v as f32);
+            }
+        }
+        buf
+    }
+
+    /// Morphology knobs for species row `index`, so the legend swatch can be
+    /// drawn through the same trait→colour path the bodies use.
+    ///
+    /// The centroid is a seven-dimensional signature, not a full genome, so the
+    /// two locked traits are filled with the midpoint of their bounds — they are
+    /// excluded from the signature precisely because they carry no selected
+    /// information, and they do not vary within a lineage anyway.
+    pub fn species_morph(&self, index: usize) -> Vec<f32> {
+        let all = self.inner.species.all();
+        let Some(s) = all.get(index) else { return Vec::new() };
+
+        let bounds = crate::genome::Traits::BOUNDS;
+        let mut raw = [0f64; 9];
+        for (t, slot) in raw.iter_mut().enumerate() {
+            let (lo, hi) = bounds[t];
+            *slot = (lo + hi) / 2.0;
+        }
+        for (i, &t) in crate::species::SIGNATURE_DIMS.iter().enumerate() {
+            let (lo, hi) = bounds[t];
+            raw[t] = lo + s.centroid[i] * (hi - lo);
+        }
+
+        let traits = crate::genome::Traits {
+            vision: raw[0], speed: raw[1], metabolism: raw[2],
+            energy_capacity: raw[3], mutation_rate: raw[4],
+            reproduction_cost: raw[5], attack: raw[6], defense: raw[7],
+            aggression: raw[8],
+        };
+        let m = MorphParams::from_traits(&traits);
+        vec![m.pointiness, m.elongation, m.bulk, m.ornament, m.eye_size, m.pulse_rate, m.belly]
+    }
+
+    /// Species names, parallel to `species_list()` rows.
+    ///
+    /// A separate call because strings cannot ride a `Float32Array` — the one
+    /// place the flat-buffer convention cannot stretch. Each call allocates a JS
+    /// string per species, so call it when the roster changes or on the panel's
+    /// timer, never per frame.
+    pub fn species_names(&self) -> Vec<JsValue> {
+        self.inner
+            .species
+            .all()
+            .iter()
+            .map(|s| JsValue::from_str(&s.name.full()))
+            .collect()
+    }
+
+    /// Turn behavioural (brain-weight) clustering on or off.
+    ///
+    /// Off by default. It is by a wide margin the most expensive work in the
+    /// simulation, and nothing needs it unless the archetype view is open — so
+    /// the renderer enables it on toggle and disables it on dismiss. Visitors
+    /// who never open the panel pay nothing.
+    pub fn set_brain_clustering(&mut self, on: bool) {
+        self.inner.brain_clusters.set_enabled(on);
+    }
+
+    /// Whether behavioural clustering is currently running.
+    pub fn brain_clustering_enabled(&self) -> bool {
+        self.inner.brain_clusters.enabled()
     }
 
     /// Renderer interpolation factor in [0, 1). Blend prev_pos and pos by this.
@@ -157,7 +279,8 @@ impl WasmWorld {
             buf[off + A_VEL_X] = w.vel_x[i];
             buf[off + A_VEL_Y] = w.vel_y[i];
             buf[off + A_GENOME_CLUSTER] = cluster.genome_cluster_ids.get(i).copied().unwrap_or(0) as f32;
-            buf[off + A_BRAIN_CLUSTER] = cluster.brain_cluster_ids.get(i).copied().unwrap_or(0) as f32;
+            buf[off + A_BRAIN_CLUSTER] =
+                self.inner.brain_clusters.labels.get(i).copied().unwrap_or(0) as f32;
             buf[off + A_AGE_NORM] = (w.age[i] as f64 / w.death_age[i] as f64).clamp(0.0, 1.0) as f32;
             buf[off + A_ID] = w.ids[i] as f32;
 
@@ -169,6 +292,7 @@ impl WasmWorld {
             buf[off + A_MORPH_EYE_SIZE] = morph.eye_size;
             buf[off + A_MORPH_PULSE_RATE] = morph.pulse_rate;
             buf[off + A_MORPH_BELLY] = morph.belly;
+            buf[off + A_SPECIES] = w.species_ids.get(i).copied().unwrap_or(0) as f32;
         }
 
         let tile_base = agent_base + n * AGENT_STRIDE;
@@ -307,9 +431,51 @@ impl WasmWorld {
         self.inner.immortal
     }
 
+    /// Toggle only the automatic triangle ecology. Player god-mode summons are
+    /// independent and continue their current hunt.
+    pub fn set_automatic_predators(&mut self, on: bool) {
+        self.inner.set_automatic_predators(on);
+    }
+
+    pub fn automatic_predators_enabled(&self) -> bool {
+        self.inner.automatic_predators_enabled
+    }
+
     /// Summon an ultra predator: immortal, unkillable, eats until only
     /// `PREDATOR_MANUAL_FRAC` of the current population is left, then leaves.
     /// Returns its agent id, or `u32::MAX` if the pack is already at its cap.
+    /// Summon the octagon — a hit-and-run hunter that culls to a fifth of the
+    /// pond and leaves. Player power: no automatic rule ever fields this tier.
+    pub fn summon_octagon(&mut self) -> u32 {
+        let target = (self.inner.prey_count() as f64
+            * crate::world::PREDATOR_MANUAL_FRAC).round() as usize;
+        self.inner
+            .summon_predator_pack_tier(target, false, crate::world::PREDATOR_MANUAL_TIER)
+            .unwrap_or(0)
+    }
+
+    /// Summon the rectangle — the sweep. Same contract as the octagon, more
+    /// final: it kills everything its edges touch as it rotates.
+    pub fn summon_rectangle(&mut self) -> u32 {
+        let target = (self.inner.prey_count() as f64
+            * crate::world::PREDATOR_MANUAL_FRAC).round() as usize;
+        self.inner
+            .summon_predator_pack_tier(target, false, crate::world::PREDATOR_RECTANGLE_TIER)
+            .unwrap_or(0)
+    }
+
+    /// Call off every player-summoned hunt: the octagon and the rectangle swim
+    /// off, over their usual departure. Returns how many were dismissed. The
+    /// automatic triangle ecology has its own switch and is untouched.
+    pub fn dismiss_summoned_predators(&mut self) -> u32 {
+        self.inner.dismiss_summoned_predators() as u32
+    }
+
+    /// Player-summoned hunters in the pond that have not been dismissed yet.
+    pub fn summoned_predator_count(&self) -> u32 {
+        self.inner.summoned_predator_count() as u32
+    }
+
     pub fn summon_predator(&mut self) -> u32 {
         self.inner
             .summon_predator(crate::world::PREDATOR_MANUAL_FRAC, false)
@@ -319,11 +485,17 @@ impl WasmWorld {
     /// Every predator in the pond, as [id, leaving] pairs — same flat-buffer
     /// convention as `get_state()`. `leaving` is 1 while a predator is swimming
     /// off, so the renderer can fade it.
+    /// Per predator: `[id, leaving, tier, angle, reach]`. The renderer draws a
+    /// different shape per tier, and needs the sweep angle and reach to draw the
+    /// top two at the size they actually kill at.
     pub fn predators_state(&self) -> Vec<f32> {
-        let mut out = Vec::with_capacity(self.inner.predators.len() * 2);
+        let mut out = Vec::with_capacity(self.inner.predators.len() * PREDATOR_STATE_STRIDE);
         for p in &self.inner.predators {
             out.push(p.id as f32);
             out.push(if p.leaving.is_some() { 1.0 } else { 0.0 });
+            out.push(p.tier as f32);
+            out.push(p.angle);
+            out.push(crate::world::tier_bite(p.tier));
         }
         out
     }
@@ -415,17 +587,10 @@ pub fn stats_sample_interval() -> u32 { crate::stats::SAMPLE_INTERVAL }
 /// genome.rs::Traits::generate ranges.
 #[wasm_bindgen]
 pub fn trait_bounds() -> Vec<f32> {
-    vec![
-        0.5, 1.05,   // vision
-        0.5, 1.0,    // speed
-        0.5, 1.05,   // metabolism
-        0.95, 1.05,  // energy_capacity (locked)
-        0.01, 0.25,  // mutation_rate (locked)
-        0.75, 1.50,  // reproduction_cost
-        0.5, 1.25,   // attack
-        0.5, 1.07,   // defense
-        0.0, 1.05,   // aggression
-    ]
+    crate::genome::Traits::BOUNDS
+        .iter()
+        .flat_map(|&(lo, hi)| [lo as f32, hi as f32])
+        .collect()
 }
 
 #[wasm_bindgen]

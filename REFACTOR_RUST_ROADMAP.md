@@ -18,7 +18,9 @@ Next goal: **speciation** — see [PLAN_SPECIATION.md](PLAN_SPECIATION.md).
 | Pass A | Continuous-space physics — steering forces, velocity integration, SpatialHashGrid | ✅ Done |
 | Pass B | Canvas2D renderer — kinematic body chains, additive glow, stir + pour interaction | ✅ Done |
 | 6 | Interactive GUI — morphology, cluster UI, full HUD, camera, setup, god mode, stat graphs | ✅ Done |
-| 7 | **Speciation — stable clusters lock in as named species** (see [PLAN_SPECIATION.md](PLAN_SPECIATION.md)) | 🔜 **Next** |
+| 7 | **Speciation — stable clusters lock in as named species** (see [PLAN_SPECIATION.md](PLAN_SPECIATION.md)) | 🚧 In progress |
+| 8 | **Brain cluster view + clustering perf** — behavioural archetypes made visible, and the 50-step frame hitch removed (see [PLAN_BRAIN_VIEW.md](PLAN_BRAIN_VIEW.md)) | 🔜 Next |
+| 9 | Publish to itch.io | ⬜ Not started |
 
 ---
 
@@ -62,7 +64,23 @@ All simulation logic. WASM-safe, deterministic, seeded with `ChaCha8Rng`.
 
 **Test suite:** 31 tests across all modules. All pass.
 
-**Release perf (12×12, 100 agents):** ~0.003 ms/step baseline, ~4 ms at clustering ticks (every 50 steps). 500 steps in 16 ms total.
+**Release perf (12×12, 100 agents):** ~0.003 ms/step baseline. 500 steps in 16 ms total.
+
+**Clustering ticks are the exception, and they are expensive** — measured native
+release, so the browser is slower still:
+
+| population | cluster tick | genome k-means | brain k-means |
+|---|---|---|---|
+| 100 | 14.2 ms | 0.04 ms | 14.1 ms |
+| 300 | 41.2 ms | 0.12 ms | 41.1 ms |
+| 600 | 82.2 ms | 0.25 ms | 82.3 ms |
+| 1200 | 164 ms | 0.61 ms | 156 ms |
+
+Brain k-means is ~99.5% of it: `n × k(24) × 488 dims × 15 iters`, re-initialized
+from scratch with k-means++ every run (42% of the cost is init alone). At a
+16.7 ms frame budget this is a visible stutter every 50 steps even at 100
+agents. Phase 8 addresses it. *(An earlier revision of this file claimed ~4 ms
+here; that was never measured and is wrong by 3–4×.)*
 
 ### WASM package (`pond_core/pkg/`)
 
@@ -186,6 +204,7 @@ A fluid, physics-backed web UI that feels alive. The grid should look like a liv
 |------|-------|
 | [PLAN_GRAPHS.md](PLAN_GRAPHS.md) | Live stat graphs, parity w/ the old Python matplotlib panel |
 | [PLAN_SPECIATION.md](PLAN_SPECIATION.md) | Stable genome clusters lock in as named species |
+| [PLAN_BRAIN_VIEW.md](PLAN_BRAIN_VIEW.md) | Behavioural archetypes made visible; clustering perf |
 
 ---
 
@@ -202,7 +221,7 @@ native code and the wasm layer is a thin wrapper.
 
 ---
 
-## TODO — Phase 8: Publish to itch.io
+## TODO — Phase 9: Publish to itch.io
 
 The browser build is the deliverable. Once Phase 6 (web GUI) is solid:
 

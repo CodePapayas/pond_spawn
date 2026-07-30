@@ -79,9 +79,17 @@ Click on any agent and view their genome and neural network to see how an agent 
   the lifespan band and per-cause deaths over the last ~6000 steps, sampled
   engine-side so nothing is lost to a dropped frame.
 - **God mode** — comet, spreading salt, a sweep that empties the pond,
-  immortality, and an **ultra predator**: an unkillable apex hunter that culls
-  the pond back inside its capacity band and then swims off. It also summons
-  itself, in packs, when the population outgrows what the renderer can draw.
+  immortality, and **ultra predators**: unkillable apex hunters that cull the
+  pond back inside its capacity band and then swim off. Three shapes — the grey
+  triangles are the ecology's own and summon themselves in packs when the
+  population outgrows what the renderer can draw; the red octagon and the
+  rainbow rectangle are player powers, and the rectangle kills everything its
+  edges touch however armoured. Any summoned hunt can be called off with
+  `dismiss hunters`, and the triangle ecology has its own on/off toggle.
+- **Predators that swim** — a hunter's velocity is state, not a per-tick
+  recomputation: it commits to one animal, banks onto it at a bounded turn rate,
+  eases its speed between hunting, patrolling and leaving, and patrols on a
+  smoothed wander when there is nothing left to cull.
 - **Live lineage clustering** — dual k-means (genome traits + brain weights)
   re-fits every 50 steps; cluster colors smoothly fade between reassignments
   (Oklch interpolation) instead of flashing, and cluster labels stay stable

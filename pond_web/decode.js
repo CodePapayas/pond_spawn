@@ -20,6 +20,7 @@ const A_MORPH_ORNAMENT = 14;
 const A_MORPH_EYE_SIZE = 15;
 const A_MORPH_PULSE_RATE = 16;
 const A_MORPH_BELLY = 17;
+const A_SPECIES = 18;
 
 /** Decode agent slot `i` (0-based) out of `buf`, given the stride layout. */
 export function decodeAgent(buf, i, headerLen, agentStride) {
@@ -36,6 +37,7 @@ export function decodeAgent(buf, i, headerLen, agentStride) {
         brainCluster: buf[off + A_BRAIN_CLUSTER] | 0,
         ageNorm: buf[off + A_AGE_NORM],
         id: buf[off + A_ID] | 0,
+        species: buf[off + A_SPECIES] | 0,
         morph: {
             pointiness: buf[off + A_MORPH_POINTINESS],
             elongation: buf[off + A_MORPH_ELONGATION],

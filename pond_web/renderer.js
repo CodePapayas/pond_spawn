@@ -1,4 +1,7 @@
 import init, {
+    species_stride,
+    predator_state_stride,
+    species_membership_radius,
     WasmWorld,
     state_header_len,
     state_agent_stride,
@@ -13,10 +16,15 @@ import { deriveMorphology } from './morphology.js';
 import { drawBody } from './body.js';
 import { oklchToRgb, genomeColor } from './color.js';
 import { initLegend, initGenomePanel } from './panels.js';
+import { initArchetypes, archetypeColor, summarize } from './archetypes.js';
+import {
+    parseSpecies, initSpeciesPanel, initToast, centroidDistance,
+} from './species.js';
 import { initGraphs } from './graphs.js';
 import { initSetup } from './setup.js';
 import { initGod } from './god.js';
 import { initInspector } from './inspector.js';
+import { closeFloatingPrefix } from './floating.js';
 
 // ── Sim config ────────────────────────────────────────────────────────────────
 // Set from the setup panel (`N`) and fixed for the life of a run — changing any
@@ -51,8 +59,19 @@ let predators = new Map();
 // segments, drawn as triangles that pivot on their links.
 let predator_chains = new Map();
 const PREDATOR_SEGS = 3;
-const PREDATOR_SEG_DIST = 0.42;      // world units between segments
-const PREDATOR_RGB = [0xE4, 0xEA, 0xFF];
+// World units between segments. A hunter's head covers 0.95 world units per sim
+// tick — six times what a prey animal does — so at the old 0.42 the followers sat
+// permanently pinned at the far end of their slack and were dragged in hard
+// increments instead of trailing. Longer links than a frame's worth of travel
+// give the body something to trail with.
+const PREDATOR_SEG_DIST = 0.9;
+// Per-frame easing on each segment's drawn angle. The link constraint is
+// geometric and reacts instantly; a hunter that changes heading should look like
+// it is swinging its body round, not like the triangles teleported.
+const PREDATOR_ANGLE_EASE = 0.18;
+// Must match RECTANGLE_HALF_WIDTH in world.rs — the top tier is drawn at the
+// exact extent it kills at.
+const RECT_HALF_WIDTH_WORLD = 0.85;
 
 let chains = new Map();   // agent id → kinematic chain (stable across swap_remove reshuffles)
 let morph_cache = new Map(); // agent id → derived MorphSpec (traits are immutable per life)
@@ -67,6 +86,7 @@ let paused = false;
 // the run you start is never the run you were looking at.
 let sim_running = false;
 let speed_mult = 1;       // applied to delta_ms before world.update()
+let automatic_predators = true;
 let frame_delta = 16.67;  // last frame's raw delta, for color smoothing
 
 let stir_active = false;
@@ -95,6 +115,27 @@ let selected_pos = null;  // interpolated world pos of selected agent this frame
 // Panels
 let update_legend_counts, update_genome_panel, update_graphs, setup, god;
 let graphs_visible = false;
+let debug_visible = false;
+let archetypes_visible = false;
+// Overlay colour per agent id while the archetype view is open. Cleared on
+// toggle-off so bodies revert to their genome palette (color.js) — this is an
+// overlay, not a replacement for the trait-derived colour.
+const arch_color = new Map();
+let update_archetypes = null;
+let arch_timer = null;
+let update_species = null;
+let announce = null;
+let species_rows = [];
+// Ids already announced, so a toast fires once per promotion rather than on
+// every refresh that still sees the species.
+const announced = new Set();
+const extinct_announced = new Set();
+// Set once the first roster has been seen, so restoring a run in progress does
+// not toast every species that already exists.
+let species_seeded = false;
+let current_step = 0;
+let last_species_tick = -1;
+let TRAIT_BOUNDS = null;
 let hint_visible = true;   // the bottom-left controls key; H or ? toggles it
 let graphs_timer = null;
 const GRAPH_REFRESH_MS = 1000;   // series only gain a sample every 10 sim steps
@@ -124,7 +165,10 @@ async function boot() {
         smiteBand: (x0, x1) => world.smite_band(x0, x1),
         smiteAll: () => world.smite_all(),
         setImmortal: on => world.set_immortal(on),
-        summonPredator: () => world.summon_predator(),
+        summonOctagon: () => world.summon_octagon(),
+        summonRectangle: () => world.summon_rectangle(),
+        dismissHunters: () => world.dismiss_summoned_predators(),
+        summonedHunterCount: () => world.summoned_predator_count(),
         gridSize: () => GRID,
         onChange: update_cursor,
     });
@@ -143,6 +187,7 @@ async function boot() {
     canvas.addEventListener('wheel', on_wheel, { passive: false });
 
     document.getElementById('h-newrun').addEventListener('click', open_setup);
+    document.getElementById('h-predators').addEventListener('click', toggle_predators);
     document.getElementById('hint').addEventListener('click', toggle_hint);
     document.getElementById('hint-show').addEventListener('click', toggle_hint);
 
@@ -157,7 +202,8 @@ async function boot() {
  *  a restart would stack a second copy of every row underneath the first. */
 function build_panels() {
     for (const id of ['legend-colors', 'legend-shapes', 'legend-tiles',
-                      'legend-deaths', 'legend-composite', 'genome-panel', 'graphs']) {
+                      'legend-deaths', 'legend-composite', 'genome-panel', 'graphs',
+                      'species-list']) {
         document.getElementById(id).innerHTML = '';
     }
     update_legend_counts = initLegend(
@@ -165,8 +211,16 @@ function build_panels() {
         i => world.cluster_composite(i),
         trait_bounds(),
     );
-    update_genome_panel = initGenomePanel(trait_bounds());
+    TRAIT_BOUNDS = trait_bounds();
+    update_genome_panel = initGenomePanel(TRAIT_BOUNDS);
     update_graphs = initGraphs(document.getElementById('graphs'));
+    update_archetypes = initArchetypes(document.getElementById('archetypes'));
+    update_species = initSpeciesPanel(
+        document.getElementById('species-list'),
+        s => species_swatch(s),
+        TRAIT_BOUNDS,
+    );
+    announce = initToast(document.getElementById('species-toast'));
 }
 
 /** Tear down the current run and build a new World from the given parameters.
@@ -183,6 +237,7 @@ function restart({ grid, population, seed }) {
     // A fresh world starts mortal, so an immortality toggle left on has to be
     // re-applied or the panel would claim a state the sim isn't in.
     if (god.isImmortal()) world.set_immortal(true);
+    world.set_automatic_predators(automatic_predators);
 
     chains.clear();
     predator_chains.clear();
@@ -194,6 +249,11 @@ function restart({ grid, population, seed }) {
     deselect();
     last_panel_step = -1;
     last_genome_step = -1;
+    species_rows = [];
+    announced.clear();
+    extinct_announced.clear();
+    species_seeded = false;
+    last_species_tick = -1;
 
     build_panels();
     if (graphs_visible) refresh_graphs();
@@ -223,19 +283,19 @@ function open_setup() {
 /** Empty every panel that describes a run. They are rebuilt by build_panels()
  *  when the next run starts. */
 function clear_run_panels() {
-    if (graphs_visible) {
-        graphs_visible = false;
+    graphs_visible = false;
+    if (graphs_timer) {
         clearInterval(graphs_timer);
         graphs_timer = null;
-        document.getElementById('graphs').style.display = 'none';
-        document.getElementById('hint').style.display = hint_visible ? 'block' : 'none';
-        document.getElementById('hint-show').style.display = hint_visible ? 'none' : 'block';
     }
+    document.getElementById('graphs').style.display = 'none';
+    closeFloatingPrefix('graph:');
+    closeFloatingPrefix('species:');
     for (const id of ['legend-colors', 'legend-shapes', 'legend-tiles',
-                      'legend-deaths', 'legend-composite', 'genome-panel', 'graphs']) {
+                      'legend-deaths', 'legend-composite', 'genome-panel', 'graphs',
+                      'species-list']) {
         document.getElementById(id).innerHTML = '';
     }
-    document.getElementById('predator-banner').style.display = 'none';
     update_legend_counts = null;
     update_genome_panel = null;
     update_graphs = null;
@@ -254,6 +314,14 @@ function update_cursor() {
     if (!canvas) return;
     canvas.style.cursor = god?.armedTool() ? 'crosshair' : 'default';
     layout_right_column();
+}
+
+function toggle_predators() {
+    automatic_predators = !automatic_predators;
+    world.set_automatic_predators(automatic_predators);
+    const button = document.getElementById('h-predators');
+    button.textContent = `predators: ${automatic_predators ? 'on' : 'off'}`;
+    button.classList.toggle('off', !automatic_predators);
 }
 
 /** Stack the legend under the god panel. The god panel grows and shrinks as it
@@ -422,12 +490,21 @@ function on_mouseup(e) {
         pan_drag = null;
         return;
     }
-    if (mouse_down && !stir_active && e && e.type === 'mouseup'
-        && in_pond(e.clientX, e.clientY)) {
-        select_agent_at(screen_to_world(e.clientX, e.clientY));
+    // Input state is released in `finally`, before anything downstream can
+    // fail. Selecting used to run first: a throw inside it left `mouse_down`
+    // set, and the next mousemove latched `stir_active` on with no way to
+    // clear it — a click that failed turned the stir on permanently.
+    try {
+        if (mouse_down && !stir_active && e && e.type === 'mouseup'
+            && in_pond(e.clientX, e.clientY)) {
+            select_agent_at(screen_to_world(e.clientX, e.clientY));
+        }
+    } catch (err) {
+        report_frame_error(err);
+    } finally {
+        mouse_down = null;
+        stir_active = false;
     }
-    mouse_down = null;
-    stir_active = false;
 }
 
 function on_wheel(e) {
@@ -475,6 +552,20 @@ function refresh_inspector() {
         return;
     }
     inspector.update(buf, insp_first);
+
+    // Species membership. Traits sit at [60..69) in the inspect buffer.
+    const agent = last_agents.find(a => a.id === selected_id);
+    const sp = agent ? species_rows.find(s => s.id === agent.species) : null;
+    if (sp) {
+        const traits = Array.from(buf.slice(60, 69));
+        inspector.setSpecies(
+            sp.name,
+            centroidDistance(traits, sp.centroid, TRAIT_BOUNDS),
+            species_membership_radius(),
+        );
+    } else {
+        inspector.setSpecies(null);
+    }
     insp_first = false;
 }
 
@@ -498,6 +589,8 @@ function on_key(e) {
         panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
     }
     if (e.key === 'g' || e.key === 'G') toggle_graphs();
+    if (e.key === 'b' || e.key === 'B') toggle_archetypes();
+    if (e.key === 'd' || e.key === 'D') toggle_debug();
     if (e.key === 'h' || e.key === 'H' || e.key === '?') toggle_hint();
     if (e.key === 'n' || e.key === 'N') open_setup();
 
@@ -529,10 +622,10 @@ function on_key(e) {
 }
 
 /** Show/hide the controls key. It is the largest permanent thing on screen and
- *  the first thing you stop needing, so it hides — but never while the graph
- *  panel occupies the same band, which already hides it. */
+ *  the first thing you stop needing, so it hides. It is a narrow left-hand
+ *  column now rather than a bottom strip, so it no longer competes with the
+ *  graph panel for the same band. */
 function toggle_hint() {
-    if (graphs_visible) return;
     hint_visible = !hint_visible;
     document.getElementById('hint').style.display = hint_visible ? 'block' : 'none';
     document.getElementById('hint-show').style.display = hint_visible ? 'none' : 'block';
@@ -540,22 +633,115 @@ function toggle_hint() {
 
 /** Show/hide the stat panel. Redraw only runs while it is visible — reading and
  *  plotting 600 samples for a hidden panel is pure waste. */
+// Behavioural archetype overlay. Brain clustering is off in the engine until
+// this is opened — it is the most expensive work in the sim and nothing else
+// consumes it, so visitors who never open the panel pay nothing for it.
+function toggle_archetypes() {
+    archetypes_visible = !archetypes_visible;
+    document.getElementById('archetypes').style.display =
+        archetypes_visible ? 'block' : 'none';
+    world.set_brain_clustering(archetypes_visible);
+    if (archetypes_visible) {
+        refresh_archetypes();
+        arch_timer = setInterval(refresh_archetypes, GRAPH_REFRESH_MS);
+    } else {
+        clearInterval(arch_timer);
+        arch_timer = null;
+        // Drop the overlay colours so bodies return to their genome palette.
+        arch_color.clear();
+    }
+}
+
+// The raw k-means family legend. Behind a key because it is speciation's input
+// rather than a claim about the pond: there are always k families whether or not
+// the population has k distinct groups, so presenting it as the pond's structure
+// overstates it. Useful for telling "speciation is wrong" apart from "clustering
+// is wrong", which is exactly a debug question.
+function toggle_debug() {
+    debug_visible = !debug_visible;
+    document.getElementById('legend-debug').style.display =
+        debug_visible ? 'block' : 'none';
+    // The legend lives in the right panel, so make sure that panel is up too.
+    if (debug_visible) {
+        document.getElementById('side-right').style.display = 'block';
+    }
+}
+
 function toggle_graphs() {
     graphs_visible = !graphs_visible;
     document.getElementById('graphs').style.display = graphs_visible ? 'block' : 'none';
-    // The keybind cheat-sheet occupies the same bottom band; the graph strip is
-    // the more informative of the two while it's open.
-    document.getElementById('hint').style.display =
-        (graphs_visible || !hint_visible) ? 'none' : 'block';
-    document.getElementById('hint-show').style.display =
-        (graphs_visible || hint_visible) ? 'none' : 'block';
     if (graphs_visible) {
         refresh_graphs();
-        graphs_timer = setInterval(refresh_graphs, GRAPH_REFRESH_MS);
-    } else {
-        clearInterval(graphs_timer);
-        graphs_timer = null;
+        if (!graphs_timer) graphs_timer = setInterval(refresh_graphs, GRAPH_REFRESH_MS);
     }
+    // Once graph detail windows can exist independently, hiding the source
+    // strip must not freeze them. The 1 Hz updater stays alive until the run is
+    // cleared; clear_run_panels owns timer teardown.
+}
+
+/** Swatch colour for a species row: its centroid through the body colour path. */
+function species_swatch(s) {
+    const m = world.species_morph(s.index);
+    if (!m || m.length < 7) return [104, 116, 124];
+    const lch = genomeColor({
+        pointiness: m[0], elongation: m[1], bulk: m[2], ornament: m[3],
+        eyeSize: m[4], pulseRate: m[5], belly: m[6],
+    });
+    return oklchToRgb(lch);
+}
+
+function refresh_species() {
+    const flat = world.species_list();
+    const stride = species_stride();
+    species_rows = parseSpecies(flat, stride, world.species_names());
+    species_rows.forEach((s, i) => { s.index = i; });
+
+    const assigned = new Set(species_rows.filter(s => s.extinctAt === null).map(s => s.id));
+    const unassigned = last_agents.filter(a => !assigned.has(a.species)).length;
+    update_species?.(species_rows, current_step, unassigned);
+
+    // First roster of a run seeds the "already seen" sets silently; only genuinely
+    // new promotions and extinctions after that are worth interrupting for.
+    if (!species_seeded) {
+        species_seeded = true;
+        for (const s of species_rows) {
+            announced.add(s.id);
+            if (s.extinctAt !== null) extinct_announced.add(s.id);
+        }
+        return;
+    }
+
+    for (const s of species_rows) {
+        if (s.extinctAt === null && !announced.has(s.id)) {
+            announced.add(s.id);
+            announce?.(`${s.name} emerged — step ${s.founded}, ${s.members} members`,
+                       species_swatch(s));
+        }
+        if (s.extinctAt !== null && !extinct_announced.has(s.id)) {
+            extinct_announced.add(s.id);
+            announce?.(`${s.name} is extinct — lived ${s.extinctAt - s.founded} steps`,
+                       [150, 150, 155]);
+        }
+    }
+}
+
+function refresh_archetypes() {
+    if (!archetypes_visible) return;
+    // Lineage is the species id once speciation exports it; genome family is the
+    // stand-in until then, so the cross-tab is useful before that lands.
+    const by_id = new Map(species_rows.map(s => [s.id, s.name]));
+    const rows = last_agents.map(a => ({
+        brainCluster: a.brainCluster,
+        lineage: by_id.get(a.species) ?? 'unassigned',
+    }));
+    update_archetypes?.(rows);
+
+    // Overlay palette, keyed by cluster id so the draw loop is a map lookup.
+    // Ranks come from the same summary the panel shows, so a swatch in the list
+    // is the colour that agent is actually drawn in.
+    const { ranks } = summarize(rows);
+    arch_color.clear();
+    for (const [id, rank] of ranks) arch_color.set(id, archetypeColor(rank));
 }
 
 function refresh_graphs() {
@@ -571,6 +757,21 @@ function refresh_graphs() {
 // ── Main loop ─────────────────────────────────────────────────────────────────
 
 function frame(ts) {
+    // The loop is rescheduled in `finally`, unconditionally. Previously the
+    // reschedule was the last statement of the body, so a single thrown error
+    // anywhere — a panel bug, a wasm trap — stopped requestAnimationFrame for
+    // good and the whole pond froze with no indication why. A frame is allowed
+    // to fail; the loop is not allowed to die with it.
+    try {
+        frame_body(ts);
+    } catch (err) {
+        report_frame_error(err);
+    } finally {
+        requestAnimationFrame(frame);
+    }
+}
+
+function frame_body(ts) {
     const raw_delta = prev_ts ? ts - prev_ts : 16.67;
     prev_ts = ts;
     frame_delta = Math.min(raw_delta, 200);
@@ -580,7 +781,6 @@ function frame(ts) {
     // about to be thrown away.
     if (!sim_running && setup.isOpen()) {
         draw_idle_scene(ts / 1000);
-        requestAnimationFrame(frame);
         return;
     }
 
@@ -594,9 +794,29 @@ function frame(ts) {
 
     const buf = world.get_state();
     render(buf, ts / 1000);
-    update_panels(buf[2] | 0);
 
-    requestAnimationFrame(frame);
+    // Panels are observation. A panel that throws must not take the pond down
+    // with it, so they are isolated from the render path.
+    try {
+        update_panels(buf[2] | 0);
+    } catch (err) {
+        report_frame_error(err);
+    }
+}
+
+// Errors are logged once per distinct message. At 60 fps a recurring fault
+// would otherwise bury the console in thousands of identical lines, which is
+// how a single real error becomes impossible to read.
+const reported_errors = new Set();
+
+function report_frame_error(err) {
+    const key = String(err && err.stack ? err.stack : err);
+    if (reported_errors.has(key)) return;
+    reported_errors.add(key);
+    console.error('[pond] frame error (loop continues):', err);
+    // Surface it without needing devtools open — a fault that used to freeze
+    // the pond silently should at least say so.
+    announce?.(`render error — see console: ${String(err).slice(0, 80)}`, [255, 90, 90]);
 }
 
 // ── Idle scene ────────────────────────────────────────────────────────────────
@@ -732,6 +952,16 @@ function update_panels(step) {
     if (step === last_panel_step) return;
     last_panel_step = step;
 
+    // Species change only on cluster ticks, and species_names() allocates a JS
+    // string per species, so refresh on the cluster boundary rather than per
+    // step or per frame.
+    const cluster_tick = Math.floor(step / 50);
+    if (cluster_tick !== last_species_tick) {
+        last_species_tick = cluster_tick;
+        refresh_species();
+    }
+    // The inspector consumes species_rows, so it must run after a roster refresh
+    // on promotion ticks or a new name appears one tick late.
     refresh_inspector();
 
     // Legend counts: tally decoded this frame in draw_agents
@@ -762,6 +992,7 @@ function render(buf, time_sec) {
     const L = layout();
     const n     = buf[0] | 0;   // agent count
     const step  = buf[2] | 0;
+    current_step = step;
     const food  = buf[3] | 0;
     const avgE  = buf[4].toFixed(1);
     const alpha = buf[5];        // interpolation factor
@@ -793,7 +1024,6 @@ function render(buf, time_sec) {
 
     ctx.restore();
 
-    update_predator_banner();
 
     // HUD
     document.getElementById('h-step').textContent   = `step   ${step}`;
@@ -1142,12 +1372,32 @@ function draw_dying({ tile_w, tile_h, off_x, off_y }, time_sec) {
         const rise = d.r * 2.2 * (1 - Math.pow(1 - p, 2));
         const a = p < 0.15 ? p / 0.15 : Math.pow(1 - (p - 0.15) / 0.85, 1.5);
 
+        const gx = off_x + d.x * tile_w;
+        const gy = off_y + d.y * tile_h - rise;
+        // A violent death reads red and burns. The other epitaphs stay cool
+        // white — the point is that X_X is the one you notice.
+        const violent = d.glyph === 'X_X';
+
         ctx.font = `bold ${size}px ui-monospace, monospace`;
         ctx.lineWidth = Math.max(2, size * 0.18);
         ctx.strokeStyle = `rgba(2,6,14,${a * 0.85})`;
-        ctx.strokeText(d.glyph, off_x + d.x * tile_w, off_y + d.y * tile_h - rise);
-        ctx.fillStyle = `rgba(236,248,255,${a})`;
-        ctx.fillText(d.glyph, off_x + d.x * tile_w, off_y + d.y * tile_h - rise);
+        ctx.strokeText(d.glyph, gx, gy);
+
+        if (violent) {
+            ctx.save();
+            ctx.shadowColor = `rgba(255,40,60,${a})`;
+            ctx.shadowBlur = size * 0.9;
+            ctx.fillStyle = `rgba(255,70,86,${a})`;
+            // Twice, so the bloom stacks into a genuine glow rather than a halo.
+            ctx.fillText(d.glyph, gx, gy);
+            ctx.shadowBlur = size * 0.45;
+            ctx.fillStyle = `rgba(255,170,178,${a})`;
+            ctx.fillText(d.glyph, gx, gy);
+            ctx.restore();
+        } else {
+            ctx.fillStyle = `rgba(236,248,255,${a})`;
+            ctx.fillText(d.glyph, gx, gy);
+        }
     }
 
     ctx.restore();
@@ -1159,8 +1409,14 @@ function draw_agents(buf, n, alpha, L, time_sec) {
     const live_ids = new Set();
     predators.clear();
     const pstate = world.predators_state();
-    for (let i = 0; i < pstate.length; i += 2) {
-        predators.set(pstate[i], pstate[i + 1] === 1);
+    const pstride = predator_state_stride();
+    for (let i = 0; i < pstate.length; i += pstride) {
+        predators.set(pstate[i], {
+            leaving: pstate[i + 1] === 1,
+            tier: pstate[i + 2] | 0,
+            angle: pstate[i + 3],
+            reach: pstate[i + 4],
+        });
     }
 
     // Clip to the pond (= the whole window now); seam copies from wrapping
@@ -1209,18 +1465,31 @@ function draw_agents(buf, n, alpha, L, time_sec) {
         // Energy dims the body, but only down to 72% lightness — at the old 55%
         // floor a starving neon body desaturated into brown, which read as a
         // rendering fault rather than as a hungry creature.
-        const palette = oklchToRgb([
+        let palette = oklchToRgb([
             lch[0] * (0.72 + a.energyNorm * 0.28),
             lch[1],
             lch[2],
         ]);
-        last_agents.push({ id: a.id, x: hx_w, y: hy_w, cluster: a.genomeCluster, rgb: palette });
+        // Archetype overlay. Temporary by design — toggling off restores the
+        // trait-derived colour, which is the pond's default reading.
+        if (archetypes_visible) {
+            const arch = arch_color.get(a.brainCluster);
+            if (arch) {
+                const dim = 0.72 + a.energyNorm * 0.28;
+                palette = [arch[0] * dim | 0, arch[1] * dim | 0, arch[2] * dim | 0];
+            }
+        }
+        last_agents.push({
+            id: a.id, x: hx_w, y: hy_w,
+            cluster: a.genomeCluster, brainCluster: a.brainCluster,
+            species: a.species, rgb: palette,
+        });
         // Creatures are the subject; food orbs were drawn ~4x their size and the
         // pond read as a field of green dots with specks swimming in it.
         const base_r = scale_px * (0.105 + a.energyNorm * 0.07 + a.morph.pointiness * 0.05);
 
-        // The apex predator does not use the body pipeline at all — it is a
-        // giant red diamond, so it can never be mistaken for one of its prey.
+        // Apex predators do not use the body pipeline at all — they are hard
+        // geometric shapes, so they can never be mistaken for one of their prey.
         if (predators.has(a.id)) {
             draw_predator(a.id, hx_w, hy_w, L, time_sec, predators.get(a.id));
             continue;
@@ -1244,20 +1513,6 @@ function draw_agents(buf, n, alpha, L, time_sec) {
  *  The automatic cull is the one event in the sim the player didn't ask for, so
  *  it has to be legible: without this, a pond that suddenly halves looks like a
  *  crash rather than a mechanic. */
-function update_predator_banner() {
-    const el = document.getElementById('predator-banner');
-    const count = world.predator_count();
-    if (count === 0) {
-        el.style.display = 'none';
-        return;
-    }
-    el.style.display = 'block';
-    const pack = count === 1 ? 'ultra predator' : `${count} ultra predators`;
-    el.textContent = world.predator_is_automatic()
-        ? `${pack} — pond over capacity (${world.cull_trigger_pop()}) · culling to ${world.predator_target()} · eaten ${world.predator_kills()}`
-        : `${pack} hunting — culling to ${world.predator_target()} · eaten ${world.predator_kills()}`;
-}
-
 /** Comet impacts, spreading salt, and the sweep wipe.
  *
  *  Purely presentational: the kills have already happened engine-side by the
@@ -1336,45 +1591,85 @@ function draw_god_effects({ tile_w, tile_h, scale_px, off_x, off_y }, time_sec) 
     ctx.restore();
 }
 
-/** The ultra predator: a giant red diamond, aligned to its heading.
- *
- *  Deliberately not a creature. Everything else in the pond is a soft, evolved
- *  body; this is a hard geometric shape several times their size, so at a glance
- *  it is obviously not part of the ecology. Fades out over its departure swim. */
-function draw_predator(id, wx, wy, { tile_w, tile_h, scale_px, off_x, off_y }, time_sec, leaving) {
+// Predator tiers.
+//
+// Deliberately not creatures. Everything else in the pond is a soft, evolved
+// body; these are hard geometric shapes several times their size, so at a glance
+// they are obviously not part of the ecology.
+//
+// The pond escalates when a wave cannot clear the field, and the shape is the
+// tell: you should know which tier is in the water at a glance, without a
+// banner.
+//
+//   0  grey triangle pack    resident, weakest, hunts in numbers
+//   1  red octagon           hit and run, spins
+//   2  rainbow rectangle     hit and run, slow sweep, kills along its edges
+const TIER_RGB = [
+    [0xE4, 0xEA, 0xFF],   // grey-white
+    [0xFF, 0x36, 0x48],   // red
+    null,                 // rainbow, built per frame
+];
+
+function draw_predator(id, wx, wy, L, time_sec, p) {
+    const tier = p?.tier ?? 0;
+    if (tier === 0) return draw_predator_triangles(id, wx, wy, L, time_sec, p);
+    if (tier === 1) return draw_predator_octagon(wx, wy, L, time_sec, p);
+    return draw_predator_rectangle(wx, wy, L, time_sec, p);
+}
+
+/** Shared aura under any predator, sized to what it actually kills at. */
+function aura(sx, sy, radius_px, rgb, strength) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, radius_px);
+    g.addColorStop(0.00, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.34 * strength})`);
+    g.addColorStop(0.45, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.14 * strength})`);
+    g.addColorStop(1.00, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(sx, sy, radius_px, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+}
+
+/** Regular polygon path, centred at the origin. */
+function polygon(sides, r, rotation) {
+    ctx.beginPath();
+    for (let i = 0; i < sides; i++) {
+        const a = rotation + (i / sides) * Math.PI * 2;
+        const x = Math.cos(a) * r;
+        const y = Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+}
+
+// Tier 0 — the original articulated triangle chain, unchanged.
+function draw_predator_triangles(id, wx, wy, { tile_w, tile_h, scale_px, off_x, off_y }, time_sec, p) {
     let chain = predator_chains.get(id);
     if (!chain) {
         chain = createChain(wx, wy, PREDATOR_SEGS);
+        // Smoothed draw angles, one per segment. Null until the first frame
+        // gives each segment something to smooth from.
+        chain.angles = new Array(PREDATOR_SEGS).fill(null);
         predator_chains.set(id, chain);
     }
+    if (!chain.angles) chain.angles = new Array(chain.segs.length).fill(null);
     updateChain(chain, wx, wy, {
         segCount: PREDATOR_SEGS, segDist: PREDATOR_SEG_DIST, gridSize: GRID,
     });
 
     const pulse = 0.6 + 0.25 * Math.sin(time_sec * 5);
-    const alpha = leaving ? 0.55 : 1.0;
-    const [r8, g8, b8] = PREDATOR_RGB;
+    // A sated resident dims down — it is still here, but it is not hunting.
+    const alpha = p?.leaving ? 0.55 : 1.0;
+    const [r8, g8, b8] = TIER_RGB[0];
 
     const sx = w => off_x + w * tile_w;
     const sy = w => off_y + w * tile_h;
     const head = chain.segs[0];
 
-    // Aura under the whole body, centred on the head.
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    const glow_r = scale_px * 1.5;
-    const aura = ctx.createRadialGradient(sx(head.x), sy(head.y), 0, sx(head.x), sy(head.y), glow_r);
-    aura.addColorStop(0.00, `rgba(${r8},${g8},${b8},${0.34 * pulse * alpha})`);
-    aura.addColorStop(0.45, `rgba(150,180,255,${0.15 * pulse * alpha})`);
-    aura.addColorStop(1.00, 'rgba(60,80,160,0)');
-    ctx.fillStyle = aura;
-    ctx.beginPath();
-    ctx.arc(sx(head.x), sy(head.y), glow_r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    aura(sx(head.x), sy(head.y), scale_px * 1.5, TIER_RGB[0], pulse * alpha);
 
-    // Three triangles, each pointing along its own link in the chain, so the
-    // body articulates as it turns instead of moving as one rigid shape.
     ctx.save();
     ctx.globalAlpha = alpha;
     for (let i = 0; i < chain.segs.length; i++) {
@@ -1387,8 +1682,23 @@ function draw_predator(id, wx, wy, { tile_w, tile_h, scale_px, off_x, off_y }, t
         let dy = seg.y - next.y;
         if (dx > GRID * 0.5) dx -= GRID; else if (dx < -GRID * 0.5) dx += GRID;
         if (dy > GRID * 0.5) dy -= GRID; else if (dy < -GRID * 0.5) dy += GRID;
-        const angle = (i === chain.segs.length - 1 && dx === 0 && dy === 0)
-            ? 0 : Math.atan2(dy, dx);
+        // Coincident segments (the tail, before the chain has stretched out)
+        // carry no direction — hold the last angle rather than snapping to zero.
+        const settled = dx === 0 && dy === 0;
+        const prev_angle = chain.angles[i];
+        let angle;
+        if (settled) {
+            angle = prev_angle ?? 0;
+        } else if (prev_angle === null) {
+            angle = Math.atan2(dy, dx);
+        } else {
+            // Shortest way round, eased: the wrap at ±π must not spin the body
+            // the long way when a hunter turns through it.
+            let d = Math.atan2(dy, dx) - prev_angle;
+            d = ((d + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+            angle = prev_angle + d * PREDATOR_ANGLE_EASE;
+        }
+        chain.angles[i] = angle;
 
         const taper = 1 - i * 0.22;              // head largest, tail smallest
         const len = scale_px * 0.52 * taper;
@@ -1409,6 +1719,69 @@ function draw_predator(id, wx, wy, { tile_w, tile_h, scale_px, off_x, off_y }, t
         ctx.stroke();
         ctx.restore();
     }
+    ctx.restore();
+}
+
+// Tier 1 — a rotating red octagon. Hit and run.
+function draw_predator_octagon(wx, wy, { tile_w, tile_h, scale_px, off_x, off_y }, time_sec, p) {
+    const sx = off_x + wx * tile_w;
+    const sy = off_y + wy * tile_h;
+    const pulse = 0.7 + 0.25 * Math.sin(time_sec * 7);
+    const alpha = p?.leaving ? 0.55 : 1.0;
+    const r = Math.max(scale_px * 0.6, p.reach * scale_px);
+
+    aura(sx, sy, r * 1.45, TIER_RGB[1], pulse * alpha);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(sx, sy);
+    // Engine-side angle, not a render clock: what you see spinning is the same
+    // number the kill test uses.
+    ctx.rotate(p.angle);
+    polygon(8, r, 0);
+    ctx.fillStyle = 'rgba(255,54,72,0.82)';
+    ctx.fill();
+    ctx.lineWidth = Math.max(1.5, scale_px * 0.035);
+    ctx.strokeStyle = `rgba(255,200,205,${0.9 * pulse})`;
+    ctx.stroke();
+    // Inner ring, so the spin is legible on a near-regular polygon.
+    polygon(8, r * 0.55, Math.PI / 8);
+    ctx.strokeStyle = `rgba(255,120,130,${0.7 * pulse})`;
+    ctx.lineWidth = Math.max(1, scale_px * 0.02);
+    ctx.stroke();
+    ctx.restore();
+}
+
+// Tier 2 — R E C T A N G L E. Sweeps slowly and kills everything any edge
+// touches, so it is drawn at exactly the extent of that sweep.
+function draw_predator_rectangle(wx, wy, { tile_w, tile_h, scale_px, off_x, off_y }, time_sec, p) {
+    const sx = off_x + wx * tile_w;
+    const sy = off_y + wy * tile_h;
+    const alpha = p?.leaving ? 0.6 : 1.0;
+    const half_len = p.reach * scale_px;
+    const half_w = RECT_HALF_WIDTH_WORLD * scale_px;
+
+    aura(sx, sy, half_len * 1.25, [255, 255, 255], 0.5 * alpha);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(sx, sy);
+    ctx.rotate(p.angle);
+
+    // Rainbow along the long axis, cycling so it never reads as a flat bar.
+    const grd = ctx.createLinearGradient(-half_len, 0, half_len, 0);
+    const shift = (time_sec * 0.25) % 1;
+    for (let i = 0; i <= 6; i++) {
+        const t = i / 6;
+        const hue = ((t + shift) % 1) * 360;
+        grd.addColorStop(t, `hsl(${hue.toFixed(0)}, 95%, 58%)`);
+    }
+    ctx.fillStyle = grd;
+    ctx.fillRect(-half_len, -half_w, half_len * 2, half_w * 2);
+
+    ctx.lineWidth = Math.max(2, scale_px * 0.04);
+    ctx.strokeStyle = `rgba(255,255,255,${0.85 * alpha})`;
+    ctx.strokeRect(-half_len, -half_w, half_len * 2, half_w * 2);
     ctx.restore();
 }
 

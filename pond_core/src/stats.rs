@@ -18,7 +18,7 @@ pub const SAMPLE_INTERVAL: u32 = 10;
 /// Death causes tracked, matching `CauseOfDeath::code()`.
 pub const CAUSE_COUNT: usize = 5;
 /// Floats per sample in the flat export buffer. Must match `StatSample::write_to`.
-pub const SAMPLE_STRIDE: usize = 12;
+pub const SAMPLE_STRIDE: usize = 14;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct StatSample {
@@ -26,12 +26,32 @@ pub struct StatSample {
     pub alive: u32,
     pub total_food: u32,
     pub avg_energy: f32,
+    /// Median age at death **during this interval**, not since the run began.
+    ///
+    /// The cumulative median stops moving: after a few hundred deaths it is
+    /// anchored by sample size and plots as a flat line, which says nothing
+    /// about when a die-off happened. Per-interval, a starvation wave shows up
+    /// as the line dropping. `World` keeps the cumulative figure for the
+    /// summary footer.
     pub median_lifespan: f32,
-    /// Age of the youngest and oldest living agent, in steps.
-    pub min_age: u32,
-    pub max_age: u32,
+    /// 10th and 90th percentile age over living agents.
+    ///
+    /// Not min/max. Reproduction is continuous, so there is essentially always a
+    /// newborn: `min_age` was pinned at 0 at every sample, and with `max_age`
+    /// driving the panel's autoscale the band filled the whole panel and drew as
+    /// a solid bar. Percentiles describe the distribution the band is supposed
+    /// to be showing.
+    pub age_p10: u32,
+    pub age_p90: u32,
     /// Deaths during this interval only, indexed by `CauseOfDeath::code()`.
     pub deaths: [u32; CAUSE_COUNT],
+    /// Reproductive depth over living agents: how many generations deep the
+    /// population currently is. Speciation promotion gates on generation
+    /// advance, and these two say whether that gate is reachable at all —
+    /// a threshold of "3 generations per 250 steps" is meaningless until the
+    /// real turnover rate is measured.
+    pub mean_generation: f32,
+    pub max_generation: u32,
 }
 
 impl StatSample {
@@ -43,11 +63,15 @@ impl StatSample {
         out.push(self.total_food as f32);
         out.push(self.avg_energy);
         out.push(self.median_lifespan);
-        out.push(self.min_age as f32);
-        out.push(self.max_age as f32);
+        out.push(self.age_p10 as f32);
+        out.push(self.age_p90 as f32);
         for d in self.deaths {
             out.push(d as f32);
         }
+        // Appended after the death block so existing JS field offsets are
+        // unchanged; only the stride and the two new tail indices move.
+        out.push(self.mean_generation);
+        out.push(self.max_generation as f32);
     }
 }
 
@@ -142,24 +166,27 @@ impl StatHistory {
     /// CSV with a header row, for headless runs and cross-build diffing.
     pub fn to_csv(&self) -> String {
         let mut out = String::from(
-            "step,alive,total_food,avg_energy,median_lifespan,min_age,max_age,\
-             deaths_starvation,deaths_old_age,deaths_combat,deaths_eaten,deaths_smitten\n",
+            "step,alive,total_food,avg_energy,interval_median_lifespan,age_p10,age_p90,\
+             deaths_starvation,deaths_old_age,deaths_combat,deaths_eaten,deaths_smitten,\
+             mean_generation,max_generation\n",
         );
         for s in self.iter_chrono() {
             out.push_str(&format!(
-                "{},{},{},{:.4},{:.2},{},{},{},{},{},{},{}\n",
+                "{},{},{},{:.4},{:.2},{},{},{},{},{},{},{},{:.3},{}\n",
                 s.step,
                 s.alive,
                 s.total_food,
                 s.avg_energy,
                 s.median_lifespan,
-                s.min_age,
-                s.max_age,
+                s.age_p10,
+                s.age_p90,
                 s.deaths[0],
                 s.deaths[1],
                 s.deaths[2],
                 s.deaths[3],
                 s.deaths[4],
+                s.mean_generation,
+                s.max_generation,
             ));
         }
         out

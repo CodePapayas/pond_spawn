@@ -141,6 +141,36 @@ Genus syllables stay pure nonsense (*vor, ix, thal, mek, sura*) so the genus
 reads as lineage identity and the epithet as ecology. Guarantee uniqueness by
 re-drawing on collision within a run.
 
+**Gender convention (decided):** genera are always **feminine** — the base
+taxonomy is one gender, so genus names read as a consistent family. Epithets
+**mix masculine and feminine suffixes** (*-us* / *-a*) for variety across
+species names. This deliberately departs from strict Latin agreement, where the
+epithet would have to match the genus; the variety is worth more here than the
+grammar. Optional refinement if we want the suffix to carry information rather
+than just vary: use the two genders to encode the **direction** of the trait
+deviation (high vs low), which the epithet pools need to distinguish anyway.
+
+**Genus is inherited, not per-species (decided):** at promotion, find the
+nearest species by founding centroid — live or extinct — and within a
+`GENUS_RADIUS`, inherit its genus and take a new epithet. Otherwise mint a new
+genus. Deriving genus from `species_id` alone would give two species that split
+from one ancestor unrelated genus names, making the naming actively lie about
+descent; inheriting it means a re-radiation after a bottleneck reads as one
+genus fanning out.
+
+**Epithet is chosen by signed deviation from the population centroid**, not by
+the largest normalized trait value. Argmax over the centroid just returns
+whichever trait sits high in the population as a whole, so in an aggressive pond
+every species ends up *ferox* and the epithet carries no information. Deviation
+names what makes this lineage *different*, and the sign means each trait needs a
+high word and a low word.
+
+One correction to the table above: *thorax* is a noun, not an adjective, and
+does not work as an epithet the way the others do. Use *munita*, *loricata*
+(armoured), or *scutata* (shielded) for the defense slot. `reproduction_cost` is
+in the signature and can be the most deviant trait, so it needs a pool too —
+*fecunda* / *parca* (fertile / sparing) covers both directions.
+
 Color: derive from `color_seed` through the existing OKLCH path
 (`pond_web/color.js`), holding lightness and chroma in the band the renderer
 already uses so species colors sit next to each other legibly. Reserve one grey

@@ -24,6 +24,22 @@ pub struct Traits {
 }
 
 impl Traits {
+    /// `[lo, hi]` per trait in field order. Canonical — `generate()` draws from
+    /// these, `mutate()` clamps to them, `species.rs` normalizes by them, and
+    /// `wasm::trait_bounds()` exports them. One table, so a bounds change can't
+    /// half-land.
+    pub const BOUNDS: [(f64, f64); 9] = [
+        (0.5, 1.05),   // vision
+        (0.5, 1.0),    // speed
+        (0.5, 1.05),   // metabolism
+        (0.95, 1.05),  // energy_capacity (locked, D3)
+        (0.01, 0.25),  // mutation_rate  (locked, D3)
+        (0.75, 1.50),  // reproduction_cost
+        (0.5, 1.25),   // attack
+        (0.5, 1.07),   // defense
+        (0.0, 1.05),   // aggression
+    ];
+
     /// Generate random founding trait values within JSON-defined bounds.
     /// Draw order matches Python's dict iteration order (insertion order, Python 3.7+).
     pub fn generate(rng: &mut impl Rng) -> Self {
@@ -83,6 +99,13 @@ pub struct Genome {
     /// Heritable effective mutation rate (D4). Separate from locked `traits.mutation_rate`.
     /// Starts at `traits.mutation_rate`; suppressed at reproduction by AgentMemory success count.
     pub effective_mutation_rate: f32,
+    /// Reproductive depth from a founding genome: 0 for a founder, parent + 1 for
+    /// offspring. Not age — an agent that lives forever without reproducing stays
+    /// at its birth generation, which is the point. Speciation needs "this trait
+    /// signature was passed down and re-selected", and only generation says that.
+    /// `serde(default)` so pre-existing golden-harness traces still deserialize.
+    #[serde(default)]
+    pub generation: u32,
 }
 
 impl Genome {
@@ -96,17 +119,29 @@ impl Genome {
             traits,
             brain_weights,
             effective_mutation_rate: eff_rate,
+            generation: 0,
         }
     }
 
     /// Produce a mutated offspring genome.
+    ///
     /// `suppression` = 1.0 / (1.0 + parent_success_count * k) from AgentMemory.
-    pub fn mutate(&self, rng: &mut impl Rng, suppression: f32) -> Self {
+    /// It is **heritable**: it multiplies into the child's
+    /// `effective_mutation_rate` and so compounds down the generations (D4).
+    ///
+    /// `clamp` is the species probation clamp, and is **not** heritable: it
+    /// scales the rate used for this one set of draws and is discarded. The
+    /// distinction is the whole mechanic — probation asks whether a lineage
+    /// survives having its mutability taken away, and a lineage that passes has
+    /// to get it back. Routing the clamp through the heritable path instead
+    /// would sterilize the lineage permanently, which tests something else.
+    pub fn mutate(&self, rng: &mut impl Rng, suppression: f32, clamp: f32) -> Self {
         let eff_rate = self.effective_mutation_rate * suppression;
-        let rate_f64 = eff_rate as f64;
+        let rate_used = eff_rate * clamp;
+        let rate_f64 = rate_used as f64;
         let magnitude = rate_f64 * 0.5;
 
-        let new_traits = self.traits.mutate(eff_rate, rng);
+        let new_traits = self.traits.mutate(rate_used, rng);
 
         let new_weights: Vec<f32> = self
             .brain_weights
@@ -129,13 +164,17 @@ impl Genome {
             id: genome_id(rng),
             traits: new_traits,
             brain_weights: new_weights,
+            // Deliberately `eff_rate`, not `rate_used`: the clamp does not ride
+            // into the child.
             effective_mutation_rate: eff_rate,
+            generation: self.generation + 1,
         }
     }
 
-    /// Convenience: mutate with no suppression (founding generations, tests).
+    /// Convenience: mutate with no suppression and no clamp (founding
+    /// generations, tests).
     pub fn mutate_unsuppressed(&self, rng: &mut impl Rng) -> Self {
-        self.mutate(rng, 1.0)
+        self.mutate(rng, 1.0, 1.0)
     }
 
     pub fn weights_array(&self) -> &[f32; WEIGHT_COUNT] {
@@ -156,6 +195,19 @@ mod tests {
 
     fn seeded() -> ChaCha8Rng {
         ChaCha8Rng::seed_from_u64(42)
+    }
+
+    #[test]
+    fn generation_counts_reproductive_depth() {
+        let mut rng = seeded();
+        let founder = Genome::generate(&mut rng);
+        assert_eq!(founder.generation, 0);
+
+        let mut g = founder;
+        for expected in 1..=3 {
+            g = g.mutate_unsuppressed(&mut rng);
+            assert_eq!(g.generation, expected);
+        }
     }
 
     #[test]
@@ -218,8 +270,41 @@ mod tests {
         let mut rng = seeded();
         let parent = Genome::generate(&mut rng);
         let suppression = 1.0 / (1.0 + 5.0 * 0.05_f32);
-        let child = parent.mutate(&mut rng, suppression);
+        let child = parent.mutate(&mut rng, suppression, 1.0);
         assert!(child.effective_mutation_rate < parent.effective_mutation_rate);
+    }
+
+    #[test]
+    fn probation_clamp_is_not_heritable() {
+        // The clamp throttles this set of draws only. If it leaked into the
+        // child's effective rate it would compound down the generations and
+        // sterilize the lineage permanently, which is a different mechanic.
+        let mut rng = seeded();
+        let parent = Genome::generate(&mut rng);
+
+        let clamped = parent.mutate(&mut rng, 1.0, 0.15);
+        let free = parent.mutate(&mut rng, 1.0, 1.0);
+        assert_eq!(clamped.effective_mutation_rate, free.effective_mutation_rate);
+        assert_eq!(clamped.effective_mutation_rate, parent.effective_mutation_rate);
+    }
+
+    #[test]
+    fn probation_clamp_suppresses_drift() {
+        // Under the clamp far fewer brain weights move per birth.
+        let mut rng = seeded();
+        let parent = Genome::generate(&mut rng);
+        let changed = |child: &Genome| {
+            child.brain_weights.iter().zip(&parent.brain_weights)
+                .filter(|(a, b)| a != b).count()
+        };
+
+        let mut clamped_total = 0;
+        let mut free_total = 0;
+        for _ in 0..20 {
+            clamped_total += changed(&parent.mutate(&mut rng, 1.0, 0.15));
+            free_total += changed(&parent.mutate(&mut rng, 1.0, 1.0));
+        }
+        assert!(clamped_total * 2 < free_total, "clamped {} vs free {}", clamped_total, free_total);
     }
 
     #[test]

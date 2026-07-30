@@ -113,35 +113,144 @@
   wall-clock time rather than sim steps, so it keeps spreading while paused.
 - **Sweep clean** — a column crosses the pond over 1.8 s, killing as it passes,
   then empties whatever remains.
-- **Ultra predator** — a single apex agent, summoned by the player or triggered
-  automatically. It cannot die (no aging, no starvation, and it is excluded from
-  ordinary combat entirely, as attacker and as victim), chases the nearest agent
-  at 1.1 world units per step, and eats everything within 0.9 units of itself
-  each step. Kills count as `EatenAlive`.
-  - **Summoned**: culls to 20% of the population at the moment it is called.
+- **Ultra predators** — apex agents, summoned by the player or triggered
+  automatically. They cannot die (no aging, no starvation, and they are excluded
+  from ordinary combat entirely, as attacker and as victim) and hunt down one
+  agent at a time. Kills count as `EatenAlive`.
+
+  - **Three shapes, and only one of them is the ecology's.**
+
+    | Tier | Shape | Speed | Turn | Reach | Attack | Spin | Summoned by | Behaviour |
+    |---|---|---|---|---|---|---|---|---|
+    | 0 | grey triangle | 0.95 | 0.20 rad/step | 0.55 | 0.75 | — | the pond | resident |
+    | 1 | red octagon | 1.30 | 0.15 rad/step | 1.90 | 0.90 | 0.20 rad/step | player only | hit and run |
+    | 2 | rainbow rectangle | 1.55 | 0.09 rad/step | 3.20 | 1.05 | 0.045 rad/step | player only | hit and run |
+
+    Speed is world units per step; `Turn` (`TIER_MAX_TURN`) is the most a hunter
+    may swing its heading in one. `Spin` is rotation of the kill shape itself,
+    which is independent of where the hunter is going.
+
+    Every covered prey gets a deterministic defense check: the predator eats it
+    only when the tier's flat attack is strictly greater than the prey's
+    effective defense. Equality survives. **Tier 2 attacks along its edges**: an
+    oriented rectangle of half-length `reach` and half-width 0.85.
+
+    **The rectangle does not roll** (`TIER_IGNORES_DEFENSE`). Anything its edges
+    touch dies, whatever its defense. At attack 1.05 it was losing bites to
+    well-armoured agents — defense runs to 1.07 from the trait bounds alone, and
+    the childhood bonus stacks on top — so the most final power in the game could
+    sweep the pond and leave survivors standing in its path. The tiers below it
+    still roll: a triangle losing to armour is what makes defense worth evolving.
+
+  - **They swim, they do not teleport.** A hunter's velocity is state that
+    carries between ticks. Every motion it makes — chase, patrol, departure —
+    steers that velocity toward where it wants to go, turning at most the tier's
+    `TIER_MAX_TURN` per step and easing its speed by `PREDATOR_SPEED_EASE` (0.12)
+    of the remaining gap per step. So a hunter banks onto a target, accelerates
+    into its first chase from a standing start, and slows as it goes quiet.
+
+    Turn limits cost nothing in lethality — a cull of ~200 prey takes the same
+    70–90 steps whatever the turn rate, because a hunter in a dense pond eats
+    whatever its kill shape sweeps, aimed or not, and it closes at 19 tiles/s
+    against a prey top speed of 3. What the number buys is the shape of the path:
+    the turn radius is `speed / turn`, so the triangles bank through 4.7 world
+    units and the rectangle through 17.
+
+  - **A hunter commits to one animal.** It holds a target for
+    `PREDATOR_COMMIT_TICKS` (18) before looking again, and drops it early only if
+    the target dies, resists a bite, or gets more than `PREDATOR_COMMIT_RANGE`
+    (12 world units) away. Re-picking the nearest prey every tick made the
+    heading alternate between two equidistant animals; commitment also means a
+    hunt has a subject you can watch.
+
+  - **A resistant animal is skipped once, not forever.** A failed bite drops both
+    the skip target and the commitment, so the hunter picks something else next
+    tick. If the resistant animal is the only prey left, the skip is dropped and
+    it is taken again rather than deadlocking the hunt.
+
+  - **Patrol is a smooth arc.** An idle hunter random-walks its turn *rate*
+    (`PATROL_TURN_MEMORY` 0.92 carry-over, `PATROL_TURN_NOISE` noise, clamped to
+    `PATROL_TURN_MAX` 0.12 rad/step) at `PATROL_SPEED_FRAC` (0.45) of its hunting
+    speed. Drawing a fresh turn each tick reads as vibration at 20 Hz, and
+    patrolling is what a resident does most of its life.
+
+  - **Predators have no brain phase.** They are excluded from perception,
+    steering, and the discrete triggers — an apex predator does not forage, sleep
+    or breed, and its hunt is its whole behaviour. They still age and still pay
+    passive metabolism (floored at 1.0 energy, since they cannot starve).
+
+  - **The ecology only fields triangles.** No automatic rule ever puts an octagon
+    or a rectangle in the water. They are far too lethal to hand to a threshold —
+    the pond would never get to overshoot and recover, which is the thing worth
+    watching. They exist as god-mode powers and nothing else.
+
+  - **Player toggle.** Automatic triangle ecology is on by default and can be
+    disabled from the normal HUD. Turning it off prevents arrivals and
+    reinforcements, sends existing automatic residents away, and resets the
+    automatic pack ratchet. Player-summoned shapes are unaffected.
+
+  - **Summoned hunts have an off switch.** `dismiss hunters` in the god panel
+    sends every player-summoned shape away mid-hunt, over the usual departure
+    swim rather than blinking them out. It is the counterpart to the HUD toggle,
+    which spares player summons by design — without it an octagon or a rectangle
+    could only be waited out. The automatic residents are left alone: they are
+    the ecology, not a player power. Closing the god panel does *not* dismiss
+    anything already in the water.
+
+  - **The pack grows by one per threshold crossing.** Each time the pond climbs
+    past the trigger, every resident wakes and one more triangle joins them
+    permanently, up to `PREDATOR_MAX`. A pond that keeps outbreeding its hunters
+    accumulates them, so the pack size is a running record of how often it has
+    done so. The first wave arrives at `TIER_PACK[0]` (3).
+
+  - **Residency.** The triangles never leave. Once their quota is met they go
+    quiet and patrol, and wake when the population climbs back over the trigger —
+    they are not aggressive unless the population needs culling. The two player
+    shapes are far too lethal to leave in the water: they cull and depart.
+
+  - **Summoned**: the octagon (`PREDATOR_MANUAL_TIER`) or the rectangle
+    (`PREDATOR_RECTANGLE_TIER`), each culling to 20% of the population at the
+    moment it is called. A summon is a strike that lands and leaves; summoning at
+    the resident tier would park another permanent hunter in the pond on every
+    press.
+
   - **Automatic**: the pond has a capacity of `1.75 × tiles`
     (`PREDATOR_POP_PER_TILE`), capped absolutely at 900 agents
     (`PREDATOR_POP_CEILING`) however large the pond is — so a 12×12 pond caps at
     252 and anything from 23×23 up holds the 900 line. Food supply scales with
     area, so a fixed number would either strangle the big pond or never fire on
-    the small one; the ceiling exists because past roughly 900 individually
-    drawn bodies the frame rate goes regardless of how much food there is. A hunter arrives when
-    the prey count passes `cap × 1.10` and the pack culls down to `cap × 0.90`
-    (`PREDATOR_POP_BAND`). That ±10% band is the breathing room: culling to the
-    cap exactly would put the pond back over the trigger within a few births.
+    the small one; the ceiling exists because past roughly 900 individually drawn
+    bodies the frame rate goes regardless of how much food there is. A wave
+    arrives — the triangle pack — when the prey count passes `cap × 1.10`.
+
+  - **Culls cut deep.** The target is `cap × 0.90 × 0.72` (`CULL_DEPTH`), well
+    below the hysteresis floor. Landing on the floor exactly made no sense
+    against how this pond grows — a boom re-crossed the trigger almost
+    immediately, so predators were effectively permanent and always mid-hunt.
+    Cutting deeper buys room for a boom to happen before the next wave is
+    warranted.
+
+  - **Bites are not clamped to the quota.** A predator eats everything its kill
+    shape covers, even if that takes the population under the target. Clamping is
+    what made a cull land on exactly the threshold; overshoot is the point.
+
   - **Reinforcements**: if the prey count is still not falling
-    `PREDATOR_REINFORCE_STEPS` (120) after the last arrival, another predator
-    joins, up to `PREDATOR_MAX` (8). A pond that outbreeds one hunter gets a
-    pack. Reinforcement is skipped while the population is already falling, so
-    the cull doesn't overshoot into an extinction.
+    `PREDATOR_REINFORCE_STEPS` (120) after the last arrival, another triangle
+    joins, up to `PREDATOR_MAX` (12). This is the same rule as a fresh threshold
+    crossing — a pond that is over the line and not coming down has outbred the
+    pack it has. Reinforcement is skipped while the population is already
+    falling, so the cull doesn't overshoot into an extinction.
+
   - **The pack ratchets.** Its size can grow but never shrink: the largest pack
     a run has ever fielded is the minimum size of every later cull. A pond that
     once needed six hunters has proven it can outbreed five, and it does not get
-    to relearn that from scratch each time.
+    to relearn that from scratch each time. The per-tier pack floor applies to
+    automatic waves only — a player summon still scales to the job asked.
+
   - Predators never hunt or eat each other.
   - The target is checked against the live population every step, since births
-    keep moving it. It never eats past the target: the number it may take in one
-    bite is capped by how many are still owed.
+    keep moving it. It does overshoot: see "Bites are not clamped to the quota"
+    above — the number taken in one bite is whatever the kill shape covers.
   - When the quota is met it stops hunting and swims off at speed for 44 steps
     before disappearing. Leaving is not a death — no tally, no lifespan, no death
     event. Births during the departure do not drag it back into a second hunt.
@@ -245,5 +354,90 @@ decision-making later.
     revive.
   - **Legacy Python:** multiplicative — `w × uniform(1−m, 1+m)`. Signs never
     flip; zero weights stay dead.
+
+### Rate modifiers
+
+Two things scale the mutation rate at reproduction, and they behave differently:
+
+| Modifier | Source | Heritable? |
+|---|---|---|
+| Memory suppression | `1 / (1 + parent_success_count × 0.05)` | **Yes** — multiplies into the child's `effective_mutation_rate` and compounds down the generations (D4) |
+| Probation clamp | `0.15` while the parent's genome sits in a cluster on probation, else `1.0` | **No** — scales the rate used for one set of draws and is discarded |
+
+The clamp is deliberately not heritable. Probation asks whether a lineage
+survives having its mutability taken away; a lineage that passes has to get it
+back. Routing it through the heritable path would sterilize the lineage
+permanently, which tests something else entirely.
+
+---
+
+## Speciation
+
+A k-means cluster is not a species. Clusters exist because `k = 6` was chosen,
+and their labels permute when clusters split or merge. A cluster becomes a named
+species only by passing a test.
+
+**Signature.** Seven mutable traits, each normalized to `[0, 1]` by its bounds.
+`energy_capacity` and `mutation_rate` are excluded: they are locked (D3), never
+mutated and inherited exactly, so clustering on them yields founder-descent
+groups rather than the shapes selection actually built.
+
+**Lifecycle.** `observed → probation → promoted`, evaluated on the cluster tick
+(every 50 steps).
+
+| Stage | Requirement |
+|---|---|
+| Observed → probation | Holds ≥ `max(6, 5%)` of the population, centroid drift under `DRIFT_EPS`, within-cluster spread under `SPREAD_MAX`, for ≥ 5 consecutive runs **and** ≥ 3 generations of mean-generation advance |
+| Probation | Members' mutation rate clamped to `0.15×`. Must keep meeting every criterion above |
+| Probation → promoted | Survives a further 1 generation of advance under the clamp. Clamp lifts on promotion |
+| Probation → observed | Fails any criterion. Clamp lifts, streak resets, may re-enter later |
+
+Promotion is therefore an experiment, not an observation: a shape still riding
+mutation toward a fit, or one k-means merely happened to bracket, loses its
+share once frozen and never promotes.
+
+**Membership** is by nearest species centroid within `MEMBERSHIP_RADIUS`, not by
+k-means label — so a species keeps its identity when k-means reshuffles, splits,
+or merges its slots, and an agent can drift out of its species. Agents outside
+every radius are unassigned (species id 0).
+
+**Drift and extinction.** A species centroid tracks its members at `0.05` per
+run. Zero members for 2 consecutive runs sets `extinct_at`; the record is kept
+forever. A species that reappears at the same centroid is a **new** species with
+a new id — convergent evolution is the more interesting reading, and
+resurrection would make the timeline lie. Ids are monotonic and never reused.
+Live species are capped at 12; at the cap promotion is refused rather than
+evicting a live species, which would write a false `extinct_at`.
+
+### Names
+
+Promoted species get a binomial, generated deterministically from
+`(species_id, world_seed)` with a private RNG — never the world's stream, since
+drawing from that would shift every subsequent simulation draw.
+
+- **Genus is always feminine** (*Vorixa*, *Thalura*, *Ixyria*) — invented
+  syllables, one gender throughout, so the genus reads as a consistent family.
+- **Genus is inherited.** A species promoting within `GENUS_RADIUS` of an
+  existing one — live *or* extinct — takes its genus and a new epithet. Extinct
+  counts: a lineage re-radiating after a bottleneck keeps its family name.
+  Without inheritance the naming would actively lie about descent.
+- **Epithet comes from signed deviation** from the population centroid, not from
+  the largest trait value. Argmax over the centroid returns whichever trait sits
+  high across the whole pond, so in an aggressive pond every species would end
+  up *ferox*. Deviation names what makes the lineage *different*, and the sign
+  matters — each trait has a high word and a low word.
+- **Latin when specialized, nonsense when not.** A deviation clearing
+  `STRONG_DEVIATION` earns a real Latin adjective for that trait and direction
+  (*loricata*, *velox*, *frigida*); nothing standing out earns a nonsense
+  epithet (*kyrnus*, *vonda*). The name reports whether the lineage specialized
+  at all.
+- **Epithet endings mix masculine and feminine** (*-us* / *-a*) rather than
+  agreeing with the feminine genus as Latin grammar would require. Deliberate:
+  the variety is worth more here than the agreement.
+
+**Determinism.** Speciation draws no RNG of its own, but it is not a pure
+observer — the probation clamp changes the rate used at reproduction, and the
+per-weight mutation draw is conditional on that rate, so the RNG stream diverges
+from a build with speciation disabled. Same-seed runs remain bit-identical.
 
 ---

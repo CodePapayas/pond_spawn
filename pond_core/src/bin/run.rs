@@ -13,6 +13,10 @@ use pond_core::World;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--bench-cluster") {
+        bench_cluster();
+        return;
+    }
     let dump_path = args.iter().position(|a| a == "--dump-stats")
         .and_then(|i| args.get(i + 1).cloned());
     // Positional args are read from the run before any flag, so `--dump-stats`
@@ -51,6 +55,13 @@ fn main() {
             );
         }
 
+        // Speciation events as they happen. Watching promotions scroll past in a
+        // headless run is how the thresholds get judged; wiring the renderer
+        // first would only make bad thresholds prettier.
+        for ev in world.species.drain_events() {
+            println!("  [species] {}", ev);
+        }
+
         if world.agent_count() == 0 {
             println!("extinction at step {}", s);
             break;
@@ -87,14 +98,94 @@ fn main() {
         }
     }
 
+    // Species roster: live first, then the fossil record.
+    if !world.species.all().is_empty() {
+        println!(
+            "\nspecies (live {} / total {}, {} on probation):",
+            world.species.live_count(), world.species.all().len(), world.species.probation_count(),
+        );
+        for s in world.species.all() {
+            match s.extinct_at {
+                None => println!(
+                    "  {:<26} #{:<3} alive    founded {:<6} age {:<6} members {:<4} peak {}",
+                    s.name.full(), s.id, s.founded_step,
+                    s.age(world.get_stats().step), s.members, s.peak_members,
+                ),
+                Some(end) => println!(
+                    "  {:<26} #{:<3} extinct  founded {:<6} lived {:<6} peak {}",
+                    s.name.full(), s.id, s.founded_step, s.age(end), s.peak_members,
+                ),
+            }
+        }
+    }
+
     // Print cluster distribution at final state
     let gc = &world.cluster.genome_cluster_ids;
     if !gc.is_empty() {
         let mut gcounts = [0u32; 8];
         let mut bcounts = [0u32; 32];
         for &id in gc { gcounts[id as usize] += 1; }
-        for &id in &world.cluster.brain_cluster_ids { bcounts[id as usize] += 1; }
+        for &id in &world.brain_clusters.labels { bcounts[id as usize] += 1; }
         println!("\ngenome clusters (k=6): {:?}", &gcounts[..6]);
         println!("brain clusters  (k=24): {:?}", &bcounts[..24]);
     }
+}
+
+/// Cost of the clustering work, by population.
+///
+/// Brain clustering was once ~99.5% of a 14–164 ms spike landing every 50 steps,
+/// which is a visible stutter against a 16.7 ms frame budget. It is now warm
+/// started and spread one iteration per step. This exists so a regression shows
+/// up as a number here rather than as a stutter someone notices months later.
+fn bench_cluster() {
+    use pond_core::brain_cluster::{BrainClusters, COLD_ITERS, WARM_ITERS};
+    use pond_core::{ClusterState, Genome};
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    println!("cluster cost by population (worst single step, ms)\n");
+    println!("{:<8} {:<10} {:<14} {:<14} {:<10}", "pop", "genome", "brain cold", "brain warm", "worst");
+    println!("{}", "-".repeat(60));
+
+    for n in [100usize, 300, 600, 1200] {
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        let genomes: Vec<Genome> = (0..n).map(|_| Genome::generate(&mut rng)).collect();
+
+        let t = Instant::now();
+        let _ = ClusterState::run(&genomes, 6, 100, None);
+        let genome_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+        let mut bc = BrainClusters::new();
+        bc.set_enabled(true);
+
+        // Cold pass: worst single step across its COLD_ITERS steps.
+        bc.begin(&genomes, 24, 50);
+        let mut cold_worst = 0f64;
+        while bc.in_progress() {
+            let t = Instant::now();
+            bc.advance(&genomes);
+            cold_worst = cold_worst.max(t.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        // Warm pass: the steady state, which is what actually runs.
+        bc.begin(&genomes, 24, 100);
+        let mut warm_worst = 0f64;
+        while bc.in_progress() {
+            let t = Instant::now();
+            bc.advance(&genomes);
+            warm_worst = warm_worst.max(t.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        // The tick that begins a pass also runs the genome pass.
+        let worst = genome_ms + warm_worst;
+        println!(
+            "{:<8} {:<10.3} {:<14.3} {:<14.3} {:<10.3}",
+            n, genome_ms, cold_worst, warm_worst, worst,
+        );
+    }
+    println!(
+        "\ncold = {} steps, warm = {} steps; one iteration per step.",
+        COLD_ITERS, WARM_ITERS,
+    );
+    println!("60 fps frame budget is 16.7 ms.");
 }

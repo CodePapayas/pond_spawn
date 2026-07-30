@@ -1,12 +1,14 @@
 use std::collections::{HashMap, HashSet};
-use std::f32::consts::TAU;
+use std::f32::consts::{PI, TAU};
 
 use rand::{Rng, SeedableRng, seq::SliceRandom};
 use rand_chacha::ChaCha8Rng;
 
 use crate::biome::{BiomeTile, MAX_FOOD_PER_TILE};
 use crate::brain::{forward as brain_forward, forward_traced, sigmoid_outputs};
+use crate::brain_cluster::BrainClusters;
 use crate::cluster::ClusterState;
+use crate::species::SpeciesRegistry;
 use crate::genome::Genome;
 use crate::memory::{AgentMemory, SUCCESS_SCALAR};
 use crate::spatial::SpatialHashGrid;
@@ -99,23 +101,155 @@ pub const PREDATOR_POP_CEILING: usize = 900;
 /// Prey each predator in a summoned pack is expected to account for. A cull of
 /// thousands is not one hunter's work.
 const PREY_PER_PREDATOR: usize = 250;
+/// How far below the hysteresis floor a cull actually cuts.
+///
+/// Culling to exactly the floor made no sense against how this pond grows: a
+/// population that booms re-crosses the trigger almost immediately, so predators
+/// were effectively resident and permanently mid-hunt. Cutting deeper leaves
+/// room for a boom to happen before the next wave is warranted.
+const CULL_DEPTH: f64 = 0.72;
+
 /// Hysteresis around the cap, as a fraction. Predators arrive above
 /// `cap × (1 + band)` and leave at `cap × (1 - band)`, so a population sitting
 /// near the cap isn't culled every few steps — it gets room to breathe.
 pub const PREDATOR_POP_BAND: f64 = 0.10;
-/// Most predators that may hunt at once. Reinforcements arrive while the
-/// population is still climbing despite the ones already hunting.
-pub const PREDATOR_MAX: usize = 8;
+/// Most predators that may be in the pond at once. High enough to hold the whole
+/// escalation ladder — the tier pack sizes sum to 11, and a cap below that would
+/// silently stop a wave escalating past the tier that filled it. Steady state is
+/// far lower: only the triangles stay, and the top two depart.
+pub const PREDATOR_MAX: usize = 12;
 /// Steps between reinforcement checks. Long enough that a new arrival has time
 /// to make a dent before the next is considered.
 const PREDATOR_REINFORCE_STEPS: u32 = 120;
 /// Survivor fraction when the player summons one: eats four fifths of the pond.
 pub const PREDATOR_MANUAL_FRAC: f64 = 0.20;
-/// World units per step the predator closes on its prey. Well above MAX_SPEED:
-/// nothing outruns it.
-const PREDATOR_SPEED: f32 = 1.1;
-/// Everything within this radius of the predator is eaten each step.
-const PREDATOR_BITE_RADIUS: f32 = 0.9;
+/// Tier a plain player summon arrives at — the octagon. A hit-and-run tier
+/// deliberately: "summon" should mean calling in a strike that lands and leaves,
+/// and summoning at the resident tier would park another permanent hunter in the
+/// pond on every press.
+pub const PREDATOR_MANUAL_TIER: u8 = 1;
+/// The rectangle. Player-only, like the octagon, and the more final of the two.
+pub const PREDATOR_RECTANGLE_TIER: u8 = 2;
+// ── Predator tiers ────────────────────────────────────────────────────────────
+//
+// The ecology only ever produces triangles. They are resident: they arrive,
+// cut, and then stay in the pond patrolling, going quiet until the population
+// climbs again. Every time the pond crosses the cull threshold one more triangle
+// joins the pack, so a pond that keeps outbreeding its hunters accumulates them
+// permanently rather than being answered by something new each time.
+//
+// The octagon and the rectangle are **player powers only**. They are far too
+// lethal to leave to an automatic rule — the pond would never get to overshoot
+// and recover, which is the thing worth watching. They hit and run: cull, then
+// leave.
+
+/// Number of tiers. Shapes, in order: grey triangle pack, rotating red octagon,
+/// rotating rainbow rectangle.
+pub const PREDATOR_TIERS: usize = 3;
+
+/// World units per step each tier closes on its prey. All well above MAX_SPEED:
+/// nothing outruns any of them.
+const TIER_SPEED: [f32; PREDATOR_TIERS] = [0.95, 1.30, 1.55];
+/// Bite reach per tier. For the rectangle this is the half-length of its long
+/// edge rather than a radius — see `tier_bite_hits`.
+const TIER_BITE: [f32; PREDATOR_TIERS] = [0.55, 1.90, 3.20];
+/// Flat attack rating for each predator shape. A bite only lands when this is
+/// strictly greater than the prey's effective defense — except where
+/// `TIER_IGNORES_DEFENSE` says otherwise.
+pub const TIER_ATTACK: [f64; PREDATOR_TIERS] = [0.75, 0.90, 1.05];
+/// Tiers whose kills are not rolled for at all: anything the shape covers dies,
+/// whatever it is made of.
+///
+/// The rectangle only. At an attack of 1.05 it was losing bites to well-armoured
+/// agents — defense runs to 1.07 from the trait bounds alone, and a childhood
+/// bonus stacks on top of that — so the most final power in the game could sweep
+/// the pond and leave survivors standing in its path. It is a player power of
+/// last resort and it now reads as one. Contrast the triangles, whose failure
+/// against a tough animal is exactly what makes defense worth evolving.
+const TIER_IGNORES_DEFENSE: [bool; PREDATOR_TIERS] = [false, false, true];
+/// Half-width of the rectangle's short edge. Anything the sweep touches dies.
+const RECTANGLE_HALF_WIDTH: f32 = 0.85;
+/// Radians per step the top two tiers rotate. The rectangle turns slowly, and
+/// covers so much ground that it does not need to turn quickly.
+const TIER_SPIN: [f32; PREDATOR_TIERS] = [0.0, 0.20, 0.045];
+/// Hunters summoned per wave at each tier. The triangles hunt as a pack — they
+/// are the weakest tier and the only resident one, so numbers are what they
+/// have; the top two are lethal enough not to need company.
+///
+/// Only the triangle entry is used automatically, and only as the size of the
+/// *first* pack: after that the pond earns one more per threshold crossing.
+const TIER_PACK: [usize; PREDATOR_TIERS] = [3, 5, 2];
+/// Whether a tier stays in the pond after its quota is met. Only the triangles
+/// do: the other two are far too lethal to leave in the water.
+const TIER_RESIDENT: [bool; PREDATOR_TIERS] = [true, false, false];
+
+/// Radians per tick a hunter may swing its heading.
+///
+/// A chase used to write position straight from a fresh unit vector to whatever
+/// prey was nearest, so the heading could flip by any angle between two ticks.
+/// At 0.95 world units a tick — six times a prey animal's step — that read as
+/// jitter rather than as swimming. Turning is now rate-limited, so a hunter
+/// banks onto its target instead of snapping onto it.
+///
+/// Chosen for the look of the arc, not for lethality: cull duration barely moves
+/// with this number (a hunter in a dense pond eats whatever its shape sweeps,
+/// aimed or not), while the turn radius is `speed / turn` — 4.7 world units for
+/// the triangles, so they make long banking passes rather than buzzing in tight
+/// circles. Nothing escapes by out-turning them regardless: they close at 19
+/// tiles/s against a prey top speed of 3. Heavier shapes turn wider still — the
+/// rectangle sweeps at a radius of 17.
+const TIER_MAX_TURN: [f32; PREDATOR_TIERS] = [0.20, 0.15, 0.09];
+/// Ticks a hunter stays committed to one prey animal before it looks again.
+///
+/// Picking the nearest prey every tick is the other half of what made hunters
+/// jitter: in a crowd two animals sit at near-equal distance and the argmin
+/// alternates between them, so the hunter aims at each in turn and goes nowhere.
+/// Commitment also means a hunt has a subject you can watch.
+const PREDATOR_COMMIT_TICKS: u32 = 18;
+/// Commitment breaks if the target gets this far away, so a hunter can't be led
+/// across the pond by one animal while a crowd sits behind it.
+const PREDATOR_COMMIT_RANGE: f32 = 12.0;
+/// Patrol wander: fraction of last tick's turn rate that carries over, and the
+/// size of the fresh noise added to it. An uncorrelated per-tick turn reads as
+/// 20 Hz vibration, and patrolling is what a resident does most of its life, so
+/// the random walk is on the turn *rate* and stays smooth.
+const PATROL_TURN_MEMORY: f32 = 0.92;
+const PATROL_TURN_NOISE: f32 = 0.02;
+/// Ceiling on the patrol turn rate, radians per tick.
+const PATROL_TURN_MAX: f32 = 0.12;
+/// Patrol speed as a fraction of the tier's hunting speed.
+const PATROL_SPEED_FRAC: f32 = 0.45;
+/// Per-tick easing of a predator's speed toward whatever its current state
+/// wants. Without it a hunter going quiet or leaving changes speed in one tick,
+/// which is as visible as a heading snap.
+const PREDATOR_SPEED_EASE: f32 = 0.12;
+
+/// Bite reach for a tier.
+pub fn tier_bite(tier: u8) -> f32 {
+    TIER_BITE[(tier as usize).min(PREDATOR_TIERS - 1)]
+}
+/// Radians per step a tier rotates. Zero for the bottom two.
+pub fn tier_spin(tier: u8) -> f32 {
+    TIER_SPIN[(tier as usize).min(PREDATOR_TIERS - 1)]
+}
+/// Whether a tier stays after its quota is met rather than departing.
+pub fn tier_resident(tier: u8) -> bool {
+    TIER_RESIDENT[(tier as usize).min(PREDATOR_TIERS - 1)]
+}
+
+/// Does this tier's kill shape cover `(dx, dy)`, a toroidal offset from the
+/// predator? Radial for the first three; the top tier sweeps an oriented
+/// rectangle and kills anything any edge touches.
+fn tier_bite_hits(tier: u8, dx: f32, dy: f32, angle: f32) -> bool {
+    let reach = tier_bite(tier);
+    if tier as usize + 1 < PREDATOR_TIERS {
+        return dx * dx + dy * dy <= reach * reach;
+    }
+    let (c, s) = (angle.cos(), angle.sin());
+    let lx = dx * c + dy * s;
+    let ly = -dx * s + dy * c;
+    lx.abs() <= reach && ly.abs() <= RECTANGLE_HALF_WIDTH
+}
 
 /// Steps the predator spends swimming away before it disappears. It does not
 /// vanish the instant its quota is met — it leaves the way it arrived, under its
@@ -129,6 +263,14 @@ const PREDATOR_LEAVE_SPEED: f32 = 1.8;
 pub struct Predator {
     /// Stable agent id, so the renderer can single it out.
     pub id: u32,
+    /// Escalation tier, 0–3. Drives speed, reach, kill shape, and whether this
+    /// one leaves when it is done.
+    pub tier: u8,
+    /// Current rotation of the kill shape, radians. Only the top two spin.
+    pub angle: f32,
+    /// Set once its quota is met and it is resident, so it patrols instead of
+    /// hunting. Cleared when the population climbs back over the trigger.
+    pub sated: bool,
     /// It stops hunting once the living population reaches this. Checked against
     /// the live count every step, since births keep changing it underneath.
     pub target_pop: usize,
@@ -137,6 +279,20 @@ pub struct Predator {
     pub kills: u32,
     /// Steps left of its departure swim; None while still hunting.
     pub leaving: Option<u32>,
+    /// A prey animal that just resisted this hunter. It is skipped for one
+    /// target choice so a high-defense agent cannot pin the hunter in place.
+    pub rejected_id: Option<u32>,
+    /// The animal it is currently hunting. Held for `PREDATOR_COMMIT_TICKS` so
+    /// the heading has something stable to steer toward — see that constant.
+    pub target_id: Option<u32>,
+    /// Ticks of commitment left on `target_id`. Zero forces a fresh look.
+    pub commit_ticks: u32,
+    /// Current speed, world units per tick. Eased toward what the current state
+    /// wants rather than set outright, so state changes don't snap.
+    pub speed: f32,
+    /// Patrol turn rate, radians per tick, carried between ticks so idle motion
+    /// is a smooth arc instead of a per-tick coin flip.
+    pub turn_rate: f32,
 }
 
 // ── Death ─────────────────────────────────────────────────────────────────────
@@ -235,11 +391,24 @@ pub struct World {
 
     next_id: u32,
     pub lifespans: Vec<u32>,
+    /// How much of `lifespans` the last stats sample already consumed, so the
+    /// next one can take the median of just this interval's deaths.
+    lifespans_sampled: usize,
     /// Deaths awaiting export to the renderer. Drained by the wasm state builder.
     pub last_deaths: Vec<DeathEvent>,
     death_tally: HashMap<CauseOfDeath, u32>,
     spatial: SpatialHashGrid,
     pub cluster: ClusterState,
+    /// Behavioural k-means over brain weights. Retained, incremental, and off
+    /// unless something is looking at it — see `brain_cluster.rs`.
+    pub brain_clusters: BrainClusters,
+    /// Promoted lineages and the fossil record. Advanced on the same schedule
+    /// as `cluster`, since a species is a judgement about clusters over time.
+    pub species: SpeciesRegistry,
+    /// Species id per agent, parallel to the agent arrays and refreshed on
+    /// cluster runs. Stale between runs in exactly the way `cluster` is —
+    /// `swap_remove` reshuffles slots, so consumers index defensively.
+    pub species_ids: Vec<u32>,
     /// God-mode immortality. While set, no natural cause kills anyone: old age,
     /// starvation and combat losses are all suppressed and starving agents are
     /// held at a floor energy so they keep acting. Player smites ignore it —
@@ -251,6 +420,14 @@ pub struct World {
     pub immortal: bool,
     /// Apex predators currently in the pond. See `Predator`.
     pub predators: Vec<Predator>,
+    /// Ids in `predators`, as a set. Pure cache, resynced by
+    /// `resync_predator_ids` on every change to `predators`: `is_predator` is
+    /// called once per agent inside the hunt's scans, and walking the pack for
+    /// each of them made the phase O(agents × pack) per hunter.
+    predator_ids: HashSet<u32>,
+    /// Player-facing ecology switch. God-mode summons are deliberately
+    /// independent of it.
+    pub automatic_predators_enabled: bool,
     /// Predators that finished their departure swim this step, awaiting removal.
     departed_ids: Vec<u32>,
     /// Largest pack this run has ever fielded. A pack ratchets: it can grow but
@@ -258,6 +435,9 @@ pub struct World {
     /// strongest one before it. A pond that once needed six hunters has proven
     /// it can outbreed five, and there is no reason to relearn that each time.
     predator_high_water: usize,
+    /// Tier the automatic rule deploys. Always 0 — the ecology only fields
+    /// triangles, and the other two are player powers.
+    pub predator_tier: u8,
     /// Population at the last reinforcement check, to tell "still climbing"
     /// from "the cull is working".
     last_reinforce_pop: usize,
@@ -314,14 +494,21 @@ impl World {
             reproduction_cooldown: Vec::new(),
             next_id: 0,
             lifespans: Vec::new(),
+            lifespans_sampled: 0,
             last_deaths: Vec::new(),
             death_tally: HashMap::new(),
             spatial,
             cluster: ClusterState::new(),
+            brain_clusters: BrainClusters::new(),
+            species: SpeciesRegistry::new(seed),
+            species_ids: Vec::new(),
             immortal: false,
             predators: Vec::new(),
+            predator_ids: HashSet::new(),
+            automatic_predators_enabled: true,
             departed_ids: Vec::new(),
             predator_high_water: 0,
+            predator_tier: 0,
             last_reinforce_pop: 0,
             last_reinforce_step: 0,
             stats_history: StatHistory::new(),
@@ -586,12 +773,72 @@ impl World {
     /// room. Culling to the cap exactly would put the pond back at the trigger
     /// within a few births; the band is what stops that oscillation.
     pub fn cull_target_pop(&self) -> usize {
-        (self.pop_cap() as f64 * (1.0 - PREDATOR_POP_BAND)) as usize
+        (self.pop_cap() as f64 * (1.0 - PREDATOR_POP_BAND) * CULL_DEPTH) as usize
+    }
+
+    /// Enable or disable the pond's automatic triangle ecology. Disabling is an
+    /// active command: automatic residents depart, and the pack's ratchet is
+    /// reset. Player-summoned predators are not affected.
+    pub fn set_automatic_predators(&mut self, on: bool) {
+        if self.automatic_predators_enabled == on { return; }
+        self.automatic_predators_enabled = on;
+        if on { return; }
+
+        let ids: Vec<u32> = self.predators.iter()
+            .filter(|p| p.automatic && p.leaving.is_none())
+            .map(|p| p.id)
+            .collect();
+        for id in ids {
+            let Some(pi) = self.predators.iter().position(|p| p.id == id) else { continue };
+            let Some(slot) = self.slot_of(id) else { continue };
+            self.begin_departure(slot, pi);
+        }
+        self.predator_high_water = 0;
+        self.last_reinforce_pop = self.prey_count();
+        self.last_reinforce_step = self.step_count;
+    }
+
+    /// Send every player-summoned hunter away, mid-hunt. Returns how many were
+    /// dismissed.
+    ///
+    /// The off switch for the god-mode shapes, and the counterpart to
+    /// `set_automatic_predators`: that one deliberately spares player summons, so
+    /// without this an octagon or a rectangle could only be waited out. They
+    /// leave the way they always do — under their own power, over
+    /// `PREDATOR_LEAVE_TICKS` — rather than blinking out, so a dismissal reads as
+    /// the hunt being called off and not as a rendering fault. The automatic
+    /// residents are left alone; they are the ecology, not a player power.
+    pub fn dismiss_summoned_predators(&mut self) -> usize {
+        let ids: Vec<u32> = self.predators.iter()
+            .filter(|p| !p.automatic && p.leaving.is_none())
+            .map(|p| p.id)
+            .collect();
+        let mut sent = 0;
+        for id in ids {
+            let Some(pi) = self.predators.iter().position(|p| p.id == id) else { continue };
+            let Some(slot) = self.slot_of(id) else { continue };
+            self.begin_departure(slot, pi);
+            sent += 1;
+        }
+        sent
+    }
+
+    /// Player-summoned hunters still in the pond and not already leaving — what
+    /// the off switch would act on.
+    pub fn summoned_predator_count(&self) -> usize {
+        self.predators.iter().filter(|p| !p.automatic && p.leaving.is_none()).count()
     }
 
     /// Summon a predator. It hunts until the living prey count reaches
     /// `target_pop`, then leaves. Returns its agent id, or None at the cap.
     pub fn summon_predator_to(&mut self, target_pop: usize, automatic: bool) -> Option<u32> {
+        self.summon_predator_tier(target_pop, automatic, self.predator_tier)
+    }
+
+    /// Summon one hunter of a given tier.
+    pub fn summon_predator_tier(
+        &mut self, target_pop: usize, automatic: bool, tier: u8,
+    ) -> Option<u32> {
         if self.predators.len() >= PREDATOR_MAX { return None; }
 
         // Maxed traits across the board. It never reproduces or forages, so most
@@ -613,8 +860,14 @@ impl World {
 
         let id = *self.ids.last().unwrap();
         self.predators.push(Predator {
-            id, target_pop, automatic, kills: 0, leaving: None,
+            id, tier, angle: 0.0, sated: false,
+            target_pop, automatic, kills: 0, leaving: None, rejected_id: None,
+            target_id: None, commit_ticks: 0,
+            // Arrives from a standing start and accelerates into its first
+            // chase, rather than appearing already at full speed.
+            speed: 0.0, turn_rate: 0.0,
         });
+        self.resync_predator_ids();
         self.predator_high_water = self.predator_high_water.max(self.predators.len());
         self.spatial.rebuild(&self.pos_x, &self.pos_y);
         Some(id)
@@ -623,6 +876,10 @@ impl World {
     /// Player summon: culls to `survivor_frac` of the population right now.
     /// Returns the id of the first predator summoned.
     pub fn summon_predator(&mut self, survivor_frac: f64, automatic: bool) -> Option<u32> {
+        if !automatic {
+            let target = (self.prey_count() as f64 * survivor_frac).round() as usize;
+            return self.summon_predator_pack_tier(target, false, PREDATOR_MANUAL_TIER);
+        }
         let target = ((self.prey_count() as f64) * survivor_frac).round().max(0.0) as usize;
         self.summon_predator_pack(target, automatic)
     }
@@ -632,18 +889,35 @@ impl World {
     /// are already hunting. A cull of two thousand is not one hunter's work, and
     /// waiting for reinforcements to trickle in makes it look broken.
     pub fn summon_predator_pack(&mut self, target_pop: usize, automatic: bool) -> Option<u32> {
+        self.summon_predator_pack_tier(target_pop, automatic, self.predator_tier)
+    }
+
+    /// Summon a pack of a given tier, sized by that tier's pack size and by how
+    /// large the job is.
+    pub fn summon_predator_pack_tier(
+        &mut self, target_pop: usize, automatic: bool, tier: u8,
+    ) -> Option<u32> {
         let to_remove = self.prey_count().saturating_sub(target_pop);
+        let pack = TIER_PACK[(tier as usize).min(PREDATOR_TIERS - 1)];
         // Never fewer than the run's high-water mark: the pack ratchets up.
         let wanted = to_remove
             .div_ceil(PREY_PER_PREDATOR)
+            // The per-tier pack floor is an automatic-wave rule: an escalation
+            // arrives as a group. A player summon still scales to the job asked.
+            .max(if automatic { pack } else { 1 })
             .max(self.predator_high_water)
             .clamp(1, PREDATOR_MAX);
-        let already = self.predators.iter().filter(|p| p.leaving.is_none()).count();
+        // Only hunters of this tier count toward the pack — an escalation must
+        // add its own hunters rather than being satisfied by the resident ones
+        // that already failed to finish the job.
+        let already = self.predators.iter()
+            .filter(|p| p.leaving.is_none() && p.tier == tier)
+            .count();
         let spawn = wanted.saturating_sub(already);
 
         let mut first = None;
         for _ in 0..spawn.max(if already == 0 { 1 } else { 0 }) {
-            match self.summon_predator_to(target_pop, automatic) {
+            match self.summon_predator_tier(target_pop, automatic, tier) {
                 Some(id) => { if first.is_none() { first = Some(id); } }
                 None => break,   // pack is at its cap
             }
@@ -660,9 +934,17 @@ impl World {
     /// True if this slot holds a predator — used by the death checks to skip it.
     fn is_predator(&self, idx: usize) -> bool {
         match self.ids.get(idx) {
-            Some(id) => self.predators.iter().any(|p| p.id == *id),
+            Some(id) => self.predator_ids.contains(id),
             None => false,
         }
+    }
+
+    /// Rebuild the `predator_ids` cache. Called after any change to
+    /// `self.predators`; the pack is at most `PREDATOR_MAX`, so this is cheap
+    /// next to the per-agent lookups it saves.
+    fn resync_predator_ids(&mut self) {
+        self.predator_ids.clear();
+        self.predator_ids.extend(self.predators.iter().map(|p| p.id));
     }
 
     /// Run every predator's hunt, then handle arrivals and departures.
@@ -675,6 +957,7 @@ impl World {
             self.hunt_one(id);
         }
         self.predators.retain(|p| p.leaving != Some(0));
+        self.resync_predator_ids();
 
         // Anything that finished its departure swim leaves the pond. Removal is
         // not a death: no tally, no lifespan, no death event.
@@ -696,24 +979,24 @@ impl World {
             // Unreachable — a predator can't die — but drop it rather than
             // hunting with a stale slot if its id somehow vanished.
             self.predators.remove(pi);
+            self.resync_predator_ids();
             return;
         };
         let target = self.predators[pi].target_pop;
+        let tier = self.predators[pi].tier;
+        let speed = TIER_SPEED[(tier as usize).min(PREDATOR_TIERS - 1)];
+        let max_turn = TIER_MAX_TURN[(tier as usize).min(PREDATOR_TIERS - 1)];
+        self.predators[pi].angle += tier_spin(tier);
+        let angle = self.predators[pi].angle;
         let world_size = self.grid_size as f32;
-        let half = world_size * 0.5;
 
         // Departing: swim straight on, at speed, until the swim is done. The
         // population is deliberately not re-checked here — births during the
         // departure must not drag it back into a second hunt.
         if let Some(ticks) = self.predators[pi].leaving {
             if ticks == 0 { return; }
-            let vx = self.vel_x[idx];
-            let vy = self.vel_y[idx];
-            let mag = (vx * vx + vy * vy).sqrt().max(1e-4);
-            self.prev_x[idx] = self.pos_x[idx];
-            self.prev_y[idx] = self.pos_y[idx];
-            self.pos_x[idx] = (self.pos_x[idx] + vx / mag * PREDATOR_LEAVE_SPEED).rem_euclid(world_size);
-            self.pos_y[idx] = (self.pos_y[idx] + vy / mag * PREDATOR_LEAVE_SPEED).rem_euclid(world_size);
+            let dir = (self.vel_x[idx], self.vel_y[idx]);
+            self.predator_steer(idx, pi, dir, PREDATOR_LEAVE_SPEED, max_turn);
             let left = ticks - 1;
             self.predators[pi].leaving = Some(left);
             if left == 0 { self.departed_ids.push(id); }
@@ -722,54 +1005,101 @@ impl World {
 
         // Quota met — checked against the live count, which births keep moving.
         if self.prey_count() <= target {
+            if tier_resident(tier) {
+                // Resident tiers do not leave. They go quiet and patrol, and
+                // re-engage when the population climbs back over the trigger.
+                self.predators[pi].sated = true;
+                self.predators[pi].target_id = None;
+                self.predators[pi].commit_ticks = 0;
+                self.patrol(idx, pi, speed * PATROL_SPEED_FRAC);
+                return;
+            }
             self.begin_departure(idx, pi);
             return;
         }
+        self.predators[pi].sated = false;
 
         let px = self.pos_x[idx];
         let py = self.pos_y[idx];
 
-        // Chase the nearest living non-predator, toroidally.
-        let mut best: Option<(f32, f32, f32)> = None;   // (dist2, dx, dy)
-        for i in 0..self.ids.len() {
-            if i == idx || self.cause_of_death[i].is_some() || self.is_predator(i) { continue; }
-            let mut dx = self.pos_x[i] - px;
-            let mut dy = self.pos_y[i] - py;
-            if dx > half { dx -= world_size; } else if dx < -half { dx += world_size; }
-            if dy > half { dy -= world_size; } else if dy < -half { dy += world_size; }
-            let d2 = dx * dx + dy * dy;
-            if best.is_none() || d2 < best.unwrap().0 { best = Some((d2, dx, dy)); }
+        // The animal it is already hunting, if that is still worth doing: alive,
+        // not itself a predator, and not so far off that the pond behind it is a
+        // better prospect. Re-picking every tick is what made the heading flip.
+        let mut target_slot = None;
+        if self.predators[pi].commit_ticks > 0 {
+            if let Some(tid) = self.predators[pi].target_id {
+                if let Some(s) = self.slot_of(tid) {
+                    let (dx, dy) = toroidal_delta(px, py, self.pos_x[s], self.pos_y[s], world_size);
+                    if self.cause_of_death[s].is_none()
+                        && !self.is_predator(s)
+                        && dx * dx + dy * dy <= PREDATOR_COMMIT_RANGE * PREDATOR_COMMIT_RANGE
+                    {
+                        target_slot = Some(s);
+                    }
+                }
+            }
+        }
+        // Commitment lapsed, or the target is gone: look again.
+        if target_slot.is_none() {
+            target_slot = self.nearest_prey(idx, self.predators[pi].rejected_id);
+            if target_slot.is_none() && self.predators[pi].rejected_id.is_some() {
+                // The resistant animal is the only prey left. Take it again
+                // rather than deadlocking the hunt on a skip.
+                self.predators[pi].rejected_id = None;
+                target_slot = self.nearest_prey(idx, None);
+            }
+            self.predators[pi].target_id = target_slot.map(|s| self.ids[s]);
+            self.predators[pi].commit_ticks = PREDATOR_COMMIT_TICKS;
+        }
+        self.predators[pi].commit_ticks = self.predators[pi].commit_ticks.saturating_sub(1);
+
+        match target_slot {
+            Some(s) => {
+                let dir = toroidal_delta(px, py, self.pos_x[s], self.pos_y[s], world_size);
+                self.predator_steer(idx, pi, dir, speed, max_turn);
+            }
+            // Nothing to chase at all. Keep swimming rather than freezing over
+            // the last spot something was eaten.
+            None => self.patrol(idx, pi, speed * PATROL_SPEED_FRAC),
         }
 
-        if let Some((d2, dx, dy)) = best {
-            let d = d2.sqrt().max(1e-4);
-            let stepx = dx / d * PREDATOR_SPEED.min(d);
-            let stepy = dy / d * PREDATOR_SPEED.min(d);
-            self.prev_x[idx] = px;
-            self.prev_y[idx] = py;
-            self.pos_x[idx] = (px + stepx).rem_euclid(world_size);
-            self.pos_y[idx] = (py + stepy).rem_euclid(world_size);
-            self.vel_x[idx] = stepx / DT;
-            self.vel_y[idx] = stepy / DT;
-        }
-
-        // Eat everything within reach, but never more than the target allows —
-        // otherwise a dense shoal could take the population below the target in
-        // one bite and the cull would overshoot what was asked for.
+        // Eat everything the kill shape covers. Deliberately *not* clamped to
+        // the remaining quota: clamping is what made a cull land on exactly the
+        // threshold, which then sat one boom away from re-triggering. Overshoot
+        // is the point — it buys the pond room to grow again.
+        //
+        // Every agent is tested rather than only the nearby buckets: the kill
+        // shape must never miss something standing inside it, and the spatial
+        // grid does not know about position writes made earlier in this same
+        // phase. `is_predator` is a set lookup now, so this is one pass, not one
+        // pass per member of the pack.
         let bite_x = self.pos_x[idx];
         let bite_y = self.pos_y[idx];
-        let allowed = self.prey_count().saturating_sub(target);
         let mut victims = Vec::new();
+        let mut target_resisted = false;
         for i in 0..self.ids.len() {
-            if victims.len() >= allowed { break; }
             if i == idx || self.cause_of_death[i].is_some() || self.is_predator(i) { continue; }
-            let mut dx = self.pos_x[i] - bite_x;
-            let mut dy = self.pos_y[i] - bite_y;
-            if dx > half { dx -= world_size; } else if dx < -half { dx += world_size; }
-            if dy > half { dy -= world_size; } else if dy < -half { dy += world_size; }
-            if dx * dx + dy * dy <= PREDATOR_BITE_RADIUS * PREDATOR_BITE_RADIUS {
-                victims.push(i);
+            let (dx, dy) = toroidal_delta(bite_x, bite_y, self.pos_x[i], self.pos_y[i], world_size);
+            if tier_bite_hits(tier, dx, dy, angle) {
+                if predator_attack_succeeds(
+                    tier,
+                    self.genome[i].traits.defense,
+                    self.parent_defense_bonus[i],
+                    self.age[i],
+                ) {
+                    victims.push(i);
+                } else if target_slot == Some(i) {
+                    target_resisted = true;
+                }
             }
+        }
+        self.predators[pi].rejected_id =
+            if target_resisted { target_slot.map(|i| self.ids[i]) } else { None };
+        if target_resisted {
+            // Drop the commitment too, or it spends the rest of the commitment
+            // window swimming at an animal it has already failed to bite.
+            self.predators[pi].target_id = None;
+            self.predators[pi].commit_ticks = 0;
         }
 
         if !victims.is_empty() {
@@ -787,11 +1117,91 @@ impl World {
             }
         }
 
-        if self.prey_count() <= target {
+        if self.prey_count() <= target && !tier_resident(tier) {
             if let Some(slot) = self.slot_of(id) {
                 self.begin_departure(slot, pi);
             }
         }
+    }
+
+    /// Slot of the nearest living prey animal, toroidally, skipping `skip_id`.
+    ///
+    /// Only runs when a hunter needs a new target — once per
+    /// `PREDATOR_COMMIT_TICKS`, not once per tick.
+    fn nearest_prey(&self, idx: usize, skip_id: Option<u32>) -> Option<usize> {
+        let world_size = self.grid_size as f32;
+        let (px, py) = (self.pos_x[idx], self.pos_y[idx]);
+        let mut best: Option<(f32, usize)> = None;
+        for i in 0..self.ids.len() {
+            if i == idx || self.cause_of_death[i].is_some() || self.is_predator(i) { continue; }
+            if skip_id == Some(self.ids[i]) { continue; }
+            let (dx, dy) = toroidal_delta(px, py, self.pos_x[i], self.pos_y[i], world_size);
+            let d2 = dx * dx + dy * dy;
+            if best.is_none() || d2 < best.unwrap().0 { best = Some((d2, i)); }
+        }
+        best.map(|b| b.1)
+    }
+
+    /// Move one predator `step` world units, turning no more than `max_turn`
+    /// radians this tick toward `dir`.
+    ///
+    /// Every predator motion path goes through here — chase, patrol, departure —
+    /// so heading and speed are continuous across state changes. Velocity is the
+    /// state that carries between ticks; position follows from it. Before this,
+    /// chase wrote position from a fresh unit vector every tick and left velocity
+    /// as a by-product, which is what let a hunter turn 180° between two frames.
+    fn predator_steer(&mut self, idx: usize, pi: usize, dir: (f32, f32), step: f32, max_turn: f32) {
+        let world_size = self.grid_size as f32;
+        let want_len2 = dir.0 * dir.0 + dir.1 * dir.1;
+
+        let (vx, vy) = (self.vel_x[idx], self.vel_y[idx]);
+        let mut heading = if vx * vx + vy * vy < 1e-6 {
+            // Nothing to preserve: face where we want to go, or anywhere at all.
+            if want_len2 < 1e-12 { self.rng.gen::<f32>() * TAU } else { dir.1.atan2(dir.0) }
+        } else {
+            vy.atan2(vx)
+        };
+        if want_len2 >= 1e-12 {
+            // Shortest signed turn, then clamp it to the tier's rate.
+            let mut delta = (dir.1.atan2(dir.0) - heading).rem_euclid(TAU);
+            if delta > PI { delta -= TAU; }
+            heading += delta.clamp(-max_turn, max_turn);
+        }
+
+        let speed = self.predators[pi].speed
+            + (step - self.predators[pi].speed) * PREDATOR_SPEED_EASE;
+        self.predators[pi].speed = speed;
+
+        let (dx, dy) = (heading.cos() * speed, heading.sin() * speed);
+        self.prev_x[idx] = self.pos_x[idx];
+        self.prev_y[idx] = self.pos_y[idx];
+        self.pos_x[idx] = (self.pos_x[idx] + dx).rem_euclid(world_size);
+        self.pos_y[idx] = (self.pos_y[idx] + dy).rem_euclid(world_size);
+        self.vel_x[idx] = dx / DT;
+        self.vel_y[idx] = dy / DT;
+    }
+
+    /// Idle motion for a predator with nothing to hunt. It keeps its heading,
+    /// drifts, and stays visible — the pond is supposed to feel like it has
+    /// permanent residents once they have arrived.
+    ///
+    /// The wander is a random walk on the *turn rate*, not on the heading: an
+    /// uncorrelated turn every tick at 20 Hz reads as vibration, and patrolling
+    /// is the state a sated resident spends most of its life in.
+    fn patrol(&mut self, idx: usize, pi: usize, speed: f32) {
+        let noise = (self.rng.gen::<f32>() - 0.5) * 2.0 * PATROL_TURN_NOISE;
+        let rate = (self.predators[pi].turn_rate * PATROL_TURN_MEMORY + noise)
+            .clamp(-PATROL_TURN_MAX, PATROL_TURN_MAX);
+        self.predators[pi].turn_rate = rate;
+
+        let (vx, vy) = (self.vel_x[idx], self.vel_y[idx]);
+        let heading = if vx * vx + vy * vy < 1e-6 {
+            self.rng.gen::<f32>() * TAU
+        } else {
+            vy.atan2(vx)
+        };
+        let want = heading + rate;
+        self.predator_steer(idx, pi, (want.cos(), want.sin()), speed, PATROL_TURN_MAX);
     }
 
     /// Stop hunting and start swimming away. Heading is whatever it was last
@@ -806,6 +1216,8 @@ impl World {
             self.vel_x[idx] = angle.cos();
             self.vel_y[idx] = angle.sin();
         }
+        self.predators[pi].target_id = None;
+        self.predators[pi].commit_ticks = 0;
         self.predators[pi].leaving = Some(PREDATOR_LEAVE_TICKS);
     }
 
@@ -816,23 +1228,43 @@ impl World {
     /// hunter if the prey count still isn't falling a while later, so a pond
     /// that outbreeds its predators is answered by more of them.
     fn manage_predator_pack(&mut self) {
+        if !self.automatic_predators_enabled { return; }
         let prey = self.prey_count();
-        let active_target = self.predators.iter()
-            .filter(|p| p.leaving.is_none())
+        // A resident that has gone quiet is not a hunt in progress.
+        let hunting = self.predators.iter()
+            .filter(|p| p.leaving.is_none() && !p.sated)
             .map(|p| p.target_pop)
             .min();
 
-        match active_target {
-            // Nothing hunting: only the capacity rule can start a cull.
+        match hunting {
+            // Nothing hunting: only the capacity rule can start a wave, and it
+            // only ever fields triangles.
             None => {
                 if prey > self.cull_trigger_pop() {
                     let target = self.cull_target_pop();
-                    self.summon_predator_pack(target, true);
+                    // Wake every resident, then add one more to the pack. The
+                    // pond earns a permanent hunter each time it outgrows the
+                    // ones it already has.
+                    for p in self.predators.iter_mut() {
+                        p.sated = false;
+                        p.target_pop = target;
+                    }
+                    let resident = self.predators.iter()
+                        .filter(|p| p.leaving.is_none() && tier_resident(p.tier))
+                        .count();
+                    let want = (resident + 1).max(TIER_PACK[0]).min(PREDATOR_MAX);
+                    for _ in resident..want {
+                        if self.summon_predator_tier(target, true, 0).is_none() {
+                            break;
+                        }
+                    }
                     self.last_reinforce_step = self.step_count;
                 }
                 self.last_reinforce_pop = prey;
             }
-            // A hunt is under way. Reinforce it if it is not making progress.
+            // A hunt is under way. A pond still not falling after a while has
+            // outbred the pack it has, so the pack grows by one — the same rule
+            // as a fresh threshold crossing, since that is what this is.
             Some(target) => {
                 if self.step_count.saturating_sub(self.last_reinforce_step)
                     < PREDATOR_REINFORCE_STEPS {
@@ -844,7 +1276,7 @@ impl World {
                 // hunters already in the water are winning, adding more would
                 // overshoot the target and turn a cull into an extinction.
                 if prey > target && prey >= self.last_reinforce_pop {
-                    self.summon_predator_to(target, self.predators.first().is_some_and(|p| p.automatic));
+                    self.summon_predator_tier(target, true, 0);
                 }
                 self.last_reinforce_pop = prey;
             }
@@ -935,8 +1367,18 @@ impl World {
         // Phase 10: dual k-means clustering every 50 steps
         if self.step_count % 50 == 0 && !self.genome.is_empty() {
             let prev = std::mem::take(&mut self.cluster);
-            self.cluster = ClusterState::run(&self.genome, 6, 24, self.step_count, Some(&prev));
+            self.cluster = ClusterState::run(&self.genome, 6, self.step_count, Some(&prev));
+            self.brain_clusters.begin(&self.genome, 24, self.step_count);
+            // Speciation reads the fresh clustering and consumes no RNG, so a
+            // run with it enabled steps identically to one without.
+            self.species_ids =
+                self.species.update(&self.genome, &self.cluster, self.step_count);
         }
+
+        // Behavioural clustering advances one iteration per step so its cost is
+        // a ripple rather than the frame-dropping spike it was when the whole
+        // pass ran inside the tick. No-op when disabled or idle.
+        self.brain_clusters.advance(&self.genome);
 
         // Observation, not a phase: read-only sampling of the state the ten
         // phases just produced. Consumes no RNG, mutates no agent.
@@ -959,25 +1401,35 @@ impl World {
     /// the dead have been reaped, so every agent still in the arrays is alive.
     fn sample_stats(&mut self) {
         let stats = self.get_stats();
-        let (min_age, max_age) = self
-            .age
-            .iter()
-            .fold(None::<(u32, u32)>, |acc, &a| match acc {
-                None => Some((a, a)),
-                Some((lo, hi)) => Some((lo.min(a), hi.max(a))),
-            })
-            .unwrap_or((0, 0));
+        // Percentiles, not min/max: reproduction is continuous, so there is
+        // essentially always a newborn and the minimum sat at 0 forever.
+        let (age_p10, age_p90) = age_percentiles(&self.age);
+        // Median age at death during this interval only. `lifespans` is
+        // append-only, so the tail past the last sample is exactly this
+        // interval's deaths — the same differencing trick the death counts use.
+        let interval_median = median(&self.lifespans[self.lifespans_sampled.min(self.lifespans.len())..]);
+        self.lifespans_sampled = self.lifespans.len();
         let deaths = self.stats_history.interval_deaths(self.death_counts());
+        let n = self.genome.len();
+        let (mean_generation, max_generation) = if n > 0 {
+            let sum: u64 = self.genome.iter().map(|g| g.generation as u64).sum();
+            let max = self.genome.iter().map(|g| g.generation).max().unwrap_or(0);
+            (sum as f32 / n as f32, max)
+        } else {
+            (0.0, 0)
+        };
 
         self.stats_history.push(StatSample {
             step: self.step_count,
             alive: stats.alive_agents as u32,
             total_food: stats.total_food,
             avg_energy: stats.avg_energy as f32,
-            median_lifespan: stats.median_lifespan as f32,
-            min_age,
-            max_age,
+            median_lifespan: interval_median as f32,
+            age_p10,
+            age_p90,
             deaths,
+            mean_generation,
+            max_generation,
         });
     }
 
@@ -1025,9 +1477,18 @@ impl World {
         }
     }
 
+    /// Everything that gets a brain this tick.
+    ///
+    /// Predators are excluded. They have their own phase, and having them in
+    /// both meant the brain wrote a velocity capped at `MAX_SPEED` and a
+    /// `prev_*` pair, and then the hunt overwrote all four a few phases later:
+    /// the heading a hunter tried to hold was perturbed by wander force every
+    /// tick, and the leg of motion the brain had already moved it through was
+    /// never interpolated by the renderer. An apex predator does not forage,
+    /// sleep or breed either — those gates fired here and nowhere else.
     fn partition_agents_scratch(&mut self) {
         for i in 0..self.ids.len() {
-            if self.cause_of_death[i].is_none() {
+            if self.cause_of_death[i].is_none() && !self.is_predator(i) {
                 self.scratch_acting.push(i);
             }
         }
@@ -1354,7 +1815,10 @@ impl World {
         let cy = (self.pos_y[idx] + radius * angle.sin()).rem_euclid(world_size);
 
         let suppression = self.memory[idx].suppression(0.05);
-        let child_genome = self.genome[idx].mutate(&mut self.rng, suppression);
+        // Probation clamp: a cluster being tested reproduces with its mutability
+        // taken away. Transient, not heritable — see Genome::mutate.
+        let clamp = self.species.clamp_for(&self.genome[idx].traits);
+        let child_genome = self.genome[idx].mutate(&mut self.rng, suppression, clamp);
         let parent_defense = self.genome[idx].traits.defense;
         let child_energy = cost * BIRTH_ENERGY_YIELD;
 
@@ -1514,6 +1978,9 @@ impl World {
         self.max_offspring.push(max_offspring);
         self.last_reproduced_age.push(None);
         self.reproduction_cooldown.push(cooldown);
+        // Membership is recomputed on the next species tick. Keeping the vector
+        // index-aligned in between is what makes names reliable in every view.
+        self.species_ids.push(crate::species::UNASSIGNED);
     }
 
     fn reap_dead(&mut self, mut dead: Vec<usize>) {
@@ -1572,6 +2039,7 @@ impl World {
                 self.max_offspring.swap_remove(i);
                 self.last_reproduced_age.swap_remove(i);
                 self.reproduction_cooldown.swap_remove(i);
+                self.species_ids.swap_remove(i);
             } else {
                 self.ids.pop();
                 self.energy.pop();
@@ -1593,6 +2061,7 @@ impl World {
                 self.max_offspring.pop();
                 self.last_reproduced_age.pop();
                 self.reproduction_cooldown.pop();
+                self.species_ids.pop();
             }
         }
     }
@@ -1610,12 +2079,30 @@ impl World {
 
 // ── Free functions ────────────────────────────────────────────────────────────
 
+/// Offset from (px, py) to (qx, qy) across a toroidal world: always the shorter
+/// way round on each axis.
+#[inline]
+fn toroidal_delta(px: f32, py: f32, qx: f32, qy: f32, world_size: f32) -> (f32, f32) {
+    let half = world_size * 0.5;
+    let mut dx = qx - px;
+    let mut dy = qy - py;
+    if dx > half { dx -= world_size; } else if dx < -half { dx += world_size; }
+    if dy > half { dy -= world_size; } else if dy < -half { dy += world_size; }
+    (dx, dy)
+}
+
 fn effective_defense(defense: f64, parent_bonus: f64, age: u32) -> f64 {
     if age >= CHILDHOOD_TICKS || parent_bonus == 0.0 {
         return defense;
     }
     let ratio = age as f64 / CHILDHOOD_TICKS as f64;
     defense + parent_bonus * (1.0 - ratio)
+}
+
+fn predator_attack_succeeds(tier: u8, defense: f64, parent_bonus: f64, age: u32) -> bool {
+    let t = (tier as usize).min(PREDATOR_TIERS - 1);
+    if TIER_IGNORES_DEFENSE[t] { return true; }
+    TIER_ATTACK[t] > effective_defense(defense, parent_bonus, age)
 }
 
 fn init_grid(grid_size: usize, rng: &mut ChaCha8Rng) -> Vec<BiomeTile> {
@@ -1693,6 +2180,19 @@ fn create_death_range(rng: &mut ChaCha8Rng) -> Vec<u32> {
 
 fn assign_death_age(pool: &[u32], rng: &mut ChaCha8Rng) -> u32 {
     pool.choose(rng).copied().unwrap_or(750)
+}
+
+/// 10th and 90th percentile of a slice of ages, by nearest rank.
+fn age_percentiles(ages: &[u32]) -> (u32, u32) {
+    if ages.is_empty() {
+        return (0, 0);
+    }
+    let mut s = ages.to_vec();
+    s.sort_unstable();
+    let idx = |q: f64| -> usize {
+        (((s.len() - 1) as f64) * q).round() as usize
+    };
+    (s[idx(0.10)], s[idx(0.90)])
 }
 
 fn median(v: &[u32]) -> f64 {
@@ -1952,25 +2452,409 @@ mod tests {
     }
 
     #[test]
-    fn predator_culls_to_its_target_then_leaves() {
-        let mut w = World::new(20, 200, 12);
-        let before = w.agent_count();
-        w.summon_predator(PREDATOR_MANUAL_FRAC, false).expect("summon failed");
-        let target = w.predators[0].target_pop;
-        assert_eq!(target, (before as f64 * 0.20).round() as usize);
+    fn the_resident_tier_stays_and_goes_quiet_instead_of_leaving() {
+        // The triangles arrive and never leave: once their quota is met they
+        // patrol, and they wake up when the population climbs again.
+        let mut w = World::new(16, 80, 21);
+        w.set_automatic_predators(false);
+        w.summon_predator_tier(w.prey_count(), false, 0);
+        let id = w.predators[0].id;
+        w.hunt_one(id);
+        for _ in 0..PREDATOR_LEAVE_TICKS * 3 {
+            w.hunt_one(id);
+        }
+        assert_eq!(w.predators.len(), 1, "a resident predator left the pond");
+        assert!(w.predators[0].sated, "resident never went quiet");
+        assert!(w.predators[0].leaving.is_none(), "resident began departing");
+        assert!(w.ids.contains(&id));
+    }
 
-        for _ in 0..4000 {
+    /// Heading of one agent slot, radians. None while it is standing still.
+    fn heading_of(w: &World, idx: usize) -> Option<f32> {
+        let (vx, vy) = (w.vel_x[idx], w.vel_y[idx]);
+        if vx * vx + vy * vy < 1e-6 { None } else { Some(vy.atan2(vx)) }
+    }
+
+    /// Shortest signed angle from `a` to `b`.
+    fn angle_delta(a: f32, b: f32) -> f32 {
+        let mut d = (b - a).rem_euclid(TAU);
+        if d > PI { d -= TAU; }
+        d
+    }
+
+    #[test]
+    fn a_hunter_never_turns_faster_than_its_tier() {
+        // The jitter fix, stated as an invariant: no predator's heading may swing
+        // more in one tick than its tier's turn rate, in any state — chasing,
+        // patrolling, or leaving. Before steering, a chase could flip 180°
+        // between two ticks whenever the nearest prey changed.
+        for tier in 0..PREDATOR_TIERS as u8 {
+            let mut w = World::new(16, 120, 404 + tier as u64);
+            w.set_automatic_predators(false);
+            w.summon_predator_tier(20, false, tier);
+            let id = w.predators[0].id;
+            let limit = TIER_MAX_TURN[tier as usize] + 1e-3;
+
+            let mut last = w.slot_of(id).and_then(|s| heading_of(&w, s));
+            for step in 0..400 {
+                w.step();
+                let Some(slot) = w.slot_of(id) else { break };
+                let Some(now) = heading_of(&w, slot) else { continue };
+                if let Some(prev) = last {
+                    let turned = angle_delta(prev, now).abs();
+                    assert!(
+                        turned <= limit,
+                        "tier {tier} turned {turned} rad on step {step}, limit {limit}",
+                    );
+                }
+                last = Some(now);
+            }
+        }
+    }
+
+    #[test]
+    fn a_hunter_never_changes_speed_abruptly() {
+        // Speed eases toward whatever the current state wants, so going quiet or
+        // leaving is not a one-tick jump. The bound is the easing itself: no step
+        // may cover more than `PREDATOR_SPEED_EASE` of the gap to the fastest
+        // thing a predator ever does.
+        let mut w = World::new(16, 200, 77);
+        w.set_automatic_predators(false);
+        w.summon_predator_tier(40, false, 0);
+        let id = w.predators[0].id;
+        let ceiling = PREDATOR_LEAVE_SPEED.max(TIER_SPEED[0]);
+        let bound = ceiling * PREDATOR_SPEED_EASE + 1e-4;
+
+        let mut last = w.predators[0].speed;
+        for step in 0..500 {
             w.step();
+            let Some(p) = w.predators.iter().find(|p| p.id == id) else { break };
+            let jump = (p.speed - last).abs();
+            assert!(jump <= bound, "speed jumped {jump} on step {step}, bound {bound}");
+            assert!(p.speed <= ceiling + 1e-4, "speed {} over its ceiling", p.speed);
+            last = p.speed;
+        }
+    }
+
+    #[test]
+    fn a_hunter_still_runs_its_prey_down() {
+        // Turn limits must not make a hunter miss. One triangle, one prey animal,
+        // nothing else in the pond: it closes and eats, banking rather than
+        // snapping onto the target.
+        let mut w = World::new(12, 1, 909);
+        w.set_automatic_predators(false);
+        w.summon_predator_tier(0, false, 0);
+        let id = w.predators[0].id;
+        let prey_id = *w.ids.iter().find(|&&i| i != id).unwrap();
+
+        let mut caught = None;
+        for step in 0..600 {
+            w.step();
+            if !w.ids.contains(&prey_id) { caught = Some(step); break; }
+        }
+        assert!(caught.is_some(), "a hunter alone with one prey animal never caught it");
+        assert_eq!(w.predators[0].kills, 1, "the kill was not credited to the hunter");
+    }
+
+    #[test]
+    fn a_sated_resident_patrols_smoothly() {
+        // Patrolling is the state a resident spends most of its life in, and it
+        // used to redraw its turn from scratch every tick, which reads as 20 Hz
+        // vibration rather than as swimming.
+        let mut w = World::new(16, 40, 313);
+        w.set_automatic_predators(false);
+        // A quota it can never be pulled back off by births: this test is about
+        // idle motion, and a resident that wakes is chasing, not patrolling.
+        w.summon_predator_tier(usize::MAX, false, 0);
+        let id = w.predators[0].id;
+        for _ in 0..20 { w.step(); }
+        assert!(w.predators[0].sated, "resident never went quiet");
+
+        let mut last = w.slot_of(id).and_then(|s| heading_of(&w, s));
+        for step in 0..300 {
+            w.step();
+            let slot = w.slot_of(id).expect("resident left the pond");
+            let Some(now) = heading_of(&w, slot) else { continue };
+            if let Some(prev) = last {
+                let turned = angle_delta(prev, now).abs();
+                assert!(
+                    turned <= PATROL_TURN_MAX + 1e-3,
+                    "patrol turned {turned} rad on step {step}",
+                );
+            }
+            last = Some(now);
+        }
+    }
+
+    #[test]
+    fn a_hunter_commits_to_one_target_instead_of_re_picking_every_tick() {
+        // Two prey animals at near-equal distance used to make the argmin
+        // alternate, so the hunter aimed at each in turn and went nowhere.
+        // Pond large enough that neither animal can be reached inside the
+        // commitment window — this is a test about target choice, not about kills.
+        let mut w = World::new(60, 2, 1234);
+        w.set_automatic_predators(false);
+        w.summon_predator_tier(0, false, 0);
+        let id = w.predators[0].id;
+        let pslot = w.slot_of(id).unwrap();
+        let prey: Vec<usize> = (0..w.ids.len()).filter(|&i| i != pslot).collect();
+
+        // Symmetrically placed either side of the hunter's course.
+        w.pos_x[pslot] = 30.0;
+        w.pos_y[pslot] = 30.0;
+        w.pos_x[prey[0]] = 30.0;
+        w.pos_y[prey[0]] = 10.0;
+        w.pos_x[prey[1]] = 30.0;
+        w.pos_y[prey[1]] = 50.0;
+
+        w.hunt_one(id);
+        let first = w.predators[0].target_id;
+        assert!(first.is_some(), "hunter picked no target");
+        for _ in 0..PREDATOR_COMMIT_TICKS - 1 {
+            w.hunt_one(id);
+            assert_eq!(w.predators[0].target_id, first, "hunter re-picked mid-commitment");
+        }
+    }
+
+
+
+    #[test]
+    fn the_ecology_only_ever_fields_triangles() {
+        // The octagon and the rectangle are player powers. No automatic rule may
+        // ever put one in the water, however badly the pond is overrun.
+        let mut w = World::new(12, 10, 5);
+        let over = w.cull_trigger_pop() + 400;
+        for _ in 0..3000 {
+            while w.prey_count() < over {
+                w.pour_agents(6.0, 6.0, 64);
+            }
+            w.step();
+            for p in &w.predators {
+                assert_eq!(p.tier, 0, "the ecology summoned a tier-{} predator", p.tier);
+            }
+        }
+    }
+
+    #[test]
+    fn the_pack_grows_by_one_each_time_the_threshold_is_crossed() {
+        // A pond that keeps outgrowing its hunters accumulates them. Residents
+        // never leave, so the pack is a running record of how often the pond has
+        // outbred it.
+        let mut w = World::new(12, 10, 5);
+        let over = w.cull_trigger_pop() + 400;
+        let mut counts = Vec::new();
+        for _ in 0..2000 {
+            while w.prey_count() < over {
+                w.pour_agents(6.0, 6.0, 64);
+            }
+            w.step();
+            counts.push(w.predators.len());
+        }
+        let first = counts[0];
+        let last = *counts.last().unwrap();
+        assert!(last > first, "pack never grew: {} → {}", first, last);
+        assert!(last <= PREDATOR_MAX, "pack blew past the cap: {}", last);
+        // Monotone: residents do not leave, so the count never falls.
+        for pair in counts.windows(2) {
+            assert!(pair[1] >= pair[0], "pack shrank: {} → {}", pair[0], pair[1]);
+        }
+    }
+
+    #[test]
+    fn higher_tiers_kill_harder() {
+        // Lethality is back-loaded on purpose: if the bottom tiers could finish
+        // the job the ladder would never be climbed.
+        for t in 1..PREDATOR_TIERS as u8 {
+            assert!(
+                tier_bite(t) > tier_bite(t - 1),
+                "tier {} does not out-reach tier {}", t, t - 1,
+            );
+        }
+        assert!(tier_resident(0), "the triangles must stay");
+        for t in 1..PREDATOR_TIERS as u8 {
+            assert!(!tier_resident(t), "tier {} must hit and run", t);
+        }
+    }
+
+    #[test]
+    fn predator_attack_is_strict_and_scaled_by_tier() {
+        for (tier, &attack) in TIER_ATTACK.iter().enumerate() {
+            if TIER_IGNORES_DEFENSE[tier] { continue; }
+            assert!(predator_attack_succeeds(tier as u8, attack - 0.01, 0.0, CHILDHOOD_TICKS));
+            assert!(!predator_attack_succeeds(tier as u8, attack, 0.0, CHILDHOOD_TICKS));
+            assert!(!predator_attack_succeeds(tier as u8, attack + 0.01, 0.0, CHILDHOOD_TICKS));
+        }
+        // The existing childhood bonus participates in the same effective
+        // defense calculation used by ordinary combat.
+        assert!(!predator_attack_succeeds(0, 0.50, 0.50, 0));
+    }
+
+    #[test]
+    fn the_rectangle_eats_anything_it_covers() {
+        // The most final power in the game does not roll for it. Nothing the
+        // trait bounds or the childhood bonus can produce survives the sweep.
+        let tier = PREDATOR_RECTANGLE_TIER;
+        for &defense in &[0.5, 1.0, 1.07, 5.0, f64::MAX] {
+            assert!(predator_attack_succeeds(tier, defense, 0.0, CHILDHOOD_TICKS));
+            assert!(predator_attack_succeeds(tier, defense, 0.5, 0), "childhood bonus survived");
+        }
+        // And the tiers below it still roll — a triangle losing to armour is what
+        // makes defense worth evolving.
+        assert!(!predator_attack_succeeds(0, 1.07, 0.0, CHILDHOOD_TICKS));
+    }
+
+    #[test]
+    fn a_rectangle_sweep_leaves_no_survivors_in_its_path() {
+        // End to end: the maximum-defense pond, swept. Anything the shape covers
+        // must be gone, however armoured.
+        let mut w = World::new(16, 60, 4242);
+        w.set_automatic_predators(false);
+        for i in 0..w.ids.len() {
+            w.genome[i].traits.defense = 1.07;
+        }
+        w.summon_predator_pack_tier(0, false, PREDATOR_RECTANGLE_TIER);
+        assert!(!w.predators.is_empty(), "no rectangle arrived");
+
+        for _ in 0..3000 {
+            w.step();
+            if w.prey_count() == 0 { break; }
+        }
+        assert_eq!(w.prey_count(), 0, "armoured agents survived the sweep");
+    }
+
+    #[test]
+    fn summoned_hunters_can_be_dismissed_and_the_ecology_is_left_alone() {
+        let mut w = World::new(16, 80, 55);
+        w.summon_predator_tier(20, true, 0);                        // ecology
+        w.summon_predator_tier(20, false, PREDATOR_MANUAL_TIER);    // player
+        w.summon_predator_tier(20, false, PREDATOR_RECTANGLE_TIER); // player
+        assert_eq!(w.summoned_predator_count(), 2);
+
+        assert_eq!(w.dismiss_summoned_predators(), 2, "dismissal missed a summon");
+        assert_eq!(w.summoned_predator_count(), 0, "a summon stayed behind");
+        assert!(
+            w.predators.iter().filter(|p| !p.automatic).all(|p| p.leaving.is_some()),
+            "a dismissed hunter is not leaving",
+        );
+        // The ecology's own residents are not a player power and keep hunting.
+        assert!(
+            w.predators.iter().filter(|p| p.automatic).all(|p| p.leaving.is_none()),
+            "dismissal sent an automatic resident away",
+        );
+        // Dismissing twice is not an error, and does not re-dismiss the leavers.
+        assert_eq!(w.dismiss_summoned_predators(), 0);
+
+        // They actually go, under their own power rather than blinking out.
+        for _ in 0..PREDATOR_LEAVE_TICKS * 2 {
+            w.step();
+        }
+        assert!(
+            w.predators.iter().all(|p| p.automatic),
+            "dismissed hunters never left the pond",
+        );
+    }
+
+    #[test]
+    fn predator_moves_on_after_a_target_resists() {
+        let mut w = World::new(10, 2, 17);
+        w.set_automatic_predators(false);
+        w.summon_predator_tier(0, false, 0);
+        let predator_id = w.predators[0].id;
+        let predator_slot = w.slot_of(predator_id).unwrap();
+        let prey: Vec<usize> = (0..w.ids.len())
+            .filter(|&i| i != predator_slot)
+            .collect();
+
+        w.pos_x[predator_slot] = 1.0;
+        w.pos_y[predator_slot] = 1.0;
+        w.pos_x[prey[0]] = 1.0;
+        w.pos_y[prey[0]] = 1.0;
+        w.genome[prey[0]].traits.defense = 1.07;
+        w.parent_defense_bonus[prey[0]] = 0.0;
+        w.pos_x[prey[1]] = 5.0;
+        w.pos_y[prey[1]] = 1.0;
+
+        let resisted_id = w.ids[prey[0]];
+        w.hunt_one(predator_id);
+        assert_eq!(w.predators[0].rejected_id, Some(resisted_id));
+        assert!(w.ids.contains(&resisted_id), "resistant prey was eaten");
+
+        w.hunt_one(predator_id);
+        let predator_slot = w.slot_of(predator_id).unwrap();
+        assert_ne!(w.pos_x[predator_slot], 1.0, "hunter did not move on");
+        assert_eq!(w.predators[0].rejected_id, None);
+    }
+
+    #[test]
+    fn disabling_automatic_predators_sends_only_them_away_and_resets_the_pack() {
+        let mut w = World::new(16, 80, 91);
+        w.summon_predator_tier(20, true, 0);
+        w.summon_predator_tier(20, false, PREDATOR_MANUAL_TIER);
+        assert!(w.predator_high_water > 0);
+
+        w.set_automatic_predators(false);
+        assert!(!w.automatic_predators_enabled);
+        assert_eq!(w.predator_high_water, 0);
+        assert!(w.predators.iter().filter(|p| p.automatic)
+            .all(|p| p.leaving.is_some()));
+        assert!(w.predators.iter().filter(|p| !p.automatic)
+            .all(|p| p.leaving.is_none()));
+
+        let before = w.predators.len();
+        w.manage_predator_pack();
+        assert_eq!(w.predators.len(), before, "disabled ecology reinforced");
+    }
+
+    #[test]
+    fn the_rectangle_kills_along_its_edge_not_in_a_circle() {
+        let top = (PREDATOR_TIERS - 1) as u8;
+        let reach = tier_bite(top);
+        // Far out along the long axis: inside the sweep.
+        assert!(tier_bite_hits(top, reach * 0.9, 0.0, 0.0));
+        // The same distance off the short axis: outside it.
+        assert!(!tier_bite_hits(top, 0.0, reach * 0.9, 0.0));
+        // Rotating the sweep by a quarter turn swaps which one is covered.
+        let quarter = std::f32::consts::FRAC_PI_2;
+        assert!(tier_bite_hits(top, 0.0, reach * 0.9, quarter));
+    }
+
+    #[test]
+    fn a_cull_cuts_below_the_band_so_a_boom_has_room() {
+        // Landing exactly on the floor left the pond one boom from re-trigger,
+        // which made predators permanently resident and mid-hunt.
+        let w = World::new(16, 1, 1);
+        let floor = (w.pop_cap() as f64 * (1.0 - PREDATOR_POP_BAND)) as usize;
+        assert!(
+            w.cull_target_pop() < floor,
+            "cull target {} is not below the hysteresis floor {}",
+            w.cull_target_pop(), floor,
+        );
+    }
+
+    #[test]
+    fn predator_culls_to_its_target_then_leaves() {
+        let mut w = World::new(20, 30, 12);
+        w.set_automatic_predators(false);
+        let before = w.prey_count();
+        let target = before - 1;
+        w.summon_predator_pack_tier(target, false, PREDATOR_MANUAL_TIER)
+            .expect("summon failed");
+        let target = w.predators[0].target_pop;
+        let predator_slot = w.slot_of(w.predators[0].id).unwrap();
+        let victim = (0..w.ids.len()).find(|&i| i != predator_slot).unwrap();
+        w.genome[victim].traits.defense = 0.50;
+        w.parent_defense_bonus[victim] = 0.0;
+        w.pos_x[victim] = w.pos_x[predator_slot];
+        w.pos_y[victim] = w.pos_y[predator_slot];
+        w.hunt_one(w.predators[0].id);
+
+        for _ in 0..PREDATOR_LEAVE_TICKS + 2 {
+            w.hunt_with_predators();
             if w.predators.is_empty() { break; }
         }
 
         assert!(w.predators.is_empty(), "predator never left");
-        // It stops at the target rather than eating through it. Births during the
-        // hunt can leave the count slightly above.
-        assert!(
-            w.prey_count() <= target + 12,
-            "population {} overshot target {}", w.prey_count(), target
-        );
+        assert!(w.prey_count() <= target);
     }
 
     #[test]
@@ -1990,7 +2874,8 @@ mod tests {
     fn predator_leaving_is_not_a_death() {
         let mut w = World::new(16, 60, 4);
         let deaths_before: u32 = w.death_counts().iter().sum();
-        w.summon_predator(1.0, false);   // target = current pop: nothing to eat
+        // Hit-and-run tier: the triangles stay in the pond by design.
+        w.summon_predator_tier(w.prey_count(), false, PREDATOR_TIERS as u8 - 1);
         let id = w.predators[0].id;
 
         // It swims off before it disappears, so it is still present for a while.
@@ -2016,7 +2901,8 @@ mod tests {
         // Births during the departure swim can push the population back above
         // the target; that must not drag it back into a second cull.
         let mut w = World::new(16, 80, 44);
-        w.summon_predator(1.0, false);
+        let target = w.prey_count();
+        w.summon_predator_tier(target, false, PREDATOR_MANUAL_TIER);   // hit-and-run
         w.step();
         assert!(w.predators[0].leaving.is_some());
         let eaten_at_departure = w.death_counts()[CauseOfDeath::EatenAlive.code() as usize];
@@ -2054,16 +2940,22 @@ mod tests {
         w.step();
         assert!(!w.predators.is_empty(), "no predator arrived over the cap");
         assert_eq!(w.predators[0].target_pop, w.cull_target_pop());
+        assert_eq!(w.predators[0].tier, 0, "a wave starts at the bottom tier");
 
         for _ in 0..4000 {
             w.step();
-            if w.predators.is_empty() { break; }
+            if w.predators.iter().all(|p| p.sated) { break; }
         }
-        assert!(w.predators.is_empty(), "predators never left");
         // Culled into the band, not past it into an extinction.
         assert!(
             w.prey_count() <= w.cull_trigger_pop(),
             "population {} still over trigger {}", w.prey_count(), w.cull_trigger_pop()
+        );
+        // An automatic wave starts with the resident triangles, so the survivors
+        // of it stay in the pond patrolling rather than leaving.
+        assert!(
+            w.predators.iter().any(|p| tier_resident(p.tier) && p.sated),
+            "no resident predator settled in after the cull",
         );
     }
 
@@ -2132,11 +3024,12 @@ mod tests {
         let first_pack = w.predators.len();
         assert!(first_pack > 1);
 
-        // Let it finish and leave.
-        for _ in 0..6000 {
-            w.step();
-            if w.predators.is_empty() { break; }
+        // Completion is not what this test measures. Defense can legitimately
+        // stop a cull now, so finish the hit-and-run departure directly.
+        for p in &mut w.predators {
+            p.leaving = Some(1);
         }
+        w.hunt_with_predators();
         assert!(w.predators.is_empty(), "pack never left");
 
         // A later, much smaller cull would only warrant one hunter on its own —
@@ -2186,6 +3079,23 @@ mod tests {
         assert_eq!(w.kills.len(), n);
         assert_eq!(w.energy.len(), n);
         assert_eq!(w.genome.len(), n);
+        assert_eq!(w.species_ids.len(), n);
+    }
+
+    #[test]
+    fn species_ids_stay_aligned_through_spawn_and_swap_remove() {
+        let mut w = World::new(10, 6, 2);
+        assert_eq!(w.species_ids.len(), w.agent_count());
+        w.pour_agents(5.0, 5.0, 3);
+        assert_eq!(w.species_ids.len(), w.agent_count());
+        w.species_ids = (0..w.agent_count()).map(|i| i as u32 + 1).collect();
+        let moved_id = *w.ids.last().unwrap();
+        let moved_species = *w.species_ids.last().unwrap();
+        w.cause_of_death[1] = Some(CauseOfDeath::Starvation);
+        w.reap_dead(vec![1]);
+        let moved_slot = w.ids.iter().position(|&id| id == moved_id).unwrap();
+        assert_eq!(w.species_ids[moved_slot], moved_species);
+        assert_eq!(w.species_ids.len(), w.agent_count());
     }
 
     #[test]
@@ -2203,6 +3113,24 @@ mod tests {
     }
 
     #[test]
+    fn interval_median_lifespan_moves_with_the_interval() {
+        // The old cumulative median flattened after a few hundred deaths and
+        // stopped saying anything. Per-interval, the value must be able to
+        // change between samples and must be 0 in an interval with no deaths.
+        let mut w = World::new(10, 60, 11);
+        let mut seen = Vec::new();
+        for _ in 0..40 {
+            for _ in 0..crate::stats::SAMPLE_INTERVAL {
+                w.step();
+            }
+            seen.push(w.stats_history.latest().unwrap().median_lifespan);
+        }
+        let distinct: std::collections::HashSet<u32> =
+            seen.iter().map(|v| v.to_bits()).collect();
+        assert!(distinct.len() > 2, "interval median never moved: {:?}", seen);
+    }
+
+    #[test]
     fn sampled_age_band_brackets_living_agents() {
         let mut w = World::new(10, 40, 5);
         for _ in 0..crate::stats::SAMPLE_INTERVAL * 3 {
@@ -2211,8 +3139,8 @@ mod tests {
         let s = w.stats_history.latest().unwrap();
         let lo = w.age.iter().copied().min().unwrap();
         let hi = w.age.iter().copied().max().unwrap();
-        assert_eq!((s.min_age, s.max_age), (lo, hi));
-        assert!(s.min_age <= s.max_age);
+        assert!(s.age_p10 >= lo && s.age_p90 <= hi, "percentiles outside the true range");
+        assert!(s.age_p10 <= s.age_p90);
     }
 
     #[test]
@@ -2238,6 +3166,49 @@ mod tests {
             );
         }
         assert!(cumulative.iter().sum::<u32>() > 0, "no deaths in 600 steps");
+    }
+
+    #[test]
+    fn speciation_is_deterministic() {
+        // Speciation draws no RNG of its own, but it is not a pure observer:
+        // the probation clamp changes the mutation rate used at reproduction,
+        // and because the per-weight mutation draw is conditional on that rate,
+        // the RNG stream itself diverges from an unspeciated run. So the
+        // guarantee is same-seed reproducibility, not parity with a build that
+        // has speciation switched off.
+        let mut a = World::new(12, 100, 42);
+        let mut b = World::new(12, 100, 42);
+        for _ in 0..900 {
+            a.step();
+            b.step();
+        }
+        let (sa, sb) = (a.get_stats(), b.get_stats());
+        assert_eq!(sa.alive_agents, sb.alive_agents);
+        assert_eq!(sa.total_food, sb.total_food);
+        assert_eq!(sa.avg_energy, sb.avg_energy);
+        assert_eq!(a.death_counts(), b.death_counts());
+        assert_eq!(a.species.all(), b.species.all());
+        assert_eq!(a.species_ids, b.species_ids);
+    }
+
+    #[test]
+    fn generation_telemetry_tracks_reproductive_depth() {
+        // Founders are generation 0, so the first samples must read 0 and the
+        // series must climb only as reproduction happens — never as age alone.
+        let mut w = World::new(12, 100, 42);
+        for _ in 0..crate::stats::SAMPLE_INTERVAL {
+            w.step();
+        }
+        let first = *w.stats_history.iter_chrono().next().unwrap();
+        assert_eq!(first.max_generation, 0, "no reproduction yet");
+        assert_eq!(first.mean_generation, 0.0);
+
+        for _ in 0..1000 {
+            w.step();
+        }
+        let last = *w.stats_history.iter_chrono().last().unwrap();
+        assert!(last.max_generation > 0, "1000 steps produced no offspring");
+        assert!(last.mean_generation <= last.max_generation as f32);
     }
 
     #[test]

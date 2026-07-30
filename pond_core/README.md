@@ -151,8 +151,9 @@ Body segments follow a size envelope (narrow head → widest mid-body → taperi
 | **Average genome** (right, under legend) | Population mean of each of the 9 traits as bars normalized to trait bounds, with sparkline history; dominant traits highlighted | `trait_means()`, `trait_bounds()` |
 | **Inspector** (left, click an agent) | Selected agent's live brain: 5→12→12→12→8 node activations (brightness = magnitude), input/output labels, sigmoid gate bars, energy/age/traits | `inspect_agent(id)` — a pure traced forward pass, no sim mutation |
 | **God mode** (top right, checkbox) | Comet (click-to-place blast), salt (spreading kill ring), sweep clean (wipe animation that empties the pond), ultra predator (pale-white articulated triangle chains that cull the pond back into its ±10% capacity band, reinforcing while it keeps climbing, then swim off), and immortality with a performance warning | `smite_radius`, `smite_band`, `smite_all`, `summon_predator`, `predators_state`, `set_immortal` |
+| **Automatic predators** (HUD button) | Enables/disables grid-scaled automatic triangle ecology; disabling sends automatic residents away without affecting god-mode summons | `set_automatic_predators`, `automatic_predators_enabled` |
 | **Setup** (centre, `N` toggles, open on load) | Grid size, starting population, and seed — the three arguments `World::new` takes. Starting a run rebuilds the world and clears every per-run cache | `new WasmWorld(grid, pop, seed)` |
-| **Stat graphs** (bottom, `G` toggles, off by default) | Population, food, avg energy, lifespan (median + min–max band), and per-interval deaths by cause, over the last ~6000 steps; summary and death totals underneath | `stats_history()`, `death_totals()`, `peak_population()` — engine-side ring buffer, redrawn at 1 Hz |
+| **Stat graphs** (bottom, `G` toggles, off by default) | Population, food, avg energy, lifespan, and deaths; hover enlarges a graph and click opens a draggable live detail window | `stats_history()`, `death_totals()`, `peak_population()` — engine-side ring buffer, redrawn at 1 Hz |
 
 ### Tile colors
 
@@ -177,6 +178,7 @@ Body segments follow a size envelope (narrow head → widest mid-body → taperi
 | `+` / `-` | Speed up / slow down simulation (×0.25 to ×16) |
 | `L` | Toggle the legend / average-genome panel |
 | `G` | Toggle the stat graph panel |
+| Hover / click graph | Enlarged preview / draggable live graph window |
 | `H` or `?` | Hide/show the controls key (bottom left); collapses to a `?` button |
 | `N`, or the **new run** button under the HUD | Toggle the run-parameter panel (grid size, population, seed). The sim freezes while it is open and an idle creature swims on a dark purple field, so the run you start is the run you configured. `Esc` closes it without restarting |
 | `Esc` | Deselect the inspected agent |

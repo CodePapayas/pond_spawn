@@ -20,7 +20,7 @@ canvas { display: block; }
 }
 
 /* The HUD is click-through, so the button re-enables pointer events on itself. */
-#h-newrun {
+#h-newrun, #h-predators {
   pointer-events: auto;
   margin-top: 8px;
   background: rgba(0, 0, 0, 0.45);
@@ -31,7 +31,13 @@ canvas { display: block; }
   letter-spacing: 0.08em; text-transform: uppercase;
   padding: 4px 9px; cursor: pointer;
 }
-#h-newrun:hover { background: rgba(255, 60, 220, 0.2); }
+#h-newrun:hover, #h-predators:hover { background: rgba(255, 60, 220, 0.2); }
+#h-predators {
+  margin-left: 4px;
+  border-color: rgba(120, 255, 245, 0.5);
+  color: rgba(120, 255, 245, 0.95);
+}
+#h-predators.off { opacity: 0.55; }
 
 /* Collapsed form of the controls key. Small enough to ignore, present enough
    that the keybinds are never unreachable once hidden. */
@@ -51,19 +57,37 @@ canvas { display: block; }
 }
 #hint-show:hover { background: rgba(120, 255, 245, 0.15); }
 
+/* Stacked, not a bottom strip. At fit zoom the pond is letterboxed on the long
+   axis and a full-width row of keybinds lay straight across it; a narrow column
+   sits in the letterbox bar instead. Zoomed in there is no bar to hide in, which
+   is unavoidable — that is what h is for. */
 #hint {
   position: fixed;
   bottom: 16px; left: 16px;
+  width: 148px;
   color: rgba(190, 230, 240, 0.95);
-  font-size: 14px;
-  line-height: 1.9;
+  font-size: 11px;
+  line-height: 1.5;
   background: rgba(6, 14, 24, 0.88);
   border: 1px solid rgba(120, 255, 245, 0.3);
   border-radius: 6px;
-  padding: 10px 14px;
+  padding: 8px 10px;
   text-shadow: none;
   cursor: pointer;
 }
+.hk {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.hk b {
+  flex: 0 0 40px;
+  font-family: 'Courier New', monospace;
+  font-weight: 400;
+  color: rgba(120, 255, 245, 0.9);
+  text-align: right;
+}
+.hk span { opacity: 0.75; }
 
 #paused-banner {
   display: none;
@@ -130,6 +154,14 @@ canvas { display: block; }
   padding: 5px 6px; cursor: pointer;
 }
 .god-tool:hover { background: rgba(255, 60, 220, 0.16); }
+/* Nothing in the water to act on — dimmed rather than hidden, so the off switch
+   is where you left it when you next need it. */
+.god-tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+  border-color: rgba(255, 60, 220, 0.2);
+}
+.god-tool:disabled:hover { background: rgba(0, 0, 0, 0.4); }
 .god-tool.armed {
   background: rgba(255, 60, 220, 0.35);
   color: rgba(255, 255, 255, 0.98);
@@ -216,6 +248,16 @@ canvas { display: block; }
 }
 /* Traits sat in one 9-row column, which pushed the network canvas past the
    panel and clipped it. Two columns halve the height and give each value room. */
+#insp-species {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 2px 0 6px;
+  font-size: 10px;
+}
+#insp-species-name { font-style: italic; opacity: 0.9; }
+#insp-species-dist { opacity: 0.45; font-size: 9px; margin-left: auto; }
+
 #insp-traits {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -263,20 +305,6 @@ canvas { display: block; }
 
 /* Announces the hunt. The automatic cull is the one thing the sim does that the
    player didn't ask for, so it has to be legible rather than mysterious. */
-#predator-banner {
-  display: none;
-  position: fixed;
-  top: 22px; left: 50%;
-  transform: translateX(-50%);
-  color: rgba(255, 120, 120, 0.95);
-  font-family: 'Courier New', monospace;
-  font-size: 12px;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  text-shadow: 0 0 14px rgba(255, 40, 60, 0.75);
-  pointer-events: none;
-  white-space: nowrap;
-}
 
 /* ── Setup panel (centre, N toggles) ──────────────────────────────────── */
 #setup {
@@ -325,6 +353,131 @@ canvas { display: block; }
 /* Fixed width rather than max-width: the cells flex to fill it, so the row is
    evenly spaced and always reaches both edges of the panel. Clamped so it never
    runs under the inspector on the left or the legend on the right. */
+#legend-debug { display: none; }
+
+#species-toast {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(4, 10, 18, 0.92);
+  border: 1px solid rgba(120, 255, 245, 0.3);
+  color: rgba(200, 250, 255, 0.95);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+  z-index: 40;
+}
+.toast-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 7px;
+  vertical-align: middle;
+}
+.sp-name { flex: 1 1 auto; font-style: italic; }
+.sp-age { width: 40px; text-align: right; opacity: 0.45; font-size: 9px; }
+.sp-dead .sp-name { text-decoration: line-through; opacity: 0.55; }
+.sp-unassigned .sp-name { font-style: normal; opacity: 0.6; }
+.sp-empty {
+  font-size: 9px;
+  opacity: 0.5;
+  padding: 2px 0 4px;
+}
+.sp-fossils {
+  margin-top: 4px;
+  font-size: 10px;
+  display: none;
+}
+.sp-fossils summary {
+  cursor: pointer;
+  opacity: 0.55;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sp-fossil { opacity: 0.5; }
+.sp-fossil .sp-age { width: auto; }
+.sp-selectable { cursor: pointer; }
+.sp-selectable:hover { background: rgba(120, 255, 245, 0.12); }
+
+#archetypes {
+  top: 16px;
+  left: 16px;
+  width: 272px;
+  /* Leaves the bottom-left corner to the keybind column. */
+  max-height: calc(100vh - 360px);
+  overflow-y: auto;
+  display: none;
+  padding: 8px 10px;
+}
+.arch-title {
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  margin-bottom: 2px;
+}
+.arch-title-sub { margin-top: 14px; }
+.arch-note {
+  font-size: 9px;
+  opacity: 0.5;
+  margin-bottom: 6px;
+}
+.arch-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 3px;
+  font-size: 10px;
+}
+.arch-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.arch-bar {
+  flex: 1 1 auto;
+  height: 7px;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.arch-bar i { display: block; height: 100%; }
+.arch-n   { width: 26px; text-align: right; opacity: 0.85; }
+.arch-pct { width: 26px; text-align: right; opacity: 0.45; }
+.arch-tail { opacity: 0.62; }
+.arch-mrow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+.arch-mlabel {
+  /* Wide enough for a binomial — the rows are species names now, and a 46px
+     column truncated them to nothing. */
+  width: 82px;
+  font-size: 9px;
+  font-style: italic;
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.arch-cell {
+  flex: 1 1 auto;
+  height: 11px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.05);
+  outline: 1px solid rgba(255, 255, 255, 0.05);
+}
+
 #graphs {
   bottom: 16px;
   left: 50%;
@@ -335,7 +488,7 @@ canvas { display: block; }
   padding: 8px 10px;
 }
 .graph-strip { display: flex; gap: 10px; align-items: flex-end; }
-.graph-cell { flex: 1 1 0; min-width: 0; }
+.graph-cell { flex: 1 1 0; min-width: 0; cursor: zoom-in; }
 .graph-title {
   display: flex; justify-content: space-between; gap: 8px;
   font-size: 10px; letter-spacing: 0.05em;
@@ -354,6 +507,67 @@ canvas { display: block; }
   border-top: 1px solid rgba(120, 255, 245, 0.14);
 }
 .graph-note { color: rgba(110, 140, 155, 0.7); font-size: 10px; }
+
+.float-window {
+  position: fixed;
+  width: min-content;
+  min-width: 340px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  background: rgba(4, 10, 18, 0.96);
+  border: 1px solid rgba(120, 255, 245, 0.38);
+  border-radius: 6px;
+  color: rgba(190, 245, 255, 0.9);
+  box-shadow: 0 12px 42px rgba(0, 0, 0, 0.55);
+}
+.float-head {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 8px 7px 11px;
+  background: rgba(8, 20, 30, 0.98);
+  border-bottom: 1px solid rgba(120, 255, 245, 0.18);
+  cursor: move; user-select: none;
+}
+.float-title {
+  letter-spacing: 0.08em; text-transform: uppercase;
+  font-size: 10px; color: rgba(120,255,245,.9);
+}
+.float-close {
+  width: 22px; height: 22px; line-height: 18px;
+  background: transparent; border: 0; color: rgba(190,245,255,.75);
+  font: 16px monospace; cursor: pointer;
+}
+.float-close:hover { color: white; background: rgba(255,60,120,.2); }
+.float-body { padding: 10px; font-size: 10px; }
+.graph-expanded { display: block; background: rgba(0,0,0,.28); border-radius: 3px; }
+.graph-expanded-key { margin-top: 6px; word-spacing: 5px; }
+#graph-hover-preview {
+  display: none; position: fixed; z-index: 90; pointer-events: none;
+  padding: 9px; background: rgba(4,10,18,.96);
+  border: 1px solid rgba(120,255,245,.32); border-radius: 5px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.5);
+}
+.species-window { width: 430px; }
+.species-window h3 {
+  margin: 10px 0 5px; color: rgba(120,255,245,.82);
+  text-transform: uppercase; letter-spacing: .08em; font-size: 10px;
+}
+.species-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 16px; }
+.species-evidence > div, .species-trait {
+  display: grid; grid-template-columns: 1fr 70px 80px; gap: 8px;
+}
+.species-evidence b, .species-trait b {
+  text-align: right; font-weight: normal; color: rgba(236,248,255,.95);
+}
+.species-evidence em, .species-trait em { text-align: right; font-style: normal; }
+.species-evidence .pass { color: rgba(110,230,120,.9); }
+.species-evidence .fail { color: rgba(255,90,120,.9); }
+.species-trait .up { color: rgba(255,90,210,.85); }
+.species-trait .down { color: rgba(90,190,255,.85); }
+.species-probation, .species-name-reason, .species-current-drift {
+  margin-top: 8px; opacity: .7;
+}
 </style>
 </head>
 <body>
@@ -366,26 +580,47 @@ canvas { display: block; }
   <div id="h-food">food —</div>
   <div id="h-speed">speed ×1</div>
   <button id="h-newrun">new run</button>
+  <button id="h-predators">predators: on</button>
 </div>
 
 <div id="hint">
-  click agent → inspect &nbsp;·&nbsp; drag → stir &nbsp;·&nbsp; dblclick → pour agents<br>
-  wheel → zoom &nbsp;·&nbsp; right-drag / arrows → pan &nbsp;·&nbsp; f → fit pond &nbsp;·&nbsp; 0 → reset view<br>
-  space → pause &nbsp;·&nbsp; +/- → speed &nbsp;·&nbsp; n → restart (ends this run) &nbsp;·&nbsp; l → legend &nbsp;·&nbsp; g → graphs &nbsp;·&nbsp; esc → deselect &nbsp;·&nbsp; h → hide this
+  <div class="hk"><b>click</b><span>inspect agent</span></div>
+  <div class="hk"><b>drag</b><span>stir</span></div>
+  <div class="hk"><b>dbl</b><span>pour agents</span></div>
+  <div class="hk"><b>wheel</b><span>zoom</span></div>
+  <div class="hk"><b>r-drag</b><span>pan</span></div>
+  <div class="hk"><b>f</b><span>fit pond</span></div>
+  <div class="hk"><b>0</b><span>reset view</span></div>
+  <div class="hk"><b>space</b><span>pause</span></div>
+  <div class="hk"><b>+/-</b><span>speed</span></div>
+  <div class="hk"><b>l</b><span>legend</span></div>
+  <div class="hk"><b>g</b><span>graphs</span></div>
+  <div class="hk"><b>b</b><span>archetypes</span></div>
+  <div class="hk"><b>d</b><span>debug clusters</span></div>
+  <div class="hk"><b>n</b><span>restart run</span></div>
+  <div class="hk"><b>esc</b><span>deselect</span></div>
+  <div class="hk"><b>h</b><span>hide this</span></div>
 </div>
 
 <div id="hint-show" title="show controls">?</div>
 
 <div id="paused-banner">paused</div>
 <div id="setup-banner">new simulation run parameters</div>
-<div id="predator-banner"></div>
 
 <!-- Right side: legend (colors + shapes) and running average genome -->
 <div id="side-right" class="panel">
-  <h2>colors — genome family</h2>
-  <div id="legend-colors"></div>
-  <div class="legend-note">swatch = family mean genome colour &middot; click a family for its composite</div>
-  <div id="legend-composite"></div>
+  <h2>species</h2>
+  <div id="species-list"></div>
+  <div class="legend-note">named lineages that survived probation &middot; count &middot; age in steps</div>
+
+  <div id="legend-debug">
+    <h2>debug — genome families</h2>
+    <div id="legend-colors"></div>
+    <div class="legend-note">raw k-means slots. There are always <b>k</b> of them
+      whether the pond has that many distinct groups or not — they are speciation's
+      input, not a finding. Click for composite.</div>
+    <div id="legend-composite"></div>
+  </div>
 
   <h2>shapes — traits</h2>
   <div id="legend-shapes"></div>
@@ -408,6 +643,10 @@ canvas { display: block; }
     <div id="insp-id">agent —</div>
     <div id="insp-status"></div>
   </div>
+  <div id="insp-species">
+    <span id="insp-species-name">unassigned</span>
+    <span id="insp-species-dist"></span>
+  </div>
   <div class="insp-bar-row"><span class="trait-name">energy</span><div class="trait-track"><div class="trait-fill" id="insp-energy"></div></div></div>
   <div class="insp-bar-row"><span class="trait-name">age</span><div class="trait-track"><div class="trait-fill" id="insp-age"></div></div></div>
   <div class="insp-bar-row"><span class="trait-name">kills</span><span id="insp-kills">0</span></div>
@@ -420,6 +659,12 @@ canvas { display: block; }
 
 <!-- Bottom: live stat time-series, sampled engine-side every 10 sim steps -->
 <div id="graphs" class="panel"></div>
+
+<!-- Left side: behavioural archetypes. B toggles; clustering is off until then. -->
+<div id="archetypes" class="panel"></div>
+
+<!-- Promotion / extinction announcements. The moment speciation exists for. -->
+<div id="species-toast"></div>
 
 <!-- Centre: run parameters. Open on load, N toggles. -->
 <div id="setup" class="panel"></div>
