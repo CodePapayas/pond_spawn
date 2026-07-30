@@ -318,9 +318,32 @@ pub const PREDATOR_RECTANGLE_TIER: u8 = 2;
 /// rotating rainbow rectangle.
 pub const PREDATOR_TIERS: usize = 3;
 
-/// World units per step each tier closes on its prey. All well above MAX_SPEED:
-/// nothing outruns any of them.
+/// World units per step each tier closes on its prey.
+///
+/// Tiers 1 and 2 are god-mode powers and keep these flat, deliberately unfair
+/// values. **Tier 0 does not use its entry**: the ambient triangle takes its
+/// speed from the pond instead, at `PREDATOR_SPEED_FRAC` of the mean speed trait
+/// of the family it is hunting (see `predator_chase_speed`).
+///
+/// The old constant was 0.95 world units *per tick*, while the fastest possible
+/// agent — speed trait 1.0, `MAX_SPEED` 3.0 tiles/sec at a 20 Hz tick — moves
+/// 0.15. A six-fold advantage means no amount of evolved evasion can ever
+/// matter, which is why flee sat dormant for as long as it did. The entry is
+/// kept as the floor for a pond with nothing left to measure.
 const TIER_SPEED: [f32; PREDATOR_TIERS] = [0.95, 1.30, 1.55];
+
+/// Prey needed before the ambient hunter exists at all. Below this the pond is
+/// recovering from something and does not need a resident predator on top of it.
+pub const PREDATOR_AMBIENT_MIN_PREY: usize = 30;
+
+/// Fraction of its prey's mean speed an ambient hunter moves at.
+///
+/// Below 1.0 on purpose. A hunter slower than the average animal in its target
+/// family cannot catch the above-average ones, so escape becomes positional:
+/// the goal is not to outrun the predator, it is to be harder to catch than the
+/// neighbour. That is the pressure that makes speed and flee worth evolving,
+/// and it is what stops predation being a flat tax everyone pays equally.
+const PREDATOR_SPEED_FRAC: f32 = 0.95;
 /// Bite reach per tier. For the rectangle this is the half-length of its long
 /// edge rather than a radius — see `tier_bite_hits`.
 const TIER_BITE: [f32; PREDATOR_TIERS] = [0.55, 1.90, 3.20];
@@ -1274,6 +1297,33 @@ impl World {
         (toughest + PREDATOR_ATTACK_MARGIN).clamp(base, base + PREDATOR_ATTACK_MAX_ADAPT)
     }
 
+    /// Chase speed for one hunter, in world units per tick.
+    ///
+    /// Tiers above 0 keep their constant. The ambient triangle tracks the mean
+    /// speed trait of its search image — the family it is currently hunting —
+    /// so it stays a credible threat to whatever the pond has become without
+    /// ever being an unavoidable one.
+    fn predator_chase_speed(&self, pi: usize) -> f32 {
+        let tier = self.predators[pi].tier as usize;
+        let base = TIER_SPEED[tier.min(PREDATOR_TIERS - 1)];
+        if tier != 0 { return base; }
+
+        let Some(image) = self.predators[pi].search_image else { return base };
+        let mut sum = 0.0f32;
+        let mut count = 0usize;
+        for i in 0..self.ids.len() {
+            if self.cause_of_death[i].is_some() || self.is_predator(i) { continue; }
+            if self.cluster.genome_cluster_ids.get(i).copied() != Some(image) { continue; }
+            sum += self.genome[i].traits.speed as f32;
+            count += 1;
+        }
+        if count == 0 { return base; }
+        // Trait → tiles per tick, the same conversion an agent's own velocity
+        // cap goes through: `speed_trait × MAX_SPEED` is tiles per second, and a
+        // tick is DT of one.
+        (sum / count as f32) * MAX_SPEED * DT * PREDATOR_SPEED_FRAC
+    }
+
     /// Re-form every hunter's search image, and train its bite on that family's
     /// armour. Runs on the cluster tick, immediately after the labels are
     /// rebuilt, so the counts describe the pond as it is now.
@@ -1365,7 +1415,9 @@ impl World {
         let target = self.predators[pi].target_pop;
         let tier = self.predators[pi].tier;
         let attack = self.predators[pi].attack;
-        let speed = TIER_SPEED[(tier as usize).min(PREDATOR_TIERS - 1)];
+        let automatic = self.predators[pi].automatic;
+        let automatic = self.predators[pi].automatic;
+        let speed = self.predator_chase_speed(pi);
         let max_turn = TIER_MAX_TURN[(tier as usize).min(PREDATOR_TIERS - 1)];
         self.predators[pi].angle += tier_spin(tier);
         let angle = self.predators[pi].angle;
@@ -1385,14 +1437,37 @@ impl World {
         }
 
         // Quota met — checked against the live count, which births keep moving.
-        if self.prey_count() <= target {
+        if target > 0 && self.prey_count() <= target {
             if tier_resident(tier) {
-                // Resident tiers do not leave. They go quiet and patrol, and
-                // re-engage when the population climbs back over the trigger.
-                self.predators[pi].sated = true;
+                // A resident that has finished its cull takes ambient duty —
+                // quota zero, hunting forever — but only one of them does.
+                //
+                // It used to sit sated until the population crossed the trigger
+                // again, which left the pond with no predator in it for most of
+                // its life: predation as a thermostat with a setpoint. One
+                // hunter that is always there, and slower than its prey, is a
+                // pressure instead.
+                //
+                // The cap matters. The pack ratchets — every threshold crossing
+                // leaves a permanent extra triangle — and with all of them on
+                // ambient duty the pressure compounds with each boom the pond
+                // has ever had. Measured, three ambient hunters took the pond
+                // from 49 survivors to 15 and killed *more* than the fast ones
+                // they replaced. The rest go quiet, as they always did, and wake
+                // for the next cull.
+                let ambient_taken = self.predators.iter().enumerate()
+                    .any(|(j, p)| j != pi && p.leaving.is_none()
+                        && tier_resident(p.tier) && p.target_pop == 0);
+                self.predators[pi].sated = ambient_taken;
+                if !ambient_taken {
+                    self.predators[pi].target_pop = 0;
+                }
                 self.predators[pi].target_id = None;
                 self.predators[pi].commit_ticks = 0;
-                self.patrol(idx, pi, speed * PATROL_SPEED_FRAC);
+                if ambient_taken {
+                    let speed = self.predator_chase_speed(pi);
+                    self.patrol(idx, pi, speed * PATROL_SPEED_FRAC);
+                }
                 return;
             }
             self.begin_departure(idx, pi);
@@ -1464,6 +1539,11 @@ impl World {
             if i == idx || self.cause_of_death[i].is_some() || self.is_predator(i) { continue; }
             let (dx, dy) = toroidal_delta(bite_x, bite_y, self.pos_x[i], self.pos_y[i], world_size);
             if tier_bite_hits(tier, dx, dy, angle) {
+                // God-mode immortality suppresses every natural cause, and an
+                // ambient hunter is ecology like any other. A *summoned* one is
+                // the player overruling the rules, which is the whole point of
+                // the god panel, so those still bite.
+                if self.immortal && automatic { continue; }
                 if predator_attack_succeeds(
                     tier,
                     attack,
@@ -1501,7 +1581,7 @@ impl World {
             }
         }
 
-        if self.prey_count() <= target && !tier_resident(tier) {
+        if target > 0 && self.prey_count() <= target && !tier_resident(tier) {
             if let Some(slot) = self.slot_of(id) {
                 self.begin_departure(slot, pi);
             }
@@ -1640,9 +1720,29 @@ impl World {
     fn manage_predator_pack(&mut self) {
         if !self.automatic_predators_enabled { return; }
         let prey = self.prey_count();
-        // A resident that has gone quiet is not a hunt in progress.
+
+        // Ambient pressure: one resident triangle whenever there is a pond worth
+        // hunting, with a quota of zero so it never sates and never stops.
+        //
+        // Predation used to exist only as a cull — nothing in the water until
+        // the population crossed capacity, then a pack, then quiet again. That
+        // makes predation a controller with a setpoint, which is exactly what it
+        // should not be: the pond spent most of its life with no predator in it
+        // at all, and evolved accordingly. A single hunter that is always there
+        // and always slower than its prey is a pressure, not a thermostat. The
+        // capacity rule below still stacks a pack on top when the pond outgrows
+        // its cap.
+        let resident_hunting = self.predators.iter()
+            .any(|p| p.leaving.is_none() && tier_resident(p.tier));
+        if prey >= PREDATOR_AMBIENT_MIN_PREY && !resident_hunting {
+            self.summon_predator_tier(0, true, 0);
+        }
+        // A cull in progress, if any. The ambient resident carries a quota of
+        // zero and hunts forever, so counting it here would mask the capacity
+        // rule completely — the pond could sit far over its cap with the cull
+        // branch never reached, because something was technically "hunting".
         let hunting = self.predators.iter()
-            .filter(|p| p.leaving.is_none() && !p.sated)
+            .filter(|p| p.leaving.is_none() && !p.sated && p.target_pop > 0)
             .map(|p| p.target_pop)
             .min();
 
@@ -2499,6 +2599,10 @@ impl World {
     }
 
     /// Common path for adding any new agent (initial spawn, offspring, or pour_agents).
+    /// `energy` is clamped to the genome's own capacity. Founders and summoned
+    /// predators are pushed with a flat 100.0, which is over the cap for any
+    /// genome whose `energy_capacity` is below 1.0 — invisible until an ambient
+    /// predator put one in every pond and the capacity invariant test found it.
     fn push_agent(
         &mut self,
         x: f32,
@@ -2521,7 +2625,7 @@ impl World {
         let init_speed = self.rng.gen::<f32>() * speed_trait * MAX_SPEED * 0.3;
 
         self.ids.push(id);
-        self.energy.push(energy);
+        self.energy.push(energy.min(MAX_ENERGY_BASE * genome.traits.energy_capacity));
         self.age.push(0);
         self.pos_x.push(x);
         self.pos_y.push(y);
@@ -3171,9 +3275,11 @@ mod tests {
     }
 
     #[test]
-    fn the_resident_tier_stays_and_goes_quiet_instead_of_leaving() {
-        // The triangles arrive and never leave: once their quota is met they
-        // patrol, and they wake up when the population climbs again.
+    fn the_resident_tier_stays_and_reverts_to_ambient_duty() {
+        // The triangles arrive and never leave. Finishing a cull no longer puts
+        // one to sleep until the next boom — it drops to a quota of zero and
+        // keeps hunting, which is what makes predation continuous pressure
+        // rather than a thermostat.
         let mut w = World::new(16, 80, 21);
         w.set_automatic_predators(false);
         w.summon_predator_tier(w.prey_count(), false, 0);
@@ -3183,7 +3289,8 @@ mod tests {
             w.hunt_one(id);
         }
         assert_eq!(w.predators.len(), 1, "a resident predator left the pond");
-        assert!(w.predators[0].sated, "resident never went quiet");
+        assert_eq!(w.predators[0].target_pop, 0, "resident did not return to ambient duty");
+        assert!(!w.predators[0].sated, "an ambient hunter should never be sated");
         assert!(w.predators[0].leaving.is_none(), "resident began departing");
         assert!(w.ids.contains(&id));
     }
@@ -3282,12 +3389,16 @@ mod tests {
         // vibration rather than as swimming.
         let mut w = World::new(16, 40, 313);
         w.set_automatic_predators(false);
-        // A quota it can never be pulled back off by births: this test is about
-        // idle motion, and a resident that wakes is chasing, not patrolling.
-        w.summon_predator_tier(usize::MAX, false, 0);
+        w.summon_predator_tier(0, false, 0);
         let id = w.predators[0].id;
+        // Patrol is what a hunter does with nothing to chase. Emptying the pond
+        // is now the only way to get there: an ambient hunter never sates, so
+        // "quota met" no longer produces idle motion. `smite_all` would take the
+        // hunter with it, so only the prey is cleared.
+        let victims: Vec<usize> = (0..w.ids.len()).filter(|&i| !w.is_predator(i)).collect();
+        w.smite(victims);
         for _ in 0..20 { w.step(); }
-        assert!(w.predators[0].sated, "resident never went quiet");
+        assert!(w.prey_count() == 0, "something is still in the water to chase");
 
         let mut last = w.slot_of(id).and_then(|s| heading_of(&w, s));
         for step in 0..300 {
@@ -3616,6 +3727,67 @@ mod tests {
     // ── Predator adaptation ───────────────────────────────────────────────────
 
     #[test]
+    fn an_ambient_hunter_is_always_in_the_water() {
+        let mut w = World::new(12, 120, 77);
+        w.step();
+        assert!(w.predators.iter().any(|p| tier_resident(p.tier)),
+            "a pond above the ambient floor should always have a hunter in it");
+        // And it never stops: no quota to meet, so nothing to be sated by.
+        for _ in 0..400 { w.step(); }
+        if w.prey_count() >= PREDATOR_AMBIENT_MIN_PREY {
+            assert!(w.predators.iter().any(|p| !p.sated && p.leaving.is_none()),
+                "the ambient hunter went quiet");
+        }
+    }
+
+    #[test]
+    fn a_hunter_is_slower_than_the_prey_it_hunts() {
+        // The property flee depends on. A hunter faster than everything makes
+        // evasion pointless, which is why the mechanic sat dormant for so long.
+        let mut w = World::new(12, 200, 5);
+        for _ in 0..120 { w.step(); }
+        let pi = w.predators.iter().position(|p| p.tier == 0)
+            .expect("expected an ambient triangle");
+        let Some(image) = w.predators[pi].search_image else { return };
+
+        let members: Vec<usize> = (0..w.ids.len())
+            .filter(|&i| !w.is_predator(i) && w.cause_of_death[i].is_none())
+            .filter(|&i| w.cluster.genome_cluster_ids.get(i).copied() == Some(image))
+            .collect();
+        if members.is_empty() { return; }
+
+        let speed = w.predator_chase_speed(pi);
+        let mean_prey = members.iter()
+            .map(|&i| w.genome[i].traits.speed as f32 * MAX_SPEED * DT)
+            .sum::<f32>() / members.len() as f32;
+        assert!(speed < mean_prey,
+            "hunter at {} is not slower than its prey's mean {}", speed, mean_prey);
+
+        // Some individual in the family must be able to outrun it, or "harder to
+        // catch than your neighbour" is not a strategy that exists.
+        let fastest = members.iter()
+            .map(|&i| w.genome[i].traits.speed as f32 * MAX_SPEED * DT)
+            .fold(0.0f32, f32::max);
+        assert!(fastest > speed, "nothing in the family can outrun the hunter");
+    }
+
+    #[test]
+    fn immortality_stops_the_ecology_but_not_the_player() {
+        // A summoned hunter is the player overruling the rules; an ambient one
+        // is a rule. Immortality suppresses the second and not the first.
+        let mut w = World::new(12, 120, 9);
+        w.immortal = true;
+        for _ in 0..200 { w.step(); }
+        assert_eq!(w.death_counts()[CauseOfDeath::EatenAlive.code() as usize], 0,
+            "the ambient hunter ate under immortality");
+
+        w.summon_predator(0.5, false);
+        for _ in 0..200 { w.step(); }
+        assert!(w.death_counts()[CauseOfDeath::EatenAlive.code() as usize] > 0,
+            "a summoned hunter should still bite through immortality");
+    }
+
+    #[test]
     fn a_hunter_forms_an_image_of_the_commonest_family() {
         let mut w = World::new(12, 120, 42);
         w.summon_predator(0.5, false);
@@ -3716,8 +3888,14 @@ mod tests {
     fn predator_adaptation_consumes_no_rng() {
         // Speciation's guarantee, extended: reviewing search images is counting
         // and averaging over world state, so it must not shift the RNG stream.
+        // Predators off: the point is that *reviewing* draws no RNG, and an
+        // ambient hunter would confound it — its bite trains a little further on
+        // every extra review, so the two ponds would diverge through the hunt
+        // rather than through the RNG stream.
         let mut a = World::new(12, 100, 42);
         let mut b = World::new(12, 100, 42);
+        a.set_automatic_predators(false);
+        b.set_automatic_predators(false);
         for _ in 0..200 { a.step(); }
         for _ in 0..200 {
             b.step();
@@ -3937,6 +4115,9 @@ mod tests {
     fn predator_leaving_is_not_a_death() {
         let mut w = World::new(16, 60, 4);
         let deaths_before: u32 = w.death_counts().iter().sum();
+        // This is about the summoned hunter; the ambient resident would be a
+        // second predator in the water and is not what is under test.
+        w.set_automatic_predators(false);
         // Hit-and-run tier: the triangles stay in the pond by design.
         w.summon_predator_tier(w.prey_count(), false, PREDATOR_TIERS as u8 - 1);
         let id = w.predators[0].id;
@@ -3965,6 +4146,9 @@ mod tests {
         // the target; that must not drag it back into a second cull.
         let mut w = World::new(16, 80, 44);
         let target = w.prey_count();
+        // This is about the summoned hunter; the ambient resident would be a
+        // second predator in the water and is not what is under test.
+        w.set_automatic_predators(false);
         w.summon_predator_tier(target, false, PREDATOR_MANUAL_TIER);   // hit-and-run
         w.step();
         assert!(w.predators[0].leaving.is_some());
@@ -4002,23 +4186,34 @@ mod tests {
 
         w.step();
         assert!(!w.predators.is_empty(), "no predator arrived over the cap");
-        assert_eq!(w.predators[0].target_pop, w.cull_target_pop());
-        assert_eq!(w.predators[0].tier, 0, "a wave starts at the bottom tier");
+        // The ambient resident is in the water too, with a quota of zero, so the
+        // culling hunter is the one carrying the cull target rather than simply
+        // the first in the list.
+        let target = w.cull_target_pop();
+        assert!(w.predators.iter().any(|p| p.target_pop == target),
+            "no hunter arrived with the cull target");
+        assert!(w.predators.iter().all(|p| p.tier == 0), "a wave starts at the bottom tier");
 
         for _ in 0..4000 {
             w.step();
-            if w.predators.iter().all(|p| p.sated) { break; }
+            // Residents no longer sate — they revert to ambient duty — so the
+            // end of a cull is the population reaching the band, not the hunters
+            // going quiet.
+            if w.prey_count() <= w.cull_target_pop() { break; }
         }
         // Culled into the band, not past it into an extinction.
         assert!(
             w.prey_count() <= w.cull_trigger_pop(),
             "population {} still over trigger {}", w.prey_count(), w.cull_trigger_pop()
         );
-        // An automatic wave starts with the resident triangles, so the survivors
-        // of it stay in the pond patrolling rather than leaving.
+        // A few more ticks so the hunters notice the cull is over: the revert to
+        // ambient duty happens inside the hunt, not in the loop condition above.
+        for _ in 0..5 { w.step(); }
+        // An automatic wave is made of resident triangles, and they stay — on
+        // ambient duty, quota zero, rather than leaving or going quiet.
         assert!(
-            w.predators.iter().any(|p| tier_resident(p.tier) && p.sated),
-            "no resident predator settled in after the cull",
+            w.predators.iter().any(|p| tier_resident(p.tier) && p.target_pop == 0),
+            "no resident predator returned to ambient duty after the cull",
         );
     }
 

@@ -20,7 +20,7 @@ canvas { display: block; }
 }
 
 /* The HUD is click-through, so the button re-enables pointer events on itself. */
-#h-newrun, #h-predators {
+#h-newrun {
   pointer-events: auto;
   margin-top: 8px;
   background: rgba(0, 0, 0, 0.45);
@@ -31,13 +31,7 @@ canvas { display: block; }
   letter-spacing: 0.08em; text-transform: uppercase;
   padding: 4px 9px; cursor: pointer;
 }
-#h-newrun:hover, #h-predators:hover { background: rgba(255, 60, 220, 0.2); }
-#h-predators {
-  margin-left: 4px;
-  border-color: rgba(120, 255, 245, 0.5);
-  color: rgba(120, 255, 245, 0.95);
-}
-#h-predators.off { opacity: 0.55; }
+#h-newrun:hover { background: rgba(255, 60, 220, 0.2); }
 
 /* Collapsed form of the controls key. Small enough to ignore, present enough
    that the keybinds are never unreachable once hidden. */
@@ -673,7 +667,6 @@ body.zen #graph-hover-preview { display: none !important; }
   <div id="h-food">food —</div>
   <div id="h-speed">speed ×1</div>
   <button id="h-newrun">new run</button>
-  <button id="h-predators">predators: on</button>
 </div>
 
 <div id="hint">

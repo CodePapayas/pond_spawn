@@ -194,6 +194,10 @@ async function boot() {
         smiteBand: (x0, x1) => world.smite_band(x0, x1),
         smiteAll: () => world.smite_all(),
         setImmortal: on => world.set_immortal(on),
+        setAutomaticPredators: on => {
+            automatic_predators = on;
+            world.set_automatic_predators(on);
+        },
         summonOctagon: () => world.summon_octagon(),
         summonRectangle: () => world.summon_rectangle(),
         dismissHunters: () => world.dismiss_summoned_predators(),
@@ -216,7 +220,6 @@ async function boot() {
     canvas.addEventListener('wheel', on_wheel, { passive: false });
 
     document.getElementById('h-newrun').addEventListener('click', open_setup);
-    document.getElementById('h-predators').addEventListener('click', toggle_predators);
     document.getElementById('hint').addEventListener('click', toggle_hint_click);
     document.getElementById('hint-show').addEventListener('click', toggle_hint_click);
 
@@ -352,14 +355,6 @@ function update_cursor() {
     if (!canvas) return;
     canvas.style.cursor = god?.armedTool() ? 'crosshair' : 'default';
     layout_right_column();
-}
-
-function toggle_predators() {
-    automatic_predators = !automatic_predators;
-    world.set_automatic_predators(automatic_predators);
-    const button = document.getElementById('h-predators');
-    button.textContent = `predators: ${automatic_predators ? 'on' : 'off'}`;
-    button.classList.toggle('off', !automatic_predators);
 }
 
 /** Stack the legend under the god panel. The god panel grows and shrinks as it

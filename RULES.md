@@ -461,6 +461,33 @@ lifespan and thickness is peak members. Founding and extinction steps are always
 multiples of 50 — the registry only advances on a cluster tick — so the tree's
 time axis is quantised to that.
 
+### Ambient predation
+
+One resident triangle is in the water whenever prey clears
+`PREDATOR_AMBIENT_MIN_PREY` (30), with a quota of zero: it never sates and never
+stops. The capacity rule still stacks a cull pack on top when the population
+crosses `cull_trigger_pop`, and when that cull finishes exactly one resident
+takes ambient duty again — the rest go quiet as before. The pack still ratchets,
+but ambient pressure does not: with every resident on ambient duty the pressure
+compounds with each boom the pond has ever had, which measured as *more* kills
+than the old fast hunters and a five-seed mean population of 15.
+
+**Hunter speed comes from the prey.** A tier-0 hunter moves at
+`PREDATOR_SPEED_FRAC` (0.95) of the mean speed trait of its search-image family,
+converted through `MAX_SPEED × DT` like any agent's own velocity cap. It was a
+flat 0.95 world units per *tick* against a fastest-possible agent's 0.15 — a
+sixfold advantage that made evasion arithmetically impossible, which is why the
+flee output sat dormant for as long as it did. Below 1.0 on purpose: a hunter
+slower than the average animal in the family it hunts cannot catch the
+above-average ones, so escape is positional. The goal is not to outrun the
+predator, it is to be harder to catch than a neighbour.
+
+Tiers 1 and 2 keep their flat constants. They are god-mode powers and are meant
+to be unfair.
+
+**Immortality suppresses ecology, not the player.** Under god-mode immortality an
+automatic hunter does not bite; a summoned one still does.
+
 ### Predator adaptation
 
 An automatic hunter is not a fixed threat. It carries two pieces of state that

@@ -58,7 +58,12 @@ export function initGod(root, api) {
         `<span class="god-hint">calls off every summoned hunt — they swim away</span></div>` +
         `<div class="god-row"><label class="god-toggle">` +
         `<input type="checkbox" id="god-immortal"> immortality</label></div>` +
-        `<div class="god-hint">nothing dies of age, hunger or combat</div>` +
+        `<div class="god-hint">nothing dies of age, hunger or combat &middot; ` +
+        `summoned hunters still bite</div>` +
+        `<div class="god-row"><label class="god-toggle">` +
+        `<input type="checkbox" id="god-predators" checked> ambient predators</label></div>` +
+        `<div class="god-hint">one resident hunter, always in the water &middot; ` +
+        `off leaves the pond to its own devices</div>` +
         `<div id="god-warn" class="god-warn"></div>` +
         `</div>`;
 
@@ -66,6 +71,7 @@ export function initGod(root, api) {
     const enable_box = el('god-enable');
     const body = el('god-body');
     const immortal_box = el('god-immortal');
+    const predators_box = el('god-predators');
     const dismiss_btn = el('god-dismiss');
     const warn = el('god-warn');
     const tool_buttons = {
@@ -206,7 +212,11 @@ export function initGod(root, api) {
 
     /** Effects the renderer should draw this frame, in world coordinates. */
     function effects(now_sec) {
-        return {
+        predators_box.addEventListener('change', () => {
+        api.setAutomaticPredators(predators_box.checked);
+    });
+
+    return {
             comets: comets.map(c => ({
                 x: c.x, y: c.y,
                 t: (now_sec - c.t0) / COMET_SEC,
