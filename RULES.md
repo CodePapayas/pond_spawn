@@ -24,7 +24,8 @@
 ## Food
 
 - Each tile regenerates food passively every tick
-- Regen rate per tile: `fertility / 1.6 × 0.012` (per-tick probability of gaining 1 food unit)
+- Regen rate per tile: `fertility / 1.6 × food_regen_scale` (per-tick probability of gaining 1 food unit)
+- `food_regen_scale` is a **dial**, default **0.012**, range 0–0.05 (`Tunables`, exposed in the web build's tuning panel)
 - Max food per tile: **3**
 - 35–45% of tiles are permanently barren (fertility = 0, never regenerate), arranged in contiguous desert clusters with fertile oases between them
 - Each food unit provides **33.3 energy**
@@ -53,6 +54,13 @@
 5. Movement factor
 
 ### Actions (Brain Outputs)
+
+> **Legacy Python only — none of this table runs in `pond_core`.** The Rust
+> engine's output surface is steering weights plus sigmoid trigger gates; index 7
+> is the sleep gate, not ATTACK, and indices 3 and 6 are dormant. See
+> [Neural Network](#neural-network-brain) for the live contract. The table is
+> kept because the golden-parity harness still replays it.
+
 | Index | Action | Notes |
 |-------|--------|-------|
 | 0 | MOVE | Move in heading direction |
@@ -65,6 +73,10 @@
 | 7 | ATTACK | Attack an agent on the same tile |
 
 ### Decision Override Rules
+
+**Legacy Python only.** `pond_core` has no override layer — crowding and hunger
+reach behaviour through perception inputs and the separation force instead.
+
 - Energy < 25% AND no food → forced MOVE
 - Food > 0 AND nearby_agents > (food × 2 + 1) → forced MOVE
 
@@ -75,8 +87,19 @@
 | Move | `terrain_speed × speed × metabolism × 0.15` |
 | Turn | `0.14 × metabolism` (`turn()` = 0.1 + `execute_action` = 0.04) |
 | Reproduce | `energy × 0.50 × reproduction_cost` |
-| Sleep | Gain `0.15 × metabolism` |
+| Sleep | Recover `0.05 × metabolism` (`SLEEP_RECOVERY`), clamped to capacity |
 | Nothing | `0.005 × metabolism`; agent skips next tick |
+
+### Sleep is rest, not recovery (Rust `pond_core`)
+- Sleep recovers **less** than the tick's base metabolism drain
+  (`0.05 × metabolism` against `0.1 × metabolism`), so choosing it halves the
+  rate an agent starves at and can never be a net energy source. The gain is
+  clamped to `100 × energy_capacity`.
+- It was a gain of `0.15 × metabolism`, larger than the drain and unclamped, so
+  an agent whose sleep gate kept winning gained energy indefinitely and past its
+  own capacity. `energy_norm` clamps to 1.0 in perception, so neither the brain
+  nor the HUD ever showed the overflow — the only symptom was agents that could
+  not starve.
 
 ### Discrete Trigger Exclusivity (Rust `pond_core`)
 - EAT, REPRODUCE, and SLEEP gates are mutually exclusive per tick: only the
@@ -267,7 +290,9 @@ Two combat paths exist:
 
 ### Passive combat phase (`_resolve_combat`, runs every tick after actions)
 - Triggers when 2+ agents occupy the same tile
-- Attacker must have `aggression >= 0.80` to initiate
+- Attacker must have `aggression >= hunt_aggression_threshold` to initiate. This
+  is a **dial**, default **0.80**, range 0–1.06 (`Tunables`). `aggression` maxes
+  at 1.05, so a threshold above that switches agent-on-agent combat off entirely
 - Attacker must also be **hungry**: energy `< 0.5 × 100 × energy_capacity`
   (`HUNT_HUNGER_FRAC`). Sated agents do not hunt. This is the density-dependent
   brake on predation — without it a predator that clears the local prey simply
@@ -299,7 +324,12 @@ Two combat paths exist:
   combat never fired again for the rest of the run.
 - Initiating attack costs `0.2 × metabolism` energy
 
-### Chosen attack (ACTION_ATTACK output, index 7)
+### Chosen attack (ACTION_ATTACK output, index 7) — legacy Python only
+
+**Dormant in `pond_core`.** Output index 7 is the sleep gate in the Rust engine,
+and no brain-chosen attack exists: all agent-on-agent predation goes through the
+passive combat phase above. Kept as the spec for the mechanic if it is revived.
+
 - Agent targets a co-tile agent selected by the environment
 - Aggression must be `> 0.55`; otherwise costs `0.1` energy and does nothing
 - Initiating costs `0.5 × metabolism` even on a successful strike
@@ -373,8 +403,10 @@ permanently, which tests something else entirely.
 
 ## Speciation
 
-A k-means cluster is not a species. Clusters exist because `k = 6` was chosen,
-and their labels permute when clusters split or merge. A cluster becomes a named
+A k-means cluster is not a species. Clusters exist because `k` was chosen — a
+dial, default **6**, range 2–12 (`Tunables`) — and their labels permute when
+clusters split or merge. Labels are always `< k`; lowering `k` mid-run remaps a
+family whose label is now out of range, so it changes colour once. A cluster becomes a named
 species only by passing a test.
 
 **Signature.** Seven mutable traits, each normalized to `[0, 1]` by its bounds.

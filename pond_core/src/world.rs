@@ -76,6 +76,73 @@ const PREDATION_YIELD: f64 = 0.667;
 const HUNT_HUNGER_FRAC: f64 = 0.5;
 // Energy an immortal agent is held at when it would otherwise starve.
 const IMMORTAL_ENERGY_FLOOR: f64 = 1.0;
+// Energy a sleeping agent claws back against the tick's base metabolism drain,
+// as a multiple of `metabolism`. Strictly less than the 0.1 × metabolism base
+// drain, so sleep halves the rate an agent starves at and is never a source.
+//
+// It was 0.15 — larger than the drain — which made sleep a net +0.05 ×
+// metabolism per tick, and the gain was not clamped to capacity either, so an
+// agent whose sleep gate kept winning climbed past its own maximum forever. The
+// overflow was invisible: `energy_norm` clamps to 1.0 in perception, so neither
+// the brain nor the HUD showed it, and the only symptom was agents that could
+// not starve. RULES.md documented the 0.15 gain; the refactor roadmap recorded
+// the decision as "rest, not recovery". The roadmap was right.
+const SLEEP_RECOVERY: f64 = 0.05;
+// Passive metabolism drain per tick, as a multiple of `metabolism`. Named only so
+// the sleep invariant above is checkable — the value is unchanged.
+const BASE_DRAIN: f64 = 0.1;
+
+// ── Tunables ──────────────────────────────────────────────────────────────────
+
+/// Per-tile per-tick food regen chance at full fertility. Was hardcoded in
+/// `biome.rs`.
+pub const DEFAULT_FOOD_REGEN_SCALE: f64 = 0.012;
+/// `aggression` at or above this makes an agent hunt other agents rather than
+/// graze. `aggression` maxes at 1.05, so anything above that switches
+/// agent-on-agent combat off entirely.
+pub const DEFAULT_HUNT_AGGRESSION_THRESHOLD: f64 = 0.80;
+/// Genome families the k-means pass splits the pond into.
+pub const DEFAULT_CLUSTER_K: usize = 6;
+
+pub const FOOD_REGEN_SCALE_RANGE: (f64, f64) = (0.0, 0.05);
+pub const HUNT_AGGRESSION_THRESHOLD_RANGE: (f64, f64) = (0.0, 1.06);
+pub const CLUSTER_K_RANGE: (usize, usize) = (2, 12);
+
+/// The three dials a viewer can move mid-run, held on `World` so the numbers
+/// have one home rather than being literals at their call sites.
+///
+/// They are not the same kind of thing, which is the reason they are documented
+/// together: `food_regen_scale` and `hunt_aggression_threshold` are physics —
+/// moving them changes what the pond does — while `cluster_k` is presentation,
+/// changing only how the pond is grouped for colours and species tracking.
+///
+/// Determinism: same seed plus the same tunables reproduces a run exactly, as
+/// before. A run whose dials moved mid-flight is no longer reproducible from
+/// `(grid, population, seed)` alone, which is what `modified` records.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Tunables {
+    pub food_regen_scale: f64,
+    pub hunt_aggression_threshold: f64,
+    pub cluster_k: usize,
+    /// Set once any dial leaves its default. Never cleared by returning a dial
+    /// to its default value — the run already diverged.
+    pub modified: bool,
+}
+
+impl Default for Tunables {
+    fn default() -> Self {
+        Self {
+            food_regen_scale: DEFAULT_FOOD_REGEN_SCALE,
+            hunt_aggression_threshold: DEFAULT_HUNT_AGGRESSION_THRESHOLD,
+            cluster_k: DEFAULT_CLUSTER_K,
+            modified: false,
+        }
+    }
+}
+
+fn clamp_range(v: f64, (lo, hi): (f64, f64)) -> f64 {
+    v.clamp(lo, hi)
+}
 
 // ── Ultra predator ────────────────────────────────────────────────────────────
 // A single apex agent that cannot die and eats until the population is down to a
@@ -445,6 +512,12 @@ pub struct World {
     last_reinforce_step: u32,
     /// Rolling stat time-series, sampled every `SAMPLE_INTERVAL` steps.
     pub stats_history: StatHistory,
+    /// The three live dials. See `Tunables`.
+    tunables: Tunables,
+    /// Set when `cluster_k` changes, so the next step reclusters instead of
+    /// waiting out the rest of the 50-step cycle — otherwise the dial looks
+    /// dead for up to 50 steps.
+    cluster_dirty: bool,
 
     // Per-tile eat bookkeeping (crowding contention + cooldown)
     tile_last_eaten: Vec<Option<u32>>,
@@ -512,6 +585,8 @@ impl World {
             last_reinforce_pop: 0,
             last_reinforce_step: 0,
             stats_history: StatHistory::new(),
+            tunables: Tunables::default(),
+            cluster_dirty: false,
             tile_last_eaten: vec![None; grid_size * grid_size],
             tile_eat_count_this_tick: vec![0u16; grid_size * grid_size],
             scratch_acting: Vec::new(),
@@ -528,6 +603,56 @@ impl World {
 
     pub fn agent_count(&self) -> usize {
         self.ids.len()
+    }
+
+    // ── Tunables ──────────────────────────────────────────────────────────────
+    // Setters clamp in core rather than trusting the caller: the UI is one
+    // caller, and a regen scale of 5.0 or a k of 0 would panic or wedge the sim.
+
+    pub fn tunables(&self) -> Tunables {
+        self.tunables
+    }
+
+    pub fn set_food_regen_scale(&mut self, v: f64) {
+        self.tunables.food_regen_scale = clamp_range(v, FOOD_REGEN_SCALE_RANGE);
+        self.mark_tuned();
+    }
+
+    pub fn set_hunt_aggression_threshold(&mut self, v: f64) {
+        self.tunables.hunt_aggression_threshold =
+            clamp_range(v, HUNT_AGGRESSION_THRESHOLD_RANGE);
+        self.mark_tuned();
+    }
+
+    /// Changing `k` mid-run is safe: `match_labels` already handles the previous
+    /// run having a different label count. Colours re-shuffle once, which is
+    /// honest — the families genuinely changed.
+    pub fn set_cluster_k(&mut self, k: usize) {
+        let k = k.clamp(CLUSTER_K_RANGE.0, CLUSTER_K_RANGE.1);
+        if k != self.tunables.cluster_k {
+            self.tunables.cluster_k = k;
+            self.cluster_dirty = true;
+        }
+        self.mark_tuned();
+    }
+
+    /// Latches `modified` the first time any dial differs from its default.
+    /// Setting a dial back does not clear it: the run already diverged, and the
+    /// seed no longer describes it.
+    fn mark_tuned(&mut self) {
+        // Compared with a tolerance because the values arrive from JS as f32:
+        // the wasm layer hands the UI `0.012` as an f32 and gets back
+        // 0.012000000104…, so an exact test would latch `modified` the first
+        // time someone pressed reset without having moved anything.
+        const EPS: f64 = 1e-6;
+        let d = Tunables::default();
+        let t = &self.tunables;
+        if (t.food_regen_scale - d.food_regen_scale).abs() > EPS
+            || (t.hunt_aggression_threshold - d.hunt_aggression_threshold).abs() > EPS
+            || t.cluster_k != d.cluster_k
+        {
+            self.tunables.modified = true;
+        }
     }
 
     pub fn get_stats(&self) -> SimStats {
@@ -1364,10 +1489,13 @@ impl World {
         // body — so predators are the pressure valve.
         self.manage_predator_pack();
 
-        // Phase 10: dual k-means clustering every 50 steps
-        if self.step_count % 50 == 0 && !self.genome.is_empty() {
+        // Phase 10: dual k-means clustering every 50 steps, or immediately after
+        // a `cluster_k` change so the dial isn't dead until the next cycle.
+        if (self.step_count % 50 == 0 || self.cluster_dirty) && !self.genome.is_empty() {
+            self.cluster_dirty = false;
             let prev = std::mem::take(&mut self.cluster);
-            self.cluster = ClusterState::run(&self.genome, 6, self.step_count, Some(&prev));
+            let k = self.tunables.cluster_k;
+            self.cluster = ClusterState::run(&self.genome, k, self.step_count, Some(&prev));
             self.brain_clusters.begin(&self.genome, 24, self.step_count);
             // Speciation reads the fresh clustering and consumes no RNG, so a
             // run with it enabled steps identically to one without.
@@ -1436,9 +1564,10 @@ impl World {
     // ── Phase implementations ─────────────────────────────────────────────────
 
     fn tick_food_regen(&mut self) {
+        let scale = self.tunables.food_regen_scale;
         for tile in &mut self.tiles {
             if tile.food_units < MAX_FOOD_PER_TILE {
-                let rate = tile.regen_rate();
+                let rate = tile.regen_rate(scale);
                 if self.rng.gen::<f64>() < rate {
                     tile.food_units += 1;
                 }
@@ -1460,7 +1589,7 @@ impl World {
             }
 
             let metabolism = self.genome[i].traits.metabolism;
-            self.energy[i] -= 0.1 * metabolism;
+            self.energy[i] -= BASE_DRAIN * metabolism;
 
             if self.energy[i] <= 0.0 {
                 if self.immortal || self.is_predator(i) {
@@ -1717,8 +1846,10 @@ impl World {
             if winner == OUT_EAT {
                 self.do_eat(idx);
             } else if winner == OUT_SLEEP {
-                // RULES.md: sleep gain is 0.15 * metabolism (was 0.05 — matches code to spec).
-                self.energy[idx] += 0.15 * metabolism;
+                // Rest, not recovery: recovers less than the base drain, and never
+                // past capacity. See SLEEP_RECOVERY.
+                let max_e = MAX_ENERGY_BASE * self.genome[idx].traits.energy_capacity;
+                self.energy[idx] = (self.energy[idx] + SLEEP_RECOVERY * metabolism).min(max_e);
             } else if winner == OUT_REPRODUCE {
                 return self.do_reproduce(idx);
             }
@@ -1854,7 +1985,8 @@ impl World {
 
                 for &attacker in &occupants {
                     if self.cause_of_death[attacker].is_some() { continue; }
-                    if self.genome[attacker].traits.aggression < 0.80 { continue; }
+                    if self.genome[attacker].traits.aggression
+                        < self.tunables.hunt_aggression_threshold { continue; }
 
                     // Hunger gate: sated agents don't hunt. Without it predation has
                     // no density-dependent brake — a predator that clears the local
@@ -2301,6 +2433,108 @@ mod tests {
         }
     }
 
+    // ── Tunables ──────────────────────────────────────────────────────────────
+
+    /// The load-bearing one: turning three constants into fields must be inert.
+    /// Everything else here moves a dial, so this is what proves the dials are
+    /// the only thing that changed.
+    #[test]
+    fn defaults_reproduce_the_untuned_run() {
+        let mut a = World::new(12, 60, 42);
+        let mut b = World::new(12, 60, 42);
+        b.set_food_regen_scale(DEFAULT_FOOD_REGEN_SCALE);
+        b.set_hunt_aggression_threshold(DEFAULT_HUNT_AGGRESSION_THRESHOLD);
+        b.set_cluster_k(DEFAULT_CLUSTER_K);
+        for _ in 0..300 {
+            a.step();
+            b.step();
+        }
+        assert_eq!(a.agent_count(), b.agent_count());
+        assert_eq!(a.energy, b.energy);
+        assert_eq!(a.cluster.genome_cluster_ids, b.cluster.genome_cluster_ids);
+        assert_eq!(a.death_tally, b.death_tally);
+        // Setting a dial to the value it already had is not a modification.
+        assert!(!b.tunables().modified);
+    }
+
+    #[test]
+    fn zero_regen_means_no_tile_ever_gains_food() {
+        let mut w = small_world();
+        w.set_food_regen_scale(0.0);
+        let before: u32 = w.tiles.iter().map(|t| t.food_units).sum();
+        for _ in 0..500 {
+            w.tick_food_regen();
+        }
+        let after: u32 = w.tiles.iter().map(|t| t.food_units).sum();
+        assert_eq!(before, after);
+        assert!(w.tunables().modified);
+    }
+
+    #[test]
+    fn a_threshold_above_the_trait_maximum_stops_combat() {
+        // aggression tops out at 1.05, so nothing can clear 1.06.
+        let mut tuned = World::new(12, 120, 42);
+        tuned.set_hunt_aggression_threshold(1.06);
+        let mut base = World::new(12, 120, 42);
+        for _ in 0..400 {
+            tuned.step();
+            base.step();
+        }
+        assert_eq!(tuned.death_tally.get(&CauseOfDeath::KilledInCombat), None);
+        // …and the untuned run of the same seed does kill in combat, or this
+        // test would pass for the wrong reason.
+        assert!(base.death_tally.get(&CauseOfDeath::KilledInCombat).copied().unwrap_or(0) > 0);
+    }
+
+    #[test]
+    fn cluster_k_takes_effect_without_waiting_for_the_cycle() {
+        let mut w = World::new(12, 60, 42);
+        for _ in 0..60 { w.step(); }
+        assert!(w.cluster.genome_cluster_ids.iter().any(|&id| id >= 3));
+
+        w.set_cluster_k(3);
+        w.step(); // not a multiple of 50 — the dirty flag is what reclusters
+        assert!(w.cluster.genome_cluster_ids.iter().all(|&id| id < 3),
+            "k change should apply on the next step, not the next 50-step cycle");
+
+        // And back up again, over the previous run's smaller centroid vector.
+        w.set_cluster_k(8);
+        w.step();
+        assert!(w.cluster.genome_cluster_ids.iter().all(|&id| id < 8));
+        assert!(w.cluster.genome_cluster_ids.iter().any(|&id| id >= 3));
+    }
+
+    #[test]
+    fn tunables_are_clamped_to_their_ranges() {
+        let mut w = small_world();
+        w.set_food_regen_scale(99.0);
+        w.set_hunt_aggression_threshold(-5.0);
+        w.set_cluster_k(0);
+        let t = w.tunables();
+        assert_eq!(t.food_regen_scale, FOOD_REGEN_SCALE_RANGE.1);
+        assert_eq!(t.hunt_aggression_threshold, HUNT_AGGRESSION_THRESHOLD_RANGE.0);
+        assert_eq!(t.cluster_k, CLUSTER_K_RANGE.0);
+    }
+
+    #[test]
+    fn an_f32_round_trip_of_a_default_is_not_a_modification() {
+        // What the UI sends when reset is pressed: the default, having been
+        // through f32 on the way out to JS and back.
+        let mut w = small_world();
+        w.set_food_regen_scale(DEFAULT_FOOD_REGEN_SCALE as f32 as f64);
+        w.set_hunt_aggression_threshold(DEFAULT_HUNT_AGGRESSION_THRESHOLD as f32 as f64);
+        assert!(!w.tunables().modified);
+    }
+
+    #[test]
+    fn modified_latches_and_is_not_cleared_by_going_back() {
+        let mut w = small_world();
+        w.set_cluster_k(4);
+        assert!(w.tunables().modified);
+        w.set_cluster_k(DEFAULT_CLUSTER_K);
+        assert!(w.tunables().modified, "the run already diverged; the seed no longer describes it");
+    }
+
     #[test]
     fn energy_drains_each_step() {
         let mut w = World::new(6, 10, 99);
@@ -2308,6 +2542,36 @@ mod tests {
         w.step();
         let after_energy: f64 = w.energy.iter().sum();
         assert!(after_energy < initial_energy * 1.5);
+    }
+
+    #[test]
+    fn sleep_slows_starvation_instead_of_reversing_it() {
+        // Sleep must recover strictly less than the tick's base metabolism drain,
+        // or an agent that keeps choosing it never starves.
+        #[allow(clippy::assertions_on_constants)]
+        {
+            assert!(SLEEP_RECOVERY < BASE_DRAIN, "sleep is a net energy source");
+        }
+    }
+
+    #[test]
+    fn energy_never_exceeds_capacity() {
+        // Start everyone at their cap so any unclamped gain (sleep, eat) shows up
+        // as an overflow rather than being absorbed by a deficit.
+        let mut w = World::new(10, 40, 5);
+        for i in 0..w.energy.len() {
+            w.energy[i] = MAX_ENERGY_BASE * w.genome[i].traits.energy_capacity;
+        }
+        for _ in 0..400 {
+            w.step();
+            for i in 0..w.energy.len() {
+                let max_e = MAX_ENERGY_BASE * w.genome[i].traits.energy_capacity;
+                assert!(
+                    w.energy[i] <= max_e + 1e-6,
+                    "agent {} at {} over capacity {}", i, w.energy[i], max_e,
+                );
+            }
+        }
     }
 
     #[test]

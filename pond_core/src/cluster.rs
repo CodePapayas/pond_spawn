@@ -64,10 +64,22 @@ fn match_labels(
     prev: &[Option<[f64; TRAIT_DIMS]>],
     k: usize,
 ) -> Vec<u8> {
-    let slots = k.max(prev.len()).max(new.len());
+    // Labels must stay below the current `k`: everything downstream — the legend
+    // rows, the renderer palette, the headless histogram — sizes itself by k.
+    // Widening this to `prev.len()` let a cluster keep a label from a wider
+    // earlier run after `k` was lowered, which is a label no consumer expects
+    // and which indexed out of bounds. A family whose label is now out of range
+    // gets remapped, so it changes colour once; that is the honest reading, as
+    // lowering k genuinely merged the families away.
+    //
+    // Nothing changes while k is held constant: `prev.len()` is then k already.
+    let slots = k.max(new.len());
     let mut pairs: Vec<(f64, usize, usize)> = Vec::new();
     for (ni, nc) in new.iter().enumerate() {
-        for (oi, oc) in prev.iter().enumerate() {
+        // Previous labels at or above `slots` are gone with the k they came
+        // from — a cluster near one of them still gets a fresh in-range label
+        // below rather than inheriting an unusable one.
+        for (oi, oc) in prev.iter().enumerate().take(slots) {
             if let Some(oc) = oc {
                 pairs.push((euclidean_sq(nc, oc), ni, oi));
             }
@@ -94,21 +106,61 @@ fn match_labels(
     map
 }
 
-// ── Genome clustering (9 traits, euclidean, k=6) ─────────────────────────────
+// ── Genome clustering (7 normalized traits, euclidean, k=6) ──────────────────
 
-const TRAIT_DIMS: usize = 9;
+/// Clustering runs on the species signature — the seven mutable traits, each
+/// rescaled to [0, 1] by its bounds (`species::signature`).
+///
+/// Both changes matter, and both were wrong here before:
+///
+/// - **Normalized.** Raw trait values have bounds differing by an order of
+///   magnitude, so euclidean distance over them let `reproduction_cost`
+///   (0.75–1.50) count for several times what `defense` (0.5–1.07) did, and
+///   `mutation_rate` (0.01–0.25) contributed almost nothing to a partition.
+/// - **Mutable traits only.** `energy_capacity` and `mutation_rate` are locked
+///   (D3) — never mutated, inherited exactly — so clustering on them yields
+///   founder-descent groups rather than shapes selection built.
+///
+/// Sharing the signature with `species.rs` is the point: the cluster colors on
+/// screen and the species a member is assigned to are now the same space. Before
+/// this they were two different readings of "family" that did not agree.
+const TRAIT_DIMS: usize = crate::species::SIG_LEN;
 
 fn trait_vec(g: &Genome) -> [f64; TRAIT_DIMS] {
-    let t = &g.traits;
-    [
-        t.vision, t.speed, t.metabolism,
-        t.energy_capacity, t.mutation_rate,
-        t.reproduction_cost, t.attack, t.defense, t.aggression,
-    ]
+    crate::species::signature(&g.traits)
 }
 
 fn euclidean_sq(a: &[f64; TRAIT_DIMS], b: &[f64; TRAIT_DIMS]) -> f64 {
     a.iter().zip(b.iter()).map(|(x, y)| (x - y).powi(2)).sum()
+}
+
+/// Move every empty cluster's centroid onto the point furthest from its own
+/// centroid — the same policy `brain_cluster::update_centroids` uses, and the
+/// reason the two implementations no longer disagree.
+///
+/// A cluster that loses every member has no sum to average, so without this it
+/// keeps whatever centroid it held when the last member left: nothing can ever
+/// move it again, it is written into `genome_centroids`, and it goes on
+/// claiming a stable label in `match_labels` against a shape no live agent has.
+/// Reseeding onto the worst-fit point instead gives it the split most worth
+/// making. Several empty clusters in one pass may land on the same point; the
+/// next assign pass separates them, exactly as in `brain_cluster`.
+fn reseed_empty(
+    points: &[[f64; TRAIT_DIMS]],
+    labels: &[u8],
+    counts: &[usize],
+    centroids: &mut [[f64; TRAIT_DIMS]],
+) {
+    if points.is_empty() { return; }
+    for c in 0..centroids.len() {
+        if counts[c] > 0 { continue; }
+        let mut worst = (-1.0f64, 0usize);
+        for (i, p) in points.iter().enumerate() {
+            let d = euclidean_sq(p, &centroids[labels[i] as usize]);
+            if d > worst.0 { worst = (d, i); }
+        }
+        centroids[c] = points[worst.1];
+    }
 }
 
 fn kmeans_genome(
@@ -161,6 +213,7 @@ fn kmeans_genome(
                 for d in 0..TRAIT_DIMS { centroids[c][d] = sums[c][d] / counts[c] as f64; }
             }
         }
+        reseed_empty(&points, &labels, &counts, &mut centroids);
     }
     (labels, centroids)
 }
@@ -221,6 +274,61 @@ mod tests {
         let a = ClusterState::run(&genomes, 6, 100, None);
         let b = ClusterState::run(&genomes, 6, 150, Some(&a));
         assert_eq!(a.genome_cluster_ids, b.genome_cluster_ids);
+    }
+
+    #[test]
+    fn clustering_ignores_locked_traits_and_normalizes_the_rest() {
+        let mut a = make_genomes(1).pop().unwrap();
+        let mut b = a.clone();
+        // Locked traits (D3) are founder tags, not evolved shape — they must not
+        // move a genome in cluster space.
+        b.traits.energy_capacity = 1.05;
+        b.traits.mutation_rate = 0.25;
+        a.traits.energy_capacity = 0.95;
+        a.traits.mutation_rate = 0.01;
+        assert_eq!(trait_vec(&a), trait_vec(&b));
+
+        // Every dimension is on the same [0, 1] scale, so no trait outweighs
+        // another purely because its bounds are wider.
+        for v in trait_vec(&a) {
+            assert!((0.0..=1.0).contains(&v), "dimension {} outside [0,1]", v);
+        }
+    }
+
+    #[test]
+    fn empty_clusters_are_reseeded_not_left_stale() {
+        // Cluster 1 has lost every member; its centroid is a mean of agents that
+        // no longer exist, and nothing in the update step can move it.
+        let points = vec![
+            [0.0; TRAIT_DIMS],
+            [0.1; TRAIT_DIMS],
+            [0.9; TRAIT_DIMS],
+        ];
+        let labels = vec![0u8, 0, 0];
+        let counts = vec![3usize, 0];
+        let stale = [0.5; TRAIT_DIMS];
+        let mut centroids = vec![[0.05; TRAIT_DIMS], stale];
+
+        reseed_empty(&points, &labels, &counts, &mut centroids);
+
+        // The worst-fit live point is [0.9…], furthest from its own centroid.
+        assert_eq!(centroids[1], points[2]);
+        // The occupied cluster is untouched.
+        assert_eq!(centroids[0], [0.05; TRAIT_DIMS]);
+    }
+
+    #[test]
+    fn labels_stay_below_k_when_k_shrinks() {
+        // `k` is a dial, and every consumer — legend rows, the renderer palette,
+        // the headless histogram — sizes itself by it. A label inherited from a
+        // wider previous run would index past all three.
+        let genomes = make_genomes(60);
+        let wide = ClusterState::run(&genomes, 8, 100, None);
+        assert!(wide.genome_cluster_ids.iter().any(|&id| id >= 3));
+
+        let narrow = ClusterState::run(&genomes, 3, 150, Some(&wide));
+        for &id in &narrow.genome_cluster_ids { assert!(id < 3, "label {} >= k", id); }
+        assert!(narrow.genome_centroids.len() <= 3);
     }
 
     #[test]

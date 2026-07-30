@@ -406,6 +406,69 @@ canvas { display: block; }
 .sp-selectable { cursor: pointer; }
 .sp-selectable:hover { background: rgba(120, 255, 245, 0.12); }
 
+/* ── Tuning (left, under the top corner) ──────────────────────────────── */
+/* A side panel like every other, so it never sits over the pond. */
+#tuning {
+  top: 16px; left: 16px;
+  width: 272px;
+  display: none;
+  padding: 8px 10px;
+}
+.tune-row { margin: 8px 0 10px; }
+.tune-head { display: flex; align-items: center; gap: 6px; }
+.tune-label { flex: 1 1 auto; }
+.tune-value {
+  font-variant-numeric: tabular-nums;
+  color: rgba(120, 255, 245, 0.9);
+}
+.tune-controls { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.tune-controls input[type=range] {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: rgb(120, 255, 245);
+  cursor: pointer;
+}
+.tune-reset {
+  flex: 0 0 auto;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(120, 255, 245, 0.35);
+  border-radius: 3px;
+  color: rgba(190, 245, 255, 0.85);
+  font-family: inherit; font-size: 11px;
+  padding: 1px 6px; cursor: pointer;
+}
+.tune-reset:hover { background: rgba(120, 255, 245, 0.15); }
+/* The blurb. `title=` would do for a few words, but these are two sentences and
+   it gives no styling, a delay, and nothing at all on a touch screen. Shown on
+   focus as well as hover so it is reachable from the keyboard. */
+.tune-info {
+  flex: 0 0 auto;
+  position: relative;
+  width: 13px; height: 13px;
+  border: 1px solid rgba(120, 255, 245, 0.45);
+  border-radius: 50%;
+  font-size: 9px; line-height: 12px; text-align: center;
+  color: rgba(120, 255, 245, 0.8);
+  cursor: help;
+}
+.tune-blurb {
+  display: none;
+  position: absolute;
+  top: 18px; left: -6px;
+  width: 246px;
+  z-index: 5;
+  background: rgba(4, 10, 18, 0.98);
+  border: 1px solid rgba(120, 255, 245, 0.3);
+  border-radius: 4px;
+  padding: 7px 8px;
+  font-size: 10px; line-height: 1.5; text-align: left;
+  color: rgba(190, 245, 255, 0.9);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
+}
+.tune-info:hover .tune-blurb, .tune-info:focus .tune-blurb { display: block; }
+.tune-note { color: rgba(120, 150, 175, 0.7); font-size: 10px; margin-top: 4px; }
+.tune-note.tuned { color: rgba(255, 175, 90, 0.9); }
+
 #archetypes {
   top: 16px;
   left: 16px;
@@ -596,6 +659,7 @@ canvas { display: block; }
   <div class="hk"><b>l</b><span>legend</span></div>
   <div class="hk"><b>g</b><span>graphs</span></div>
   <div class="hk"><b>b</b><span>archetypes</span></div>
+  <div class="hk"><b>t</b><span>tuning</span></div>
   <div class="hk"><b>d</b><span>debug clusters</span></div>
   <div class="hk"><b>n</b><span>restart run</span></div>
   <div class="hk"><b>esc</b><span>deselect</span></div>
@@ -671,6 +735,9 @@ canvas { display: block; }
 
 <!-- Top right, above the legend: player powers -->
 <div id="god" class="panel"></div>
+
+<!-- Left side, under the inspector's corner: live rule dials. T toggles. -->
+<div id="tuning" class="panel"></div>
 
 <script type="module" src="renderer.js"></script>
 </body>

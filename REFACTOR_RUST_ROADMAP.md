@@ -1,7 +1,10 @@
 # pond_spawn → Rust Refactor
 
 **Engine status: complete.** All phases shipped, and the browser GUI with them.
-Next goal: **speciation** — see [PLAN_SPECIATION.md](PLAN_SPECIATION.md).
+Speciation and the brain-cluster view have landed too. What is left is a
+speciation **tuning** pass (`PLAN_SPECIATION.md` Step 5, never validated across
+seeds) and Phase 9, publishing to itch.io. Outstanding items are tracked in
+[HANDOFF.md](HANDOFF.md).
 
 ---
 
@@ -18,9 +21,9 @@ Next goal: **speciation** — see [PLAN_SPECIATION.md](PLAN_SPECIATION.md).
 | Pass A | Continuous-space physics — steering forces, velocity integration, SpatialHashGrid | ✅ Done |
 | Pass B | Canvas2D renderer — kinematic body chains, additive glow, stir + pour interaction | ✅ Done |
 | 6 | Interactive GUI — morphology, cluster UI, full HUD, camera, setup, god mode, stat graphs | ✅ Done |
-| 7 | **Speciation — stable clusters lock in as named species** (see [PLAN_SPECIATION.md](PLAN_SPECIATION.md)) | 🚧 In progress |
-| 8 | **Brain cluster view + clustering perf** — behavioural archetypes made visible, and the 50-step frame hitch removed (see [PLAN_BRAIN_VIEW.md](PLAN_BRAIN_VIEW.md)) | 🔜 Next |
-| 9 | Publish to itch.io | ⬜ Not started |
+| 7 | Speciation — stable clusters lock in as named species (see [PLAN_SPECIATION.md](PLAN_SPECIATION.md)) | ✅ Done — `species.rs`, `naming.rs`, legend + inspector. Step 5 tuning still unvalidated |
+| 8 | Brain cluster view + clustering perf — behavioural archetypes made visible, and the 50-step frame hitch removed (see [PLAN_BRAIN_VIEW.md](PLAN_BRAIN_VIEW.md)) | ✅ Done — warm start, amortized iterations, reused scratch, view gate, `archetypes.js` |
+| 9 | **Publish to itch.io** | 🔜 Next |
 
 ---
 
@@ -48,7 +51,11 @@ All simulation logic. WASM-safe, deterministic, seeded with `ChaCha8Rng`.
 | `src/brain.rs` | Hand-rolled 5→12→12→12→8 MLP, 488 weights, ReLU, sigmoid output gates (softmax/sample retained but dead — see D1) |
 | `src/genome.rs` | `Genome` + `Traits` (12 fields), mutation with D3 locked traits, `effective_mutation_rate` (D4) |
 | `src/memory.rs` | `AgentMemory` — 10-action ring buffer, success detection, suppression factor |
-| `src/cluster.rs` | Dual k-means: genome (euclidean, k=6) + brain (cosine via normalized euclidean, k=24), k-means++ init |
+| `src/cluster.rs` | Genome k-means (k=6) over the normalized 7-trait species signature, k-means++ init, label matching against the previous run |
+| `src/brain_cluster.rs` | Brain k-means (k=24, cosine via normalized euclidean) — warm-started, amortized across steps, allocation-free, gated on the view |
+| `src/species.rs` | Species registry — signature, promotion lifecycle, membership, drift, extinction |
+| `src/naming.rs` | Deterministic binomial names from `(species_id, world_seed)`, inherited genus |
+| `src/stats.rs` | Sampled time series for the graph panel: population, food, energy, age band, per-interval deaths |
 | `src/spatial.rs` | `SpatialHashGrid` — tile-aligned buckets, f32 coords, toroidal `agents_near(radius)` |
 | `src/world.rs` | `World` — SoA arrays, full step loop, scratch buffers, `get_stats()` |
 | `src/wasm.rs` | `WasmWorld` — `#[wasm_bindgen]` wrapper, `get_state() → Float32Array`, state buffer layout |
@@ -62,7 +69,7 @@ All simulation logic. WASM-safe, deterministic, seeded with `ChaCha8Rng`.
 | `wasm` | Enables `wasm-bindgen` exports (`WasmWorld`) |
 | `native` | Enables `rayon` for parallel perception |
 
-**Test suite:** 31 tests across all modules. All pass.
+**Test suite:** 146 tests across all modules. All pass.
 
 **Release perf (12×12, 100 agents):** ~0.003 ms/step baseline. 500 steps in 16 ms total.
 
@@ -79,8 +86,15 @@ release, so the browser is slower still:
 Brain k-means is ~99.5% of it: `n × k(24) × 488 dims × 15 iters`, re-initialized
 from scratch with k-means++ every run (42% of the cost is init alone). At a
 16.7 ms frame budget this is a visible stutter every 50 steps even at 100
-agents. Phase 8 addresses it. *(An earlier revision of this file claimed ~4 ms
-here; that was never measured and is wrong by 3–4×.)*
+agents. *(An earlier revision of this file claimed ~4 ms here; that was never
+measured and is wrong by 3–4×.)*
+
+**Phase 8 fixed this** — the numbers above are the pre-Phase-8 measurement, kept
+because they are what the work was aimed at. Brain clustering is now warm-started
+(4 iterations instead of 15 once converged), amortized across steps, runs out of
+reused flat buffers, and is skipped entirely unless the archetype view is open —
+so the default path pays nothing at all. Re-measure with
+`cargo run -p pond_core --bin run --features native --release -- --bench-cluster`.
 
 ### WASM package (`pond_core/pkg/`)
 
@@ -171,30 +185,16 @@ Outputs [0] seek_weight          → force toward nearest food
 
 ---
 
-## TODO — Phase 6: Interactive GUI
+## Phase 6 — Interactive GUI (shipped)
 
-The engine is done. The renderer doesn't exist yet. This is the remaining work.
+`pond_web/` is the renderer: Canvas2D, kinematic body chains with additive glow,
+stir/pour/god-mode interaction, cluster and species coloring, camera, run setup,
+the inspector, and the stat graph panel. The engine stays authoritative for all
+sim state; physics interpolation between ticks is client-side via `get_alpha()`.
 
-### Goal
-A fluid, physics-backed web UI that feels alive. The grid should look like a living pond — agents move through it, food ripples, the stir mechanic creates visible disturbance.
-
-### What `stir` already does (engine side)
-- Drains food on tiles within radius (scaled by intensity)
-- Suppresses tile fertility within radius
-- Rotates agent headings within radius
-
-### What the renderer needs to implement
-- **Canvas2D / WebGL base** — grid tiles colored by food density and fertility; agents as animated sprites or particles
-- **Physics layer** — fluid or soft-body simulation for visual continuity between sim steps; agents should feel like they're swimming, not teleporting
-- **Stir interaction** — pointer hold + drag calls `world.stir(cx, cy, radius, intensity)` and produces visible fluid disturbance (ripple, scatter, wake)
-- **Cluster coloring** — use `genome_cluster_id` and `brain_cluster_id` from `get_state()` to color agents by lineage/brain type
-- **HUD** — step counter, population, avg energy, food total; toggled overlays for cluster view, energy heatmap, fertility map
-
-### Architecture notes
-- Import `pond_core.js` as an ES module; call `step_n(1)` per animation frame
-- State buffer is a flat `Float32Array` — parse with the layout constants (`state_header_len()`, `state_agent_stride()`, `state_tile_stride()`)
-- Physics runs client-side in JS/WebGL; the Rust engine is authoritative for all sim state
-- No Bevy — renderer is pure browser tech
+Modules: `renderer.js`, `body.js`, `chain.js`, `morphology.js`, `color.js`,
+`decode.js`, `panels.js`, `graphs.js`, `species.js`, `archetypes.js`,
+`inspector.js`, `god.js`, `setup.js`, `floating.js`.
 
 ---
 
@@ -205,6 +205,7 @@ A fluid, physics-backed web UI that feels alive. The grid should look like a liv
 | [PLAN_GRAPHS.md](PLAN_GRAPHS.md) | Live stat graphs, parity w/ the old Python matplotlib panel |
 | [PLAN_SPECIATION.md](PLAN_SPECIATION.md) | Stable genome clusters lock in as named species |
 | [PLAN_BRAIN_VIEW.md](PLAN_BRAIN_VIEW.md) | Behavioural archetypes made visible; clustering perf |
+| [PLAN_TUNABLES.md](PLAN_TUNABLES.md) | Food regen, hunt threshold and clustering `k` as live dials (built) |
 
 ---
 

@@ -224,6 +224,39 @@ impl WasmWorld {
         self.inner.brain_clusters.enabled()
     }
 
+    // ── Tunables ──────────────────────────────────────────────────────────────
+    // Three dials, live. Values are clamped in `World`, so a slider that sends
+    // something out of range is corrected rather than trusted; read the getter
+    // back to see what stuck.
+
+    pub fn set_food_regen_scale(&mut self, v: f32) {
+        self.inner.set_food_regen_scale(v as f64);
+    }
+    pub fn food_regen_scale(&self) -> f32 {
+        self.inner.tunables().food_regen_scale as f32
+    }
+
+    pub fn set_hunt_aggression_threshold(&mut self, v: f32) {
+        self.inner.set_hunt_aggression_threshold(v as f64);
+    }
+    pub fn hunt_aggression_threshold(&self) -> f32 {
+        self.inner.tunables().hunt_aggression_threshold as f32
+    }
+
+    pub fn set_cluster_k(&mut self, k: u32) {
+        self.inner.set_cluster_k(k as usize);
+    }
+    pub fn cluster_k(&self) -> u32 {
+        self.inner.tunables().cluster_k as u32
+    }
+
+    /// Whether any dial has moved this run. Once true it stays true: the run is
+    /// no longer reproducible from (grid, population, seed) alone, and the UI
+    /// says so next to the seed.
+    pub fn tunables_modified(&self) -> bool {
+        self.inner.tunables().modified
+    }
+
     /// Renderer interpolation factor in [0, 1). Blend prev_pos and pos by this.
     pub fn get_alpha(&self) -> f32 {
         (self.accumulator / TICK_MS).clamp(0.0, 1.0)
@@ -591,6 +624,26 @@ pub fn trait_bounds() -> Vec<f32> {
         .iter()
         .flat_map(|&(lo, hi)| [lo as f32, hi as f32])
         .collect()
+}
+
+/// Default and bounds for each tunable, flat, three rows of
+/// `[default, min, max]` in the order: food regen scale, hunt aggression
+/// threshold, clustering k. Slider setup reads this so no range or default is
+/// written down twice — the core owns them.
+#[wasm_bindgen]
+pub fn tunable_ranges() -> Vec<f32> {
+    use crate::world::*;
+    vec![
+        DEFAULT_FOOD_REGEN_SCALE as f32,
+        FOOD_REGEN_SCALE_RANGE.0 as f32,
+        FOOD_REGEN_SCALE_RANGE.1 as f32,
+        DEFAULT_HUNT_AGGRESSION_THRESHOLD as f32,
+        HUNT_AGGRESSION_THRESHOLD_RANGE.0 as f32,
+        HUNT_AGGRESSION_THRESHOLD_RANGE.1 as f32,
+        DEFAULT_CLUSTER_K as f32,
+        CLUSTER_K_RANGE.0 as f32,
+        CLUSTER_K_RANGE.1 as f32,
+    ]
 }
 
 #[wasm_bindgen]

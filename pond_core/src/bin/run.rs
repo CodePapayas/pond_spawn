@@ -122,11 +122,13 @@ fn main() {
     // Print cluster distribution at final state
     let gc = &world.cluster.genome_cluster_ids;
     if !gc.is_empty() {
-        let mut gcounts = [0u32; 8];
+        // Sized from the live tunable, not a literal: k is a dial now.
+        let k = world.tunables().cluster_k;
+        let mut gcounts = vec![0u32; k];
         let mut bcounts = [0u32; 32];
         for &id in gc { gcounts[id as usize] += 1; }
         for &id in &world.brain_clusters.labels { bcounts[id as usize] += 1; }
-        println!("\ngenome clusters (k=6): {:?}", &gcounts[..6]);
+        println!("\ngenome clusters (k={}): {:?}", k, gcounts);
         println!("brain clusters  (k=24): {:?}", &bcounts[..24]);
     }
 }

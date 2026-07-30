@@ -223,6 +223,52 @@ already collapse around step 200 in some configs, so:
   there is nothing to promote and lowering the bar would only invent species
   that aren't there.
 
+### Tuning pass — run 2026-07-29
+
+Six seeds, 12×12, 150 starting agents, 3000 steps, release build:
+
+| seed | live species at 3000 | first promotion | final pop |
+|---|---|---|---|
+| 42 | 1 | step 2250 | 146 |
+| 7 | 3 | step 2050 | 61 |
+| 1337 | 1 | step 2750 | 66 |
+| 2024 | 1 | step 1900 | 25 |
+| 555 | 1 | step 2700 | 122 |
+| 99 | 2 | step 1600 | 39 |
+
+Re-run after `cluster.rs` moved to the normalized signature: this table is
+unchanged, seed for seed. (At the smaller 12×12/100-agent config the change does
+move things — seed 42 reaches probation at step 1050 instead of 1900 — so the
+better-conditioned partition finds stable structure sooner where the population
+is thinner.)
+
+**Promotion count is fine; the expected window above was arithmetically
+impossible.** Live counts land at 1–3 against a 2–5 target — slightly under, and
+plausibly just the small grid. But no seed promoted before step 1600, and none
+could have:
+
+`mean_generation` from the stats CSV (seed 42) reaches 0.5 at step 250, 1.6 at
+500, 4.0 at 750, and climbs about 1 generation per 250 steps after that.
+Promotion needs `PROBATION_ENTRY_GENERATIONS` (3) of *advance* on top of a stable
+streak, then `PROBATION_TEST_GENERATIONS` (1) more under the clamp — four
+generations of advance measured from when the streak began, and the streak cannot
+begin before the cluster holds still. Four generations of advance do not exist
+until roughly step 1000 at the absolute earliest, and in practice the stability
+streak starts later than that. **Steps 300–800 was never reachable** with
+maturity at 100 ticks and per-agent reproduction cooldowns.
+
+**Recommendation: leave the thresholds alone and revise the expectation to
+~1600–2800.** The criteria are doing what they were designed to do — that a
+lineage must persist across real generational turnover is the whole point, and
+the fix for "promotion feels late" is a faster-turning population (lower
+`MATURITY_AGE`), not a shorter generation requirement. If the window still wants
+shortening, lower `PROBATION_ENTRY_GENERATIONS` from 3 to 2 first and re-run this
+table; do not touch `MIN_MEMBERS_*`, which is not what is gating here.
+
+Not yet measured: whether 1–3 live species is structure or is `k = 6` bracketing
+one blob. That needs `cluster_composite` spreads compared against the population
+spread, per the note above.
+
 ---
 
 ## Order
