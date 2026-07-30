@@ -92,6 +92,70 @@ const SLEEP_RECOVERY: f64 = 0.05;
 // the sleep invariant above is checkable — the value is unchanged.
 const BASE_DRAIN: f64 = 0.1;
 
+// ── Predator adaptation ───────────────────────────────────────────────────────
+//
+// Hunters used to pick the nearest animal and bite with a flat `TIER_ATTACK`.
+// Both halves of that pushed selection the same way: pressure was uniform, so
+// nothing was ever safer for being rare, and armour was an absolute refuge,
+// since `0.75` loses to any defense above it no matter how often it is tested.
+// The pond's answer was to put everything into defense, and there was nothing
+// the predators could do about it.
+//
+// A hunter now forms a **search image** of the most common family and prefers it
+// while hunting, and its bite slowly learns that family's armour. Both are
+// frequency-dependent, which is what makes them stabilising rather than just
+// stronger: whichever strategy wins becomes the plurality, and being the
+// plurality is what draws the hunters. A rare family is comparatively safe, so
+// diversity pays; a dominant one is hunted by something that has learned to bite
+// through exactly its defense, so dominance pays for itself.
+
+/// A challenger family must be this much more numerous than the current search
+/// image before a hunter switches to it. Without hysteresis the image would flip
+/// between two near-equal families every review, and the bite adaptation — which
+/// resets on a switch — would never get anywhere.
+const SEARCH_IMAGE_SWITCH_MARGIN: f64 = 1.25;
+/// How much nearer a matching animal is treated as being. Preference, not
+/// exclusivity: a hunter that finds nothing matching still eats what is there,
+/// or a rare family would be untouchable and would simply take over.
+const SEARCH_IMAGE_PULL: f32 = 2.0;
+/// Fraction of the gap to its image's armour a hunter closes each review.
+///
+/// 0.15 was too slow to matter: images switch every few hundred steps, and a
+/// hunter that reset to base on each switch spent its whole life re-learning.
+/// Measured, the animals actually being eaten averaged 0.65 defense against a
+/// pond at 0.98 — predation was still killing the *unarmoured*, which is the
+/// selection pressure this is meant to remove.
+const PREDATOR_ATTACK_ADAPT: f64 = 0.30;
+/// How much of the learned surplus survives an image switch. Not zero: general
+/// toughness carries across prey, only the specific calibration does not. A full
+/// reset handed armour its immunity back every time the plurality moved.
+const PREDATOR_ATTACK_RETENTION: f64 = 0.5;
+/// How far past the toughest animal in its image a hunter aims.
+///
+/// The aim is the family's **maximum** effective armour, not its mean or a
+/// standard-deviation estimate. Both of those were tried and both failed the
+/// same way, because the kill shape bites everything it covers and kills
+/// whatever falls below `attack`: any aim short of the toughest member kills
+/// the weaker half of the family and spares the stronger, which is a reward for
+/// armour no matter where between the mean and the tail it is set. Measured, an
+/// aim at mean + 2σ still ate animals averaging 0.68 defense out of a pond
+/// averaging 0.95 — predation was selecting *for* armour, which is the whole
+/// complaint this change exists to answer.
+///
+/// Aiming past the toughest makes predation armour-neutral instead: within the
+/// hunted family, armour changes nothing about who dies. The pressure that
+/// remains is frequency — being common is what gets you hunted — and that is the
+/// part that stabilises rather than ratchets.
+const PREDATOR_ATTACK_MARGIN: f64 = 0.05;
+/// How strongly a hunter prefers the better-armoured members of its image.
+/// Distance is scaled by `(family mean / this animal's armour)^2`, clamped, so
+/// an animal well above the family norm reads as much closer than it is.
+const ARMOUR_PREFERENCE_CLAMP: (f32, f32) = (0.3, 2.5);
+/// Cap on learned attack, above the tier's base. Defense tops out at 1.07, so
+/// 0.45 over the tier-0 base of 0.75 lets a hunter reach any armour eventually —
+/// armour buys time, not immunity.
+const PREDATOR_ATTACK_MAX_ADAPT: f64 = 0.45;
+
 // ── Tunables ──────────────────────────────────────────────────────────────────
 
 /// Per-tile per-tick food regen chance at full fertility. Was hardcoded in
@@ -360,6 +424,18 @@ pub struct Predator {
     /// Patrol turn rate, radians per tick, carried between ticks so idle motion
     /// is a smooth arc instead of a per-tick coin flip.
     pub turn_rate: f32,
+    /// The family this hunter is currently hunting by preference — a genome
+    /// cluster label, reviewed on the cluster tick. `None` before the first
+    /// review, or in a pond with nothing left to count.
+    pub search_image: Option<u8>,
+    /// Learned bite strength, starting at the tier's base and tracking the
+    /// armoured tail of `search_image`. Reset to base when the image changes:
+    /// what it learned was how to bite *that* shape.
+    pub attack: f64,
+    /// Mean effective armour of the current image, from the last review. Used to
+    /// pick out the better-armoured members while hunting — a hunter goes for
+    /// the prize animal, not the runt.
+    pub image_armour: f64,
 }
 
 // ── Death ─────────────────────────────────────────────────────────────────────
@@ -991,6 +1067,17 @@ impl World {
             // Arrives from a standing start and accelerates into its first
             // chase, rather than appearing already at full speed.
             speed: 0.0, turn_rate: 0.0,
+            // No image until the first review, and the tier's own bite until it
+            // has met something often enough to learn from.
+            search_image: None,
+            // Arrives already suited to this pond rather than at the tier's raw
+            // bite. A hunter that has to learn from scratch spends the whole
+            // cull — which is front-loaded, since residents go quiet once the
+            // pond is down to target — eating whatever is softest, which is the
+            // armour subsidy this whole mechanism exists to remove. The ecology
+            // fields a predator for the pond it is entering.
+            attack: self.starting_bite(tier),
+            image_armour: 0.0,
         });
         self.resync_predator_ids();
         self.predator_high_water = self.predator_high_water.max(self.predators.len());
@@ -1097,6 +1184,103 @@ impl World {
         }
     }
 
+    /// The bite a newly arrived hunter starts with: enough to take the toughest
+    /// animal currently in the pond, capped like any learned bite. Falls back to
+    /// the tier's own attack in an empty pond.
+    fn starting_bite(&self, tier: u8) -> f64 {
+        let base = TIER_ATTACK[(tier as usize).min(PREDATOR_TIERS - 1)];
+        let mut toughest: f64 = 0.0;
+        for i in 0..self.ids.len() {
+            if self.cause_of_death[i].is_some() || self.is_predator(i) { continue; }
+            let def = effective_defense(
+                self.genome[i].traits.defense,
+                self.parent_defense_bonus[i],
+                self.age[i],
+            );
+            if def > toughest { toughest = def; }
+        }
+        if toughest <= 0.0 { return base; }
+        (toughest + PREDATOR_ATTACK_MARGIN).clamp(base, base + PREDATOR_ATTACK_MAX_ADAPT)
+    }
+
+    /// Re-form every hunter's search image, and train its bite on that family's
+    /// armour. Runs on the cluster tick, immediately after the labels are
+    /// rebuilt, so the counts describe the pond as it is now.
+    ///
+    /// This is the whole of the frequency dependence. The plurality family is
+    /// the one hunted by preference, so a strategy is punished in proportion to
+    /// how well it is doing — which is what keeps the pond from collapsing onto
+    /// a single answer, and what stopped armour being that answer.
+    ///
+    /// Consumes no RNG: it is counting and averaging over world state, so a run
+    /// with predators present steps identically whether or not this fires.
+    fn review_predator_search_images(&mut self) {
+        if self.predators.is_empty() { return; }
+
+        // Counts and mean armour per family, over living prey only. Predators
+        // carry genomes and cluster labels of their own, and counting them would
+        // let a big pack vote for its own family.
+        let k = self.tunables.cluster_k.max(1);
+        let mut counts = vec![0usize; k];
+        let mut armour = vec![0f64; k];
+        let mut toughest = vec![0f64; k];
+        for i in 0..self.ids.len() {
+            if self.cause_of_death[i].is_some() || self.is_predator(i) { continue; }
+            let Some(&label) = self.cluster.genome_cluster_ids.get(i) else { continue };
+            let c = label as usize;
+            if c >= k { continue; }
+            let def = effective_defense(
+                self.genome[i].traits.defense,
+                self.parent_defense_bonus[i],
+                self.age[i],
+            );
+            counts[c] += 1;
+            armour[c] += def;
+            if def > toughest[c] { toughest[c] = def; }
+        }
+
+        let Some(plurality) = (0..k).max_by_key(|&c| counts[c]).filter(|&c| counts[c] > 0)
+        else { return };
+
+        for pi in 0..self.predators.len() {
+            let base = TIER_ATTACK[(self.predators[pi].tier as usize).min(PREDATOR_TIERS - 1)];
+            let current = self.predators[pi].search_image.map(|c| c as usize);
+
+            // Switch only when the challenger is clearly bigger, or when the old
+            // image has emptied out. Hysteresis: without it two families of
+            // similar size trade the image every review and the bite adaptation,
+            // which resets on a switch, never accumulates.
+            let switch = match current {
+                None => true,
+                Some(c) if c >= k || counts[c] == 0 => true,
+                Some(c) => counts[plurality] as f64 > counts[c] as f64 * SEARCH_IMAGE_SWITCH_MARGIN,
+            };
+            if switch && current != Some(plurality) {
+                self.predators[pi].search_image = Some(plurality as u8);
+                // A new shape is a new problem, but not from scratch: keep half
+                // the learned surplus. Resetting fully gave armour its immunity
+                // back on every switch, which is most of why the first version
+                // still ate the weakest animals in the pond.
+                let surplus = (self.predators[pi].attack - base).max(0.0);
+                self.predators[pi].attack = base + surplus * PREDATOR_ATTACK_RETENTION;
+            }
+
+            let Some(image) = self.predators[pi].search_image.map(|c| c as usize) else { continue };
+            if image >= k || counts[image] == 0 { continue; }
+
+            // Train past the toughest animal in the family — see
+            // PREDATOR_ATTACK_MARGIN for why anything short of that rewards
+            // armour rather than taxing it.
+            let n = counts[image] as f64;
+            let mean = armour[image] / n;
+            let want = (toughest[image] + PREDATOR_ATTACK_MARGIN)
+                .clamp(base, base + PREDATOR_ATTACK_MAX_ADAPT);
+            let attack = self.predators[pi].attack;
+            self.predators[pi].attack = attack + (want - attack) * PREDATOR_ATTACK_ADAPT;
+            self.predators[pi].image_armour = mean;
+        }
+    }
+
     /// One predator's turn: depart, or chase and eat.
     fn hunt_one(&mut self, id: u32) {
         let Some(pi) = self.predators.iter().position(|p| p.id == id) else { return };
@@ -1109,6 +1293,7 @@ impl World {
         };
         let target = self.predators[pi].target_pop;
         let tier = self.predators[pi].tier;
+        let attack = self.predators[pi].attack;
         let speed = TIER_SPEED[(tier as usize).min(PREDATOR_TIERS - 1)];
         let max_turn = TIER_MAX_TURN[(tier as usize).min(PREDATOR_TIERS - 1)];
         self.predators[pi].angle += tier_spin(tier);
@@ -1166,12 +1351,14 @@ impl World {
         }
         // Commitment lapsed, or the target is gone: look again.
         if target_slot.is_none() {
-            target_slot = self.nearest_prey(idx, self.predators[pi].rejected_id);
+            let image = self.predators[pi].search_image;
+            let armour = self.predators[pi].image_armour;
+            target_slot = self.nearest_prey(idx, self.predators[pi].rejected_id, image, armour);
             if target_slot.is_none() && self.predators[pi].rejected_id.is_some() {
                 // The resistant animal is the only prey left. Take it again
                 // rather than deadlocking the hunt on a skip.
                 self.predators[pi].rejected_id = None;
-                target_slot = self.nearest_prey(idx, None);
+                target_slot = self.nearest_prey(idx, None, image, armour);
             }
             self.predators[pi].target_id = target_slot.map(|s| self.ids[s]);
             self.predators[pi].commit_ticks = PREDATOR_COMMIT_TICKS;
@@ -1208,6 +1395,7 @@ impl World {
             if tier_bite_hits(tier, dx, dy, angle) {
                 if predator_attack_succeeds(
                     tier,
+                    attack,
                     self.genome[i].traits.defense,
                     self.parent_defense_bonus[i],
                     self.age[i],
@@ -1249,19 +1437,45 @@ impl World {
         }
     }
 
-    /// Slot of the nearest living prey animal, toroidally, skipping `skip_id`.
+    /// Slot of the best prey animal to chase: nearest, but with the hunter's
+    /// search image counted as nearer than it is. Skips `skip_id`.
+    ///
+    /// The preference is a distance discount rather than a filter. A hunter that
+    /// can only see off-image animals still hunts them — an exclusive search
+    /// image would make a rare family untouchable, and untouchable is exactly
+    /// how a family stops being rare.
     ///
     /// Only runs when a hunter needs a new target — once per
     /// `PREDATOR_COMMIT_TICKS`, not once per tick.
-    fn nearest_prey(&self, idx: usize, skip_id: Option<u32>) -> Option<usize> {
+    fn nearest_prey(
+        &self, idx: usize, skip_id: Option<u32>, image: Option<u8>, image_armour: f64,
+    ) -> Option<usize> {
         let world_size = self.grid_size as f32;
         let (px, py) = (self.pos_x[idx], self.pos_y[idx]);
+        let discount = 1.0 / (SEARCH_IMAGE_PULL * SEARCH_IMAGE_PULL);
         let mut best: Option<(f32, usize)> = None;
         for i in 0..self.ids.len() {
             if i == idx || self.cause_of_death[i].is_some() || self.is_predator(i) { continue; }
             if skip_id == Some(self.ids[i]) { continue; }
             let (dx, dy) = toroidal_delta(px, py, self.pos_x[i], self.pos_y[i], world_size);
-            let d2 = dx * dx + dy * dy;
+            let mut d2 = dx * dx + dy * dy;
+            if image.is_some() && self.cluster.genome_cluster_ids.get(i).copied() == image {
+                d2 *= discount;
+                // Within the image, the best-armoured animal is the one worth
+                // chasing. This is the half of the mechanism that actually
+                // taxes armour: being the hardest target in the commonest
+                // family is what puts a hunter on you.
+                if image_armour > 0.0 {
+                    let def = effective_defense(
+                        self.genome[i].traits.defense,
+                        self.parent_defense_bonus[i],
+                        self.age[i],
+                    );
+                    let ratio = (image_armour / def.max(1e-6)) as f32;
+                    d2 *= ratio.clamp(ARMOUR_PREFERENCE_CLAMP.0, ARMOUR_PREFERENCE_CLAMP.1)
+                        .powi(2);
+                }
+            }
             if best.is_none() || d2 < best.unwrap().0 { best = Some((d2, i)); }
         }
         best.map(|b| b.1)
@@ -1501,6 +1715,8 @@ impl World {
             // run with it enabled steps identically to one without.
             self.species_ids =
                 self.species.update(&self.genome, &self.cluster, self.step_count);
+            // Hunters re-read the pond on the same tick the labels are rebuilt.
+            self.review_predator_search_images();
         }
 
         // Behavioural clustering advances one iteration per step so its cost is
@@ -2231,10 +2447,15 @@ fn effective_defense(defense: f64, parent_bonus: f64, age: u32) -> f64 {
     defense + parent_bonus * (1.0 - ratio)
 }
 
-fn predator_attack_succeeds(tier: u8, defense: f64, parent_bonus: f64, age: u32) -> bool {
+/// `attack` is the hunter's *learned* bite, not the tier constant: it starts at
+/// `TIER_ATTACK[tier]` and rises toward the armour of whatever family it is
+/// hunting. The tier still decides whether defense is consulted at all.
+fn predator_attack_succeeds(
+    tier: u8, attack: f64, defense: f64, parent_bonus: f64, age: u32,
+) -> bool {
     let t = (tier as usize).min(PREDATOR_TIERS - 1);
     if TIER_IGNORES_DEFENSE[t] { return true; }
-    TIER_ATTACK[t] > effective_defense(defense, parent_bonus, age)
+    attack > effective_defense(defense, parent_bonus, age)
 }
 
 fn init_grid(grid_size: usize, rng: &mut ChaCha8Rng) -> Vec<BiomeTile> {
@@ -2940,17 +3161,134 @@ mod tests {
         }
     }
 
+    // ── Predator adaptation ───────────────────────────────────────────────────
+
+    #[test]
+    fn a_hunter_forms_an_image_of_the_commonest_family() {
+        let mut w = World::new(12, 120, 42);
+        w.summon_predator(0.5, false);
+        for _ in 0..60 { w.step(); }
+
+        let image = w.predators[0].search_image.expect("expected a search image");
+        // It must be the plurality family among living prey, counted the same
+        // way the review counts it.
+        let k = w.tunables().cluster_k;
+        let mut counts = vec![0usize; k];
+        for i in 0..w.ids.len() {
+            if w.cause_of_death[i].is_some() || w.is_predator(i) { continue; }
+            if let Some(&c) = w.cluster.genome_cluster_ids.get(i) {
+                counts[c as usize] += 1;
+            }
+        }
+        let plurality = (0..k).max_by_key(|&c| counts[c]).unwrap();
+        assert_eq!(image as usize, plurality);
+    }
+
+    #[test]
+    fn the_image_prefers_its_family_without_ignoring_the_rest() {
+        let mut w = World::new(12, 60, 7);
+        for _ in 0..60 { w.step(); }
+        let id = w.summon_predator(0.5, false).expect("a hunter");
+        let hunter = w.slot_of(id).expect("its slot");
+
+        // With no image, the nearest animal wins; with an image, a matching
+        // animal up to SEARCH_IMAGE_PULL times further away wins instead.
+        let plain = w.nearest_prey(hunter, None, None, 0.0);
+        assert!(plain.is_some(), "there should be prey to chase");
+
+        // Every family in turn: whatever the image, something is still chosen.
+        for c in 0..w.tunables().cluster_k as u8 {
+            assert!(w.nearest_prey(hunter, None, Some(c), 0.9).is_some(),
+                "an image with no members must not stop the hunt");
+        }
+    }
+
+    #[test]
+    fn the_bite_learns_the_armour_it_keeps_meeting() {
+        let mut w = World::new(12, 120, 42);
+        w.summon_predator(0.5, false);
+        // Armour the pond, and hand the hunter an untrained bite to learn from.
+        for i in 0..w.ids.len() {
+            if w.is_predator(i) { continue; }
+            w.genome[i].traits.defense = 1.0;
+            w.parent_defense_bonus[i] = 0.0;
+        }
+        for _ in 0..60 { w.step(); }   // labels exist, so a family can be counted
+        let base = TIER_ATTACK[0];
+        w.predators[0].attack = base;
+
+        let mut last = base;
+        for _ in 0..12 {
+            w.review_predator_search_images();
+            let now = w.predators[0].attack;
+            assert!(now >= last - 1e-9, "the bite went backwards: {} then {}", last, now);
+            last = now;
+        }
+        assert!(last > base, "the bite never adapted: {} vs base {}", last, base);
+        assert!(last <= base + PREDATOR_ATTACK_MAX_ADAPT + 1e-9,
+            "adaptation ran past its cap: {}", last);
+    }
+
+    #[test]
+    fn armour_buys_time_not_immunity() {
+        // The spiral this exists to break: a maxed-defense animal used to be
+        // untouchable by a tier-0 hunter forever. It should survive an untrained
+        // bite and lose to a trained one.
+        let armoured = 1.07;
+        assert!(!predator_attack_succeeds(0, TIER_ATTACK[0], armoured, 0.0, CHILDHOOD_TICKS));
+        let trained = TIER_ATTACK[0] + PREDATOR_ATTACK_MAX_ADAPT;
+        assert!(predator_attack_succeeds(0, trained, armoured, 0.0, CHILDHOOD_TICKS),
+            "a fully trained hunter must be able to reach maximum armour");
+    }
+
+    #[test]
+    fn switching_image_forgets_the_learned_bite() {
+        let mut w = World::new(12, 120, 42);
+        w.summon_predator(0.5, false);
+        // Step first: with no cluster labels yet there is nothing to count, and
+        // the review leaves every image alone rather than guessing.
+        for _ in 0..60 { w.step(); }
+        let base = TIER_ATTACK[0];
+        w.predators[0].attack = base + 0.4;
+        w.predators[0].search_image = Some(200);   // a family that cannot exist
+        w.review_predator_search_images();
+        assert!(w.predators[0].search_image != Some(200), "a dead image must be dropped");
+        // Half the surplus is kept — general toughness carries, the specific
+        // calibration does not. It must be strictly between base and what it had.
+        let attack = w.predators[0].attack;
+        assert!(attack < base + 0.4, "the whole learned bite carried over: {}", attack);
+        assert!(attack > base, "the switch threw away everything: {}", attack);
+    }
+
+    #[test]
+    fn predator_adaptation_consumes_no_rng() {
+        // Speciation's guarantee, extended: reviewing search images is counting
+        // and averaging over world state, so it must not shift the RNG stream.
+        let mut a = World::new(12, 100, 42);
+        let mut b = World::new(12, 100, 42);
+        for _ in 0..200 { a.step(); }
+        for _ in 0..200 {
+            b.step();
+            b.review_predator_search_images();   // extra reviews, same result
+        }
+        assert_eq!(a.agent_count(), b.agent_count());
+        assert_eq!(a.energy, b.energy);
+    }
+
     #[test]
     fn predator_attack_is_strict_and_scaled_by_tier() {
+        // An untrained hunter bites at its tier's base — the second argument is
+        // the learned attack, which starts there.
         for (tier, &attack) in TIER_ATTACK.iter().enumerate() {
             if TIER_IGNORES_DEFENSE[tier] { continue; }
-            assert!(predator_attack_succeeds(tier as u8, attack - 0.01, 0.0, CHILDHOOD_TICKS));
-            assert!(!predator_attack_succeeds(tier as u8, attack, 0.0, CHILDHOOD_TICKS));
-            assert!(!predator_attack_succeeds(tier as u8, attack + 0.01, 0.0, CHILDHOOD_TICKS));
+            let t = tier as u8;
+            assert!(predator_attack_succeeds(t, attack, attack - 0.01, 0.0, CHILDHOOD_TICKS));
+            assert!(!predator_attack_succeeds(t, attack, attack, 0.0, CHILDHOOD_TICKS));
+            assert!(!predator_attack_succeeds(t, attack, attack + 0.01, 0.0, CHILDHOOD_TICKS));
         }
         // The existing childhood bonus participates in the same effective
         // defense calculation used by ordinary combat.
-        assert!(!predator_attack_succeeds(0, 0.50, 0.50, 0));
+        assert!(!predator_attack_succeeds(0, TIER_ATTACK[0], 0.50, 0.50, 0));
     }
 
     #[test]
@@ -2958,13 +3296,15 @@ mod tests {
         // The most final power in the game does not roll for it. Nothing the
         // trait bounds or the childhood bonus can produce survives the sweep.
         let tier = PREDATOR_RECTANGLE_TIER;
+        let bite = TIER_ATTACK[tier as usize];
         for &defense in &[0.5, 1.0, 1.07, 5.0, f64::MAX] {
-            assert!(predator_attack_succeeds(tier, defense, 0.0, CHILDHOOD_TICKS));
-            assert!(predator_attack_succeeds(tier, defense, 0.5, 0), "childhood bonus survived");
+            assert!(predator_attack_succeeds(tier, bite, defense, 0.0, CHILDHOOD_TICKS));
+            assert!(predator_attack_succeeds(tier, bite, defense, 0.5, 0),
+                "childhood bonus survived");
         }
-        // And the tiers below it still roll — a triangle losing to armour is what
-        // makes defense worth evolving.
-        assert!(!predator_attack_succeeds(0, 1.07, 0.0, CHILDHOOD_TICKS));
+        // And the tiers below it still roll — an untrained triangle losing to
+        // armour is what makes defense worth evolving in the first place.
+        assert!(!predator_attack_succeeds(0, TIER_ATTACK[0], 1.07, 0.0, CHILDHOOD_TICKS));
     }
 
     #[test]
@@ -3039,6 +3379,10 @@ mod tests {
         w.pos_y[prey[1]] = 1.0;
 
         let resisted_id = w.ids[prey[0]];
+        // A hunter that has not learned this pond's armour yet. Hunters now
+        // arrive calibrated (see `starting_bite`), so the resist this test is
+        // about has to be set up rather than assumed.
+        w.predators[0].attack = TIER_ATTACK[0];
         w.hunt_one(predator_id);
         assert_eq!(w.predators[0].rejected_id, Some(resisted_id));
         assert!(w.ids.contains(&resisted_id), "resistant prey was eaten");
@@ -3127,7 +3471,10 @@ mod tests {
         let id = w.summon_predator(0.05, false).unwrap();
         for _ in 0..600 {
             w.step();
-            if w.predators.is_empty() { break; }
+            // Only this hunter is under test. The pack around it changes size as
+            // the pond does, so an empty-pack check would stop early or, worse,
+            // keep asserting about an id that has legitimately departed.
+            if !w.predators.iter().any(|p| p.id == id) { break; }
             assert!(w.ids.contains(&id), "predator vanished while still hunting");
         }
         // Nothing ever recorded it as dead, by any cause.
@@ -3488,5 +3835,51 @@ mod tests {
         assert_eq!(a.agent_count(), b.agent_count());
         assert_eq!(a.get_stats().total_food, b.get_stats().total_food);
         assert_eq!(a.death_counts(), b.death_counts());
+    }
+}
+
+#[cfg(test)]
+mod predation_selection {
+    use super::*;
+
+    /// The property this whole mechanism exists for: predation must not be a
+    /// subsidy for armour.
+    ///
+    /// Measured as the mean defense of what the hunters ate, minus the mean
+    /// defense of the pond they ate it from *at that moment* — a run-long
+    /// average would be meaningless, since predation is front-loaded and armour
+    /// climbs all run. Negative means predation is killing the soft and sparing
+    /// the armoured, which is the reward this change removes; it read -0.155
+    /// before, and the intermediate versions (aim at the mean, aim at mean + 2σ,
+    /// untrained hunters at spawn) all left it near -0.15 too.
+    #[test]
+    fn predation_does_not_subsidise_armour() {
+        let mut w = World::new(12, 400, 42);
+        let mut eaten = Vec::new();
+        let mut pond = Vec::new();
+
+        for _ in 0..1200 {
+            let before: HashMap<u32, f64> = w.ids.iter().enumerate()
+                .filter(|&(i, _)| !w.is_predator(i))
+                .map(|(i, &id)| (id, w.genome[i].traits.defense))
+                .collect();
+            let live_now = if before.is_empty() { 0.0 }
+                else { before.values().sum::<f64>() / before.len() as f64 };
+            w.step();
+            for d in &w.last_deaths {
+                if d.cause != CauseOfDeath::EatenAlive.code() { continue; }
+                if let Some(&def) = before.get(&d.id) {
+                    eaten.push(def);
+                    pond.push(live_now);
+                }
+            }
+        }
+
+        assert!(eaten.len() > 50, "too few kills to conclude anything: {}", eaten.len());
+        let mean = |v: &Vec<f64>| v.iter().sum::<f64>() / v.len() as f64;
+        let selection = mean(&eaten) - mean(&pond);
+        assert!(selection > -0.05,
+            "predation is selecting for armour: eaten {:.3} vs pond {:.3} ({:+.3})",
+            mean(&eaten), mean(&pond), selection);
     }
 }

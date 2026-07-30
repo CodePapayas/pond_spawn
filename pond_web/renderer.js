@@ -25,7 +25,6 @@ import { initGraphs } from './graphs.js';
 import { initSetup } from './setup.js';
 import { initGod } from './god.js';
 import { initInspector } from './inspector.js';
-import { initTuning } from './tuning.js';
 import { openPhylogeny, refreshPhylogeny } from './phylogeny.js';
 import { closeFloatingPrefix } from './floating.js';
 
@@ -116,11 +115,13 @@ let last_agents = [];     // {id, x, y, cluster} decoded this frame, for click h
 let selected_pos = null;  // interpolated world pos of selected agent this frame
 
 // Panels
-let update_legend_counts, update_genome_panel, update_graphs, setup, god, tuning;
+let update_legend_counts, update_genome_panel, update_graphs, setup, god;
+// The rule dials, fixed for the life of a run and set from the setup panel.
+// Held here so a restart can re-apply them to the new world.
+let dials = null;
 let graphs_visible = false;
 let debug_visible = false;
 let archetypes_visible = false;
-let tuning_visible = false;
 // Overlay colour per agent id while the archetype view is open. Cleared on
 // toggle-off so bodies revert to their genome palette (color.js) — this is an
 // overlay, not a replacement for the trait-derived colour.
@@ -164,7 +165,7 @@ async function boot() {
     build_panels();
     setup = initSetup(document.getElementById('setup'), restart, {
         grid: GRID, population: POPULATION, seed: SEED,
-    });
+    }, tunable_ranges());
     god = initGod(document.getElementById('god'), {
         smiteRadius: (x, y, r) => world.smite_radius(x, y, r),
         smiteBand: (x0, x1) => world.smite_band(x0, x1),
@@ -178,25 +179,6 @@ async function boot() {
         onChange: update_cursor,
     });
     inspector = initInspector();
-    tuning = initTuning(document.getElementById('tuning'), {
-        ranges: () => tunable_ranges(),
-        get: () => ({
-            regen: world.food_regen_scale(),
-            hunt: world.hunt_aggression_threshold(),
-            k: world.cluster_k(),
-        }),
-        set: (key, v) => {
-            if (key === 'regen') world.set_food_regen_scale(v);
-            if (key === 'hunt')  world.set_hunt_aggression_threshold(v);
-            if (key === 'k') {
-                world.set_cluster_k(Math.round(v));
-                // The family legend has one row per k, so it is rebuilt rather
-                // than left showing rows the engine no longer produces.
-                rebuild_legend();
-            }
-        },
-        modified: () => world.tunables_modified(),
-    });
 
     resize();
     layout_right_column();
@@ -252,25 +234,24 @@ function build_panels() {
  *  Everything keyed by agent id — chains, morphology, colour — has to go: ids
  *  restart from 0 in the new world, so a stale entry would hand a fresh agent
  *  the body of a dead one. */
-function restart({ grid, population, seed }) {
+function restart({ grid, population, seed, dials: chosen }) {
     GRID = grid;
     POPULATION = population;
     SEED = seed;
+    if (chosen) dials = chosen;
 
     world = new WasmWorld(GRID, POPULATION, SEED);
+    // Rules are applied once, at construction, and never touched again for the
+    // life of this world — see setup.js for why they are start-of-run only.
+    if (dials) {
+        world.set_food_regen_scale(dials.regen);
+        world.set_hunt_aggression_threshold(dials.hunt);
+        world.set_cluster_k(Math.round(dials.k));
+    }
     // A fresh world starts mortal, so an immortality toggle left on has to be
     // re-applied or the panel would claim a state the sim isn't in.
     if (god.isImmortal()) world.set_immortal(true);
     world.set_automatic_predators(automatic_predators);
-    // Dials carry across a restart for the same reason: a fresh world starts at
-    // defaults, and a panel still showing a moved slider over a world that had
-    // discarded it would be lying. `modified` re-latches on its own.
-    if (tuning) {
-        const t = tuning.values();
-        world.set_food_regen_scale(t.regen);
-        world.set_hunt_aggression_threshold(t.hunt);
-        world.set_cluster_k(Math.round(t.k));
-    }
 
     chains.clear();
     predator_chains.clear();
@@ -289,7 +270,6 @@ function restart({ grid, population, seed }) {
     last_species_tick = -1;
 
     build_panels();
-    tuning?.refresh();
     if (graphs_visible) refresh_graphs();
     reset_camera();
     close_setup();
@@ -628,7 +608,6 @@ function on_key(e) {
     if (e.key === '-')                  speed_mult = Math.max(speed_mult / 2, 0.25);
     if (e.key === 'g' || e.key === 'G') toggle_graphs();
     if (e.key === 'b' || e.key === 'B') toggle_archetypes();
-    if (e.key === 't' || e.key === 'T') toggle_tuning();
     if (e.key === 'd' || e.key === 'D') toggle_debug();
     // Zen while the setup panel is up would hide the only way to start a run.
     if ((e.key === 'c' || e.key === 'C') && !setup.isOpen()) toggle_zen();
@@ -704,7 +683,6 @@ function toggle_archetypes() {
     archetypes_visible = !archetypes_visible;
     document.getElementById('archetypes').style.display =
         archetypes_visible ? 'block' : 'none';
-    if (archetypes_visible && tuning_visible) toggle_tuning();
     world.set_brain_clustering(archetypes_visible);
     if (archetypes_visible) {
         refresh_archetypes();
@@ -717,36 +695,12 @@ function toggle_archetypes() {
     }
 }
 
-/** Show/hide the tuning dials. They share the top-left corner with the
- *  archetype overlay, so opening one closes the other rather than stacking two
- *  panels over the same space. */
-function toggle_tuning() {
-    tuning_visible = !tuning_visible;
-    document.getElementById('tuning').style.display = tuning_visible ? 'block' : 'none';
-    if (tuning_visible) {
-        if (archetypes_visible) toggle_archetypes();
-        tuning.refresh();
-    }
-}
-
 /** One swatch per family, cycling the fallback palette when k exceeds it.
  *  Bodies colour themselves from the genome; these only seed a legend row that
  *  has not seen a member yet. */
 function family_palette() {
     const k = world.cluster_k();
     return Array.from({ length: k }, (_, i) => CLUSTER_RGB[i % CLUSTER_RGB.length]);
-}
-
-/** Rebuild just the family legend, after a k change altered how many there are. */
-function rebuild_legend() {
-    for (const id of ['legend-colors', 'legend-composite']) {
-        document.getElementById(id).innerHTML = '';
-    }
-    update_legend_counts = initLegend(
-        family_palette(),
-        i => world.cluster_composite(i),
-        TRAIT_BOUNDS,
-    );
 }
 
 // The raw k-means family legend. Behind a key because it is speciation's input

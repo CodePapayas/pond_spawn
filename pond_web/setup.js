@@ -1,10 +1,16 @@
-// Run-parameter panel: grid size, starting population, seed.
+// Run-parameter panel: grid size, starting population, seed, and the three rule
+// dials.
 //
-// These are exactly the three arguments World::new takes, so they are the only
-// things that can be set before a run without touching sim rules. Everything
-// else about a pond (fertility layout, barren clusters, genomes, death ages) is
-// derived from the seed, which is what makes a seed worth exposing at all: the
-// same three numbers reproduce the same pond exactly.
+// The first three are exactly the arguments World::new takes. The dials — food
+// regen, the hunt threshold, clustering k — are engine values that could be
+// moved at any time, and deliberately are not: they are fixed for the life of a
+// run, set here and applied once at construction.
+//
+// That is the point of putting them here. A pond whose rules changed halfway
+// through is not one experiment, it is two halves of different ones, and no
+// screenshot, stat graph or exported tree taken afterwards says which rules
+// produced which part of it. Fixed at the start, the run parameters plus the
+// seed reproduce it exactly, which is the property the seed exists for.
 
 const LIMITS = {
     grid: { min: 6, max: 64, default: 12 },
@@ -15,22 +21,67 @@ const LIMITS = {
 // kinematic body, with no culling or instancing (see draw_agents).
 const HEAVY_POPULATION = 1200;
 
+// The rule dials. Defaults and bounds come from the engine (tunable_ranges), so
+// no number here is written down twice.
+const DIALS = [
+    {
+        key: 'regen',
+        label: 'food regen',
+        step: 0.001,
+        format: v => v.toFixed(3),
+        blurb: 'How fast tiles grow food back, scaled by each tile’s own ' +
+               'fertility. Higher means a richer pond and more agents feeding ' +
+               'without moving; at zero nothing ever regrows and the pond runs ' +
+               'down to the food it already has.',
+    },
+    {
+        key: 'hunt',
+        label: 'hunt threshold',
+        step: 0.01,
+        format: v => v.toFixed(2),
+        blurb: 'How aggressive an agent must be before it hunts other agents ' +
+               'instead of grazing. Lower turns more of the pond predatory; ' +
+               'above the trait’s maximum of 1.05 nobody qualifies and ' +
+               'agent-on-agent combat stops entirely. Summoned hunters are ' +
+               'unaffected — they are not agents.',
+    },
+    {
+        key: 'k',
+        label: 'families (k)',
+        step: 1,
+        format: v => String(Math.round(v)),
+        blurb: 'How many genome families the k-means pass sorts the pond into, ' +
+               'for the family legend and as speciation’s input. This changes ' +
+               'only how you read the pond, never how it behaves — more ' +
+               'families means finer splits between lineages that are nearly ' +
+               'alike.',
+    },
+];
+
 /**
  * Build the setup panel and return a handle.
  *
  * @param {HTMLElement} root  container element (the #setup panel)
- * @param {(p: {grid: number, population: number, seed: bigint}) => void} onStart
+ * @param {(p: {grid: number, population: number, seed: bigint, dials: object}) => void} onStart
  * @param {{grid: number, population: number, seed: bigint}} defaults
+ * @param {Float32Array} ranges  [default, min, max] × 3, from tunable_ranges()
  */
-export function initSetup(root, onStart, defaults) {
+export function initSetup(root, onStart, defaults, ranges) {
+    const dials = DIALS.map((d, i) => ({
+        ...d, def: ranges[i * 3], min: ranges[i * 3 + 1], max: ranges[i * 3 + 2],
+    }));
+
     root.innerHTML =
         `<h2>new run</h2>` +
         row('grid', 'grid size', 'number', defaults.grid, `${LIMITS.grid.min}–${LIMITS.grid.max} tiles per side`) +
         row('population', 'population', 'number', defaults.population, `starting agents`) +
         row('seed', 'seed', 'text', String(defaults.seed), `same seed = same pond`) +
+        `<h2>rules</h2>` +
+        dials.map(dial_row).join('') +
         `<div class="setup-warn" id="setup-warn"></div>` +
         `<div class="setup-actions">` +
         `<button id="setup-random">random seed</button>` +
+        `<button id="setup-defaults">default rules</button>` +
         `<button id="setup-start" class="primary">start run</button>` +
         `</div>` +
         `<div class="legend-note">restarting rebuilds the world from scratch — ` +
@@ -41,12 +92,21 @@ export function initSetup(root, onStart, defaults) {
     const pop_in = el('setup-population');
     const seed_in = el('setup-seed');
     const warn = el('setup-warn');
+    const seed_note = el('setup-seed-note');
 
     function read() {
+        const values = {};
+        for (const d of dials) {
+            const raw = parseFloat(el(`setup-${d.key}`).value);
+            values[d.key] = Number.isFinite(raw)
+                ? Math.min(d.max, Math.max(d.min, raw))
+                : d.def;
+        }
         return {
             grid: clamp(parseInt(grid_in.value, 10), LIMITS.grid),
             population: clamp(parseInt(pop_in.value, 10), LIMITS.population),
             seed: parse_seed(seed_in.value, defaults.seed),
+            dials: values,
         };
     }
 
@@ -57,6 +117,16 @@ export function initSetup(root, onStart, defaults) {
         grid_in.value = p.grid;
         pop_in.value = p.population;
         seed_in.value = String(p.seed);
+        for (const d of dials) {
+            el(`setup-${d.key}`).value = p.dials[d.key];
+            el(`setup-v-${d.key}`).textContent = d.format(p.dials[d.key]);
+        }
+        // Say plainly when the seed alone no longer describes the run: with a
+        // dial moved, "same seed = same pond" needs the dials to match too.
+        const tuned = dials.some(d => Math.abs(p.dials[d.key] - d.def) > 1e-6);
+        seed_note.textContent = tuned
+            ? 'same seed + same rules = same pond'
+            : 'same seed = same pond';
         warn.textContent = p.population >= HEAVY_POPULATION
             ? `${p.population} agents will run slowly — every agent is drawn individually`
             : '';
@@ -70,6 +140,15 @@ export function initSetup(root, onStart, defaults) {
             if (e.key === 'Enter') start();
         });
     }
+
+    for (const d of dials) {
+        el(`setup-${d.key}`).addEventListener('input', reflect);
+    }
+
+    el('setup-defaults').addEventListener('click', () => {
+        for (const d of dials) el(`setup-${d.key}`).value = d.format(d.def);
+        reflect();
+    });
 
     el('setup-random').addEventListener('click', () => {
         seed_in.value = String(BigInt(Math.floor(Math.random() * 2 ** 32)));
@@ -101,7 +180,23 @@ function row(key, label, type, value, note) {
     return `<div class="setup-row">` +
         `<label for="setup-${key}">${label}</label>` +
         `<input id="setup-${key}" type="${type}" value="${value}" spellcheck="false">` +
-        `</div><div class="setup-note">${note}</div>`;
+        `</div><div class="setup-note" id="setup-${key}-note">${note}</div>`;
+}
+
+/** A dial: label, the value it currently reads, a slider, and an `ⓘ` that
+ *  explains what it changes. The blurb opens on focus as well as hover, so it is
+ *  reachable without a mouse. */
+function dial_row(d) {
+    return `<div class="setup-row dial">` +
+        `<label for="setup-${d.key}">${d.label}</label>` +
+        `<span class="tune-info" tabindex="0" role="note" ` +
+              `aria-label="${d.label}: ${d.blurb}">i` +
+            `<span class="tune-blurb">${d.blurb}</span>` +
+        `</span>` +
+        `<span class="tune-value" id="setup-v-${d.key}">${d.format(d.def)}</span>` +
+        `</div>` +
+        `<input class="dial-slider" id="setup-${d.key}" type="range" ` +
+               `min="${d.min}" max="${d.max}" step="${d.step}" value="${d.format(d.def)}">`;
 }
 
 function clamp(v, { min, max, default: dflt }) {

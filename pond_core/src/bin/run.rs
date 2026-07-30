@@ -79,6 +79,27 @@ fn main() {
     );
 
     // Print death tallies
+    // Population trait means. Balance work turns on these — "predators select
+    // for defense" is a claim about this line, not about the death tally.
+    let means = world.trait_means();
+    const TRAIT_NAMES: [&str; 9] = [
+        "vision", "speed", "metabolism", "energy_cap", "mutation",
+        "repro_cost", "attack", "defense", "aggression",
+    ];
+    println!("\ntrait means:");
+    for (name, m) in TRAIT_NAMES.iter().zip(means.iter()) {
+        println!("  {:<12} {:.3}", name, m);
+    }
+    if !world.predators.is_empty() {
+        println!("\npredators:");
+        for p in &world.predators {
+            println!(
+                "  tier {} · image {:?} · learned attack {:.3} · kills {}",
+                p.tier, p.search_image, p.attack, p.kills,
+            );
+        }
+    }
+
     if !stats.deaths.is_empty() {
         println!("\ndeath causes:");
         let mut deaths: Vec<_> = stats.deaths.iter().collect();

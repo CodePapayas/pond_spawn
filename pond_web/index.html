@@ -290,9 +290,6 @@ canvas { display: block; }
    with no banner reads as a hang. Sits above the panel, which is centred. */
 #setup-banner {
   display: block;
-  position: fixed;
-  top: calc(50% - 145px); left: 50%;
-  transform: translateX(-50%);
   color: rgba(255, 60, 220, 0.75);
   font-family: 'Courier New', monospace;
   font-size: 13px;
@@ -307,13 +304,28 @@ canvas { display: block; }
    player didn't ask for, so it has to be legible rather than mysterious. */
 
 /* ── Setup panel (centre, N toggles) ──────────────────────────────────── */
-#setup {
+/* Banner and panel are one centred column. The banner used to be pinned at
+   50% − 145px, a number tuned to the panel's height at the time; adding the rule
+   dials made the panel taller, it grew upward past the banner, and the two
+   overlapped. Stacking them means the panel can be any height and the banner
+   still sits directly above it. */
+#setup-stack {
+  position: fixed;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-height: calc(100vh - 24px);
+}
+#setup {
+  position: static;
   width: 300px;
   display: block;   /* open on load so a run always starts deliberately */
   border-color: rgba(255, 60, 220, 0.45);
   box-shadow: 0 0 40px rgba(255, 60, 220, 0.18);
+  min-height: 0;    /* so the panel, not the stack, is what scrolls */
 }
 .setup-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .setup-row label { flex: 1; color: rgba(160, 240, 255, 0.85); }
@@ -406,38 +418,18 @@ canvas { display: block; }
 .sp-selectable { cursor: pointer; }
 .sp-selectable:hover { background: rgba(120, 255, 245, 0.12); }
 
-/* ── Tuning (left, under the top corner) ──────────────────────────────── */
-/* A side panel like every other, so it never sits over the pond. */
-#tuning {
-  top: 16px; left: 16px;
-  width: 272px;
-  display: none;
-  padding: 8px 10px;
-}
-.tune-row { margin: 8px 0 10px; }
-.tune-head { display: flex; align-items: center; gap: 6px; }
-.tune-label { flex: 1 1 auto; }
+/* ── Rule dials (inside the setup panel) ─────────────────────────────── */
+.setup-row.dial { align-items: center; gap: 6px; }
 .tune-value {
   font-variant-numeric: tabular-nums;
   color: rgba(120, 255, 245, 0.9);
 }
-.tune-controls { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
-.tune-controls input[type=range] {
-  flex: 1 1 auto;
-  min-width: 0;
+.dial-slider {
+  width: 100%;
+  margin: 2px 0 8px;
   accent-color: rgb(120, 255, 245);
   cursor: pointer;
 }
-.tune-reset {
-  flex: 0 0 auto;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(120, 255, 245, 0.35);
-  border-radius: 3px;
-  color: rgba(190, 245, 255, 0.85);
-  font-family: inherit; font-size: 11px;
-  padding: 1px 6px; cursor: pointer;
-}
-.tune-reset:hover { background: rgba(120, 255, 245, 0.15); }
 /* The blurb. `title=` would do for a few words, but these are two sentences and
    it gives no styling, a delay, and nothing at all on a touch screen. Shown on
    focus as well as hover so it is reachable from the keyboard. */
@@ -455,7 +447,7 @@ canvas { display: block; }
   display: none;
   position: absolute;
   top: 18px; left: -6px;
-  width: 246px;
+  width: 244px;
   z-index: 5;
   background: rgba(4, 10, 18, 0.98);
   border: 1px solid rgba(120, 255, 245, 0.3);
@@ -466,9 +458,6 @@ canvas { display: block; }
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
 }
 .tune-info:hover .tune-blurb, .tune-info:focus .tune-blurb { display: block; }
-.tune-note { color: rgba(120, 150, 175, 0.7); font-size: 10px; margin-top: 4px; }
-.tune-note.tuned { color: rgba(255, 175, 90, 0.9); }
-
 #archetypes {
   top: 16px;
   left: 16px;
@@ -570,6 +559,16 @@ canvas { display: block; }
   border-top: 1px solid rgba(120, 255, 245, 0.14);
 }
 .graph-note { color: rgba(110, 140, 155, 0.7); font-size: 10px; }
+.graph-scale {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(120, 255, 245, 0.3);
+  border-radius: 3px;
+  color: rgba(150, 220, 240, 0.9);
+  font-family: inherit; font-size: 9px;
+  letter-spacing: 0.06em;
+  padding: 0 5px; cursor: pointer;
+}
+.graph-scale:hover { background: rgba(120, 255, 245, 0.15); }
 
 .float-window {
   position: fixed;
@@ -689,7 +688,6 @@ body.zen #graph-hover-preview { display: none !important; }
   <div class="hk"><b>+/-</b><span>speed</span></div>
   <div class="hk"><b>g</b><span>graphs</span></div>
   <div class="hk"><b>b</b><span>archetypes</span></div>
-  <div class="hk"><b>t</b><span>tuning</span></div>
   <div class="hk"><b>p</b><span>phylogeny</span></div>
   <div class="hk"><b>d</b><span>debug clusters</span></div>
   <div class="hk"><b>n</b><span>restart run</span></div>
@@ -700,7 +698,6 @@ body.zen #graph-hover-preview { display: none !important; }
 <div id="hint-show" title="show controls">?</div>
 
 <div id="paused-banner">paused</div>
-<div id="setup-banner">new simulation run parameters</div>
 
 <!-- Right side: legend (colors + shapes) and running average genome -->
 <div id="side-right" class="panel">
@@ -761,14 +758,17 @@ body.zen #graph-hover-preview { display: none !important; }
 <!-- Promotion / extinction announcements. The moment speciation exists for. -->
 <div id="species-toast"></div>
 
-<!-- Centre: run parameters. Open on load, N toggles. -->
-<div id="setup" class="panel"></div>
+<!-- Centre: run parameters. Open on load, N toggles. The banner is stacked with
+     the panel rather than positioned against it, so the panel can grow without
+     the two colliding. -->
+<div id="setup-stack">
+  <div id="setup-banner">new simulation run parameters</div>
+  <div id="setup" class="panel"></div>
+</div>
 
 <!-- Top right, above the legend: player powers -->
 <div id="god" class="panel"></div>
 
-<!-- Left side, under the inspector's corner: live rule dials. T toggles. -->
-<div id="tuning" class="panel"></div>
 
 <script type="module" src="renderer.js"></script>
 </body>

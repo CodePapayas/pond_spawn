@@ -81,11 +81,24 @@ out the 50-step cycle, or the dial appears dead for up to 50 steps.
 
 ## 3. UI: where the dials live
 
-Put them in a **`tuning` panel**, a sibling of the god panel, not in `setup.js`.
-Rationale: `setup.js` is documented as taking exactly the three arguments
-`World::new` takes, and these are not that — they are live rules, and watching a
-pond respond to a regen change in real time is the whole appeal. Keep that
-distinction rather than blurring it.
+**Built as a live panel first; moved into run setup after seeing it.** The
+original reasoning below was that watching a pond respond to a regen change in
+real time is the appeal, and that `setup.js` should stay "exactly the arguments
+`World::new` takes".
+
+That was wrong about which property matters. A pond whose rules moved halfway
+through is not one experiment — it is two halves of different ones, and no
+screenshot, stat graph or exported phylogeny taken afterwards says which rules
+produced which part of it. The dials are now rows in the setup panel, applied
+once at construction and fixed for the life of the run, so run parameters plus
+seed reproduce a pond exactly. That is the property the seed exists for, and it
+is worth more than the live demo.
+
+The core still supports mid-run changes — the setters clamp, `cluster_dirty`
+still forces a reclustering, and the tests still cover it. Only the UI declines
+to offer it.
+
+The original rationale, kept for the record:
 
 Each row: label, slider, live numeric value, reset-to-default affordance, and an
 `ⓘ` that reveals the blurb on hover **and on focus** (keyboard, touch). A bare
@@ -130,7 +143,18 @@ re-shuffle as the sim having changed.
 That last one is the load-bearing test — the refactor from constants to fields
 should be provably inert before any dial is ever moved.
 
-## 5. Not verified in a real browser
+## 5. Where they ended up
+
+Setup panel, under a `rules` heading: label, `ⓘ` blurb, live value, slider, plus
+a "default rules" button. The seed note changes from "same seed = same pond" to
+"same seed + same rules = same pond" the moment a dial leaves its default, which
+is the honest version of the reproducibility claim.
+
+`Tunables::modified` and the wasm `tunables_modified()` remain, unused by the UI
+now that a run cannot diverge mid-flight. They are the core's own record of
+whether a world was configured away from defaults.
+
+## 6. Not verified in a real browser
 
 The panel was exercised under jsdom against a stub engine with the same clamp
 rules — rows render, the blurbs are present and focusable, values clamp (k 99 →

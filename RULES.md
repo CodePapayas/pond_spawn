@@ -25,7 +25,7 @@
 
 - Each tile regenerates food passively every tick
 - Regen rate per tile: `fertility / 1.6 × food_regen_scale` (per-tick probability of gaining 1 food unit)
-- `food_regen_scale` is a **dial**, default **0.012**, range 0–0.05 (`Tunables`, exposed in the web build's tuning panel)
+- `food_regen_scale` is a **dial**, default **0.012**, range 0–0.05 (`Tunables`), set in run setup and fixed for the life of that run
 - Max food per tile: **3**
 - 35–45% of tiles are permanently barren (fertility = 0, never regenerate), arranged in contiguous desert clusters with fertile oases between them
 - Each food unit provides **33.3 energy**
@@ -291,8 +291,9 @@ Two combat paths exist:
 ### Passive combat phase (`_resolve_combat`, runs every tick after actions)
 - Triggers when 2+ agents occupy the same tile
 - Attacker must have `aggression >= hunt_aggression_threshold` to initiate. This
-  is a **dial**, default **0.80**, range 0–1.06 (`Tunables`). `aggression` maxes
-  at 1.05, so a threshold above that switches agent-on-agent combat off entirely
+  is a **dial**, default **0.80**, range 0–1.06 (`Tunables`), set in run setup.
+  `aggression` maxes at 1.05, so a threshold above that switches agent-on-agent
+  combat off entirely
 - Attacker must also be **hungry**: energy `< 0.5 × 100 × energy_capacity`
   (`HUNT_HUNGER_FRAC`). Sated agents do not hunt. This is the density-dependent
   brake on predation — without it a predator that clears the local prey simply
@@ -404,7 +405,7 @@ permanently, which tests something else entirely.
 ## Speciation
 
 A k-means cluster is not a species. Clusters exist because `k` was chosen — a
-dial, default **6**, range 2–12 (`Tunables`) — and their labels permute when
+dial, default **6**, range 2–12 (`Tunables`), set in run setup — and their labels permute when
 clusters split or merge. Labels are always `< k`; lowering `k` mid-run remaps a
 family whose label is now out of range, so it changes colour once. A cluster becomes a named
 species only by passing a test.
@@ -459,6 +460,44 @@ is time, each bough leaves its parent at its own founding step, bough length is
 lifespan and thickness is peak members. Founding and extinction steps are always
 multiples of 50 — the registry only advances on a cluster tick — so the tree's
 time axis is quantised to that.
+
+### Predator adaptation
+
+An automatic hunter is not a fixed threat. It carries two pieces of state that
+track the pond:
+
+- **Search image.** On every cluster tick it re-forms an image of the most
+  numerous genome family and prefers that family while hunting — a matching
+  animal is treated as `SEARCH_IMAGE_PULL`× nearer than it is. Preference, not
+  exclusivity: with nothing matching in range it hunts whatever is there, since
+  an absolute image would make a rare family untouchable, which is how a rare
+  family stops being rare. Switching needs the challenger to be
+  `SEARCH_IMAGE_SWITCH_MARGIN`× more numerous, so two similar families do not
+  make the image oscillate. Within the image it prefers the better-armoured
+  members.
+- **Learned bite.** `attack` starts at the toughest animal in the pond it
+  arrives into (`starting_bite`) and tracks the toughest member of its current
+  image, capped at `TIER_ATTACK[tier] + 0.45`. A switch keeps half the surplus:
+  general toughness carries across prey, the specific calibration does not.
+
+**Why the toughest and not the average.** The bite kills everything the kill
+shape covers whose effective defense falls below `attack`, so any aim short of
+the family's toughest member kills the softer half and spares the harder — a
+subsidy for armour however it is phrased. Measured as the mean defense of eaten
+animals minus the pond's mean defense at that moment, the old flat bite scored
+**−0.155**: predation was systematically killing the least armoured. Aiming at
+the family mean, and at mean + 2σ, both stayed near −0.15. Aiming past the
+toughest, with hunters arriving calibrated, brings it to **+0.018** — armour no
+longer changes who dies, so it stops being bought as predator insurance.
+
+What remains is frequency: being common is what draws the hunters. That is the
+part that stabilises, since a strategy is punished in proportion to how well it
+is doing.
+
+**This does not, on its own, lower the pond's mean defense** — agent-on-agent
+combat is the larger mortality source and still rewards armour directly. It
+removes predation's contribution to the ratchet, no more. See DEVLOG for the
+measured five-seed comparison.
 
 ### Names
 

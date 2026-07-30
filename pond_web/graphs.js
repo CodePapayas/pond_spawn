@@ -36,13 +36,27 @@ const DEATH_SERIES = [
     { label: 'smitten', color: 'rgba(255, 60, 220, 0.95)' },
 ];
 
+// `log: true` panels autoscale logarithmically. Counts in this sim are spiky by
+// nature — an extinction event or a predator cull puts a single interval an order
+// of magnitude above the rest of the run, and on a linear axis that one spike
+// sets the maximum and flattens everything else into the baseline. Log keeps the
+// spike on screen and the quiet stretches readable at the same time.
+//
+// `avg energy` stays linear: it is bounded at ~100 by capacity, has no spikes to
+// absorb, and log would squash exactly the mid-range where the interesting
+// movement is.
 const PANELS = [
-    { key: 'pop',      title: 'population', color: 'rgba(60, 220, 180, 0.95)' },
-    { key: 'food',     title: 'food',       color: 'rgba(110, 230, 120, 0.95)' },
+    { key: 'pop',      title: 'population', color: 'rgba(60, 220, 180, 0.95)', log: true },
+    { key: 'food',     title: 'food',       color: 'rgba(110, 230, 120, 0.95)', log: true },
     { key: 'energy',   title: 'avg energy', color: 'rgba(255, 185, 0, 0.95)' },
-    { key: 'lifespan', title: 'lifespan p10\u2013p90', color: 'rgba(190, 150, 255, 0.95)' },
-    { key: 'deaths',   title: 'deaths / interval', color: null },
+    { key: 'lifespan', title: 'lifespan p10\u2013p90', color: 'rgba(190, 150, 255, 0.95)', log: true },
+    { key: 'deaths',   title: 'deaths / interval', color: null, log: true },
 ];
+
+/** Log scaling is on by default and can be switched off — comparing two heights
+ *  directly is a linear question, and a reader doing that deserves a linear
+ *  axis rather than a mental antilog. */
+let logScale = true;
 
 /**
  * Build the graph panel once and return an updater.
@@ -161,15 +175,21 @@ export function initGraphs(root) {
         });
         expanded = { alive, food, energy, median, ageP10, ageP90, deaths, n };
 
-        drawLine(ctxs.pop, [{ data: alive, color: PANELS[0].color }]);
-        drawLine(ctxs.food, [{ data: food, color: PANELS[1].color }]);
-        drawLine(ctxs.energy, [{ data: energy, color: PANELS[2].color }]);
+        const scaleOf = key => ({ log: logScale && !!PANELS.find(p => p.key === key)?.log });
+        drawLine(ctxs.pop, [{ data: alive, color: PANELS[0].color }], scaleOf('pop'));
+        drawLine(ctxs.food, [{ data: food, color: PANELS[1].color }], scaleOf('food'));
+        drawLine(ctxs.energy, [{ data: energy, color: PANELS[2].color }], scaleOf('energy'));
         drawLine(
             ctxs.lifespan,
             [{ data: median, color: PANELS[3].color }],
-            { band: { lo: ageP10, hi: ageP90, color: 'rgba(190, 150, 255, 0.16)' } },
+            {
+                ...scaleOf('lifespan'),
+                band: { lo: ageP10, hi: ageP90, color: 'rgba(190, 150, 255, 0.16)' },
+            },
         );
-        drawLine(ctxs.deaths, deaths.map((data, i) => ({ data, color: DEATH_SERIES[i].color })));
+        drawLine(ctxs.deaths,
+            deaths.map((data, i) => ({ data, color: DEATH_SERIES[i].color })),
+            scaleOf('deaths'));
         for (const p of PANELS) {
             updateFloating(`graph:${p.key}`, body => renderExpanded(body, p, expanded));
         }
@@ -191,7 +211,14 @@ export function initGraphs(root) {
             DEATH_SERIES.map((d, i) =>
                 `<span style="color:${d.color}">${d.label} ${totals[i] | 0}</span>`).join(' · ') +
             `</span>` +
-            `<span class="graph-note">per-interval rates above; ${deathKey}</span>`;
+            `<span class="graph-note">per-interval rates above; ${deathKey}` +
+            ` &middot; <button class="graph-scale" data-scale>` +
+            `${logScale ? 'log' : 'linear'} scale</button></span>`;
+
+        footer.querySelector('[data-scale]')?.addEventListener('click', () => {
+            logScale = !logScale;
+            redraw();
+        });
     }
 
     function setCur(key, value) {
@@ -244,18 +271,20 @@ function renderExpanded(body, panel, data, transient = false) {
     const c = cv.getContext('2d');
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    if (panel.key === 'pop') drawLine(c, [{ data: data.alive, color: panel.color }]);
-    if (panel.key === 'food') drawLine(c, [{ data: data.food, color: panel.color }]);
-    if (panel.key === 'energy') drawLine(c, [{ data: data.energy, color: panel.color }]);
+    const log = logScale && !!panel.log;
+    if (panel.key === 'pop') drawLine(c, [{ data: data.alive, color: panel.color }], { log });
+    if (panel.key === 'food') drawLine(c, [{ data: data.food, color: panel.color }], { log });
+    if (panel.key === 'energy') drawLine(c, [{ data: data.energy, color: panel.color }], { log });
     if (panel.key === 'lifespan') {
         drawLine(c, [{ data: data.median, color: panel.color }], {
+            log,
             band: { lo: data.ageP10, hi: data.ageP90, color: 'rgba(190, 150, 255, 0.16)' },
         });
     }
     if (panel.key === 'deaths') {
         drawLine(c, data.deaths.map((series, i) => ({
             data: series, color: DEATH_SERIES[i].color,
-        })));
+        })), { log });
         const key = document.createElement('div');
         key.className = 'graph-expanded-key';
         key.innerHTML = DEATH_SERIES
@@ -268,6 +297,13 @@ function renderExpanded(body, panel, data, transient = false) {
  * Draw one panel: optional filled band behind, then one polyline per series.
  * Y autoscales to the window max with a floor, so an all-zero series draws flat
  * along the bottom instead of dividing by zero or filling the panel.
+ *
+ * `opts.log` switches the y axis to log. It is log1p, not log: these series are
+ * counts that legitimately hit zero — no deaths in an interval, a pond with no
+ * food left — and log(0) is negative infinity. log1p maps 0 to 0, keeps the
+ * mapping monotone, and costs only a mild compression of the range 0–1, where
+ * counts are not interesting anyway. Decade gridlines are drawn so the axis
+ * cannot be mistaken for linear.
  */
 function drawLine(ctx, seriesList, opts = {}) {
     // CSS pixels, not backing-store pixels: the context is pre-scaled by the
@@ -287,7 +323,9 @@ function drawLine(ctx, seriesList, opts = {}) {
 
     const pad = 3;
     const x = i => (n === 1 ? W / 2 : (i / (n - 1)) * (W - 2 * pad) + pad);
-    const y = v => H - pad - (v / max) * (H - 2 * pad);
+    const span = opts.log ? Math.log1p(max) : max;
+    const norm = v => (opts.log ? Math.log1p(Math.max(0, v)) : Math.max(0, v)) / span;
+    const y = v => H - pad - norm(v) * (H - 2 * pad);
 
     // Baseline
     ctx.strokeStyle = 'rgba(60, 220, 180, 0.12)';
@@ -296,6 +334,21 @@ function drawLine(ctx, seriesList, opts = {}) {
     ctx.moveTo(0, H - pad + 0.5);
     ctx.lineTo(W, H - pad + 0.5);
     ctx.stroke();
+
+    // Decade gridlines. On a log axis these are what show the compression is
+    // there — without them a reader measures two peaks against each other and
+    // gets the ratio badly wrong.
+    if (opts.log) {
+        ctx.strokeStyle = 'rgba(120, 160, 175, 0.16)';
+        ctx.lineWidth = 1;
+        for (let decade = 10; decade <= max; decade *= 10) {
+            const py = Math.round(y(decade)) + 0.5;
+            ctx.beginPath();
+            ctx.moveTo(0, py);
+            ctx.lineTo(W, py);
+            ctx.stroke();
+        }
+    }
 
     if (opts.band) {
         const { lo, hi, color } = opts.band;
@@ -322,10 +375,12 @@ function drawLine(ctx, seriesList, opts = {}) {
     }
 
     // Y-max label, top-left. No axis framework — at 168px wide, tick labels
-    // would be unreadable, and unreadable ticks are worse than none.
+    // would be unreadable, and unreadable ticks are worse than none. The scale
+    // is named, though: a log axis that does not say so is a lie about the
+    // shape of the curve.
     ctx.fillStyle = 'rgba(120, 160, 175, 0.65)';
     ctx.font = '9px "Courier New", monospace';
-    ctx.fillText(formatMax(max), 3, 10);
+    ctx.fillText(formatMax(max) + (opts.log ? ' log' : ''), 3, 10);
 }
 
 function formatMax(v) {
