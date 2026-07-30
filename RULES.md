@@ -588,6 +588,10 @@ neighbour of every carrier every tick — an outbreak makes on the order of 100k
 rolls, and at 4e-5 two of the first three measured outbreaks jumped, which is
 not the rare event this is meant to be.
 
+**Off switch.** `disease_enabled` (god panel) stops new pathogens being seeded
+and stops transmission. Agents already infected stay infected: clearing them
+would rewrite the run rather than pause it, and there is no cure in this model.
+
 **Names** are the host's genus mangled — stem, a nonsense infix, a pathological
 ending, and a word for what it does: *Thalorandrpestis spumosa*, *Surnecrosis
 maligna*, *Lumoxytabes vexans*. Deterministic from `(disease_id, world_seed)`

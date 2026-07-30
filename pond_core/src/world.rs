@@ -707,6 +707,10 @@ pub struct World {
     /// Player-facing ecology switch. God-mode summons are deliberately
     /// independent of it.
     pub automatic_predators_enabled: bool,
+    /// Player-facing disease switch. Off stops new pathogens being seeded and
+    /// stops transmission; agents already infected stay infected, because
+    /// clearing them would rewrite the run rather than pause it.
+    pub disease_enabled: bool,
     /// Predators that finished their departure swim this step, awaiting removal.
     departed_ids: Vec<u32>,
     /// Largest pack this run has ever fielded. A pack ratchets: it can grow but
@@ -801,6 +805,7 @@ impl World {
             predators: Vec::new(),
             predator_ids: HashSet::new(),
             automatic_predators_enabled: true,
+            disease_enabled: true,
             departed_ids: Vec::new(),
             predator_high_water: 0,
             predator_tier: 0,
@@ -2121,6 +2126,27 @@ impl World {
     }
 
     /// The pathogen an agent is carrying, if any.
+    /// Live carriers of each disease, and how many of them belong to each live
+    /// species. Row `d` is disease id `d + 1`; column 0 of the per-species block
+    /// is "unassigned", column `s` is species id `s`.
+    ///
+    /// Counted here rather than in JS because the page has no per-agent species
+    /// *and* infection pairing without another array export, and this is a
+    /// once-per-panel-refresh walk either way.
+    pub fn disease_carrier_census(&self, species_columns: usize) -> Vec<Vec<u32>> {
+        let mut out = vec![vec![0u32; species_columns]; self.diseases.len()];
+        for i in 0..self.ids.len() {
+            let id = self.infection[i];
+            if id == 0 || self.cause_of_death[i].is_some() { continue; }
+            let Some(row) = out.get_mut(id as usize - 1) else { continue };
+            let species = self.species_ids.get(i).copied().unwrap_or(0) as usize;
+            if let Some(cell) = row.get_mut(species.min(species_columns - 1)) {
+                *cell += 1;
+            }
+        }
+        out
+    }
+
     pub fn disease_of(&self, idx: usize) -> Option<&Disease> {
         let id = *self.infection.get(idx)?;
         if id == 0 { return None; }
@@ -2135,6 +2161,7 @@ impl World {
     /// cull wearing a costume, and the point of this mechanic is to be a
     /// disturbance that arrives on its own schedule.
     fn maybe_seed_disease(&mut self, species_id: u32, genus: &str) {
+        if !self.disease_enabled { return; }
         if !self.rng.gen_bool(DISEASE_CHANCE) { return; }
 
         let id = self.diseases.len() as u32 + 1;
@@ -2164,7 +2191,7 @@ impl World {
     /// a setpoint — a lineage that becomes numerous *and* clustered is what
     /// makes an epidemic, not a lineage that is merely numerous.
     fn tick_disease(&mut self) {
-        if self.diseases.is_empty() { return; }
+        if !self.disease_enabled || self.diseases.is_empty() { return; }
 
         // Collected first: the roll below mutates `infection`, and an agent
         // infected this tick must not go on to infect others in the same tick —
@@ -3937,6 +3964,53 @@ mod tests {
         assert_eq!(scrum(false), 1, "a pathogen leaked into another species");
         // Once it has jumped, the same scrum goes up like tinder.
         assert!(scrum(true) > 30, "a jumped pathogen should spread to anything");
+    }
+
+    #[test]
+    fn the_god_switch_stops_new_infections_but_not_existing_ones() {
+        let mut w = World::new(20, 40, 55);
+        w.set_automatic_predators(false);
+        let id = plant_disease(&mut w, 0.0, 1.0, 0);
+        for i in 0..w.ids.len() {
+            w.pos_x[i] = 10.0;
+            w.pos_y[i] = 10.0;
+            w.species_ids[i] = 0;
+            w.genome[i].traits.immunity = 0.0;
+        }
+        w.spatial.rebuild(&w.pos_x, &w.pos_y);
+        w.infection[0] = id;
+
+        w.disease_enabled = false;
+        for _ in 0..20 { w.tick_disease(); }
+        assert_eq!(w.infection.iter().filter(|&&v| v != 0).count(), 1,
+            "disease spread with the switch off");
+        assert_eq!(w.infection[0], id, "the switch cured someone instead of pausing");
+
+        w.disease_enabled = true;
+        w.tick_disease();
+        assert!(w.infection.iter().filter(|&&v| v != 0).count() > 1,
+            "turning it back on did not resume transmission");
+    }
+
+    #[test]
+    fn the_carrier_census_splits_by_species() {
+        let mut w = World::new(20, 12, 3);
+        w.set_automatic_predators(false);
+        let a = plant_disease(&mut w, 0.0, 0.0, 1);
+        let b = plant_disease(&mut w, 0.0, 0.0, 2);
+        for i in 0..w.ids.len() { w.species_ids[i] = 0; }
+        // Two carriers of A in species 1, one in species 2, one of B unassigned.
+        w.infection[0] = a; w.species_ids[0] = 1;
+        w.infection[1] = a; w.species_ids[1] = 1;
+        w.infection[2] = a; w.species_ids[2] = 2;
+        w.infection[3] = b; w.species_ids[3] = 0;
+
+        let census = w.disease_carrier_census(13);
+        assert_eq!(census[0][1], 2, "species 1 carriers of A");
+        assert_eq!(census[0][2], 1, "species 2 carriers of A");
+        assert_eq!(census[0].iter().sum::<u32>(), 3);
+        assert_eq!(census[1][0], 1, "unassigned carrier of B");
+        assert_eq!(census[1].iter().sum::<u32>(), 1);
     }
 
     #[test]

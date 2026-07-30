@@ -64,6 +64,10 @@ export function initGod(root, api) {
         `<input type="checkbox" id="god-predators" checked> ambient predators</label></div>` +
         `<div class="god-hint">one resident hunter, always in the water &middot; ` +
         `off leaves the pond to its own devices</div>` +
+        `<div class="god-row"><label class="god-toggle">` +
+        `<input type="checkbox" id="god-disease" checked> disease</label></div>` +
+        `<div class="god-hint">off stops new pathogens and stops them spreading ` +
+        `&middot; the already-infected stay infected</div>` +
         `<div id="god-warn" class="god-warn"></div>` +
         `</div>`;
 
@@ -72,6 +76,7 @@ export function initGod(root, api) {
     const body = el('god-body');
     const immortal_box = el('god-immortal');
     const predators_box = el('god-predators');
+    const disease_box = el('god-disease');
     const dismiss_btn = el('god-dismiss');
     const warn = el('god-warn');
     const tool_buttons = {
@@ -147,6 +152,9 @@ export function initGod(root, api) {
     // `effects()` returned this object instead of the frame's effects.
     predators_box.addEventListener('change', () => {
         api.setAutomaticPredators(predators_box.checked);
+    });
+    disease_box.addEventListener('change', () => {
+        api.setDiseaseEnabled(disease_box.checked);
     });
 
     set_enabled(false);

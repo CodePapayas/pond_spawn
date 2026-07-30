@@ -12,6 +12,8 @@ import init, {
     tunable_ranges,
     schema_version,
     brain_layer_sizes,
+    disease_stride,
+    disease_species_columns,
 } from '../pond_core/pkg/pond_core.js';
 import { decodeAgent } from './decode.js';
 import { createChain, updateChain } from './chain.js';
@@ -28,6 +30,7 @@ import { initSetup } from './setup.js';
 import { initGod } from './god.js';
 import { initInspector } from './inspector.js';
 import { openPhylogeny, refreshPhylogeny } from './phylogeny.js';
+import { initDiseasePanel, parseDiseases } from './disease.js';
 import { closeFloatingPrefix } from './floating.js';
 
 // Wire format this page was written against. The engine reports its own; a
@@ -35,7 +38,7 @@ import { closeFloatingPrefix } from './floating.js';
 // and every flat buffer the page reads would be off by some number of floats —
 // silently, producing plausible wrong numbers rather than an error. See
 // pond_core/src/schema.rs.
-const EXPECTED_SCHEMA = 4;
+const EXPECTED_SCHEMA = 5;
 
 // ── Sim config ────────────────────────────────────────────────────────────────
 // Set from the setup panel (`N`) and fixed for the life of a run — changing any
@@ -125,6 +128,7 @@ let selected_pos = null;  // interpolated world pos of selected agent this frame
 
 // Panels
 let update_legend_counts, update_genome_panel, update_graphs, setup, god;
+let update_diseases;
 // The rule dials, fixed for the life of a run and set from the setup panel.
 // Held here so a restart can re-apply them to the new world.
 let dials = null;
@@ -198,6 +202,7 @@ async function boot() {
             automatic_predators = on;
             world.set_automatic_predators(on);
         },
+        setDiseaseEnabled: on => world.set_disease_enabled(on),
         summonOctagon: () => world.summon_octagon(),
         summonRectangle: () => world.summon_rectangle(),
         dismissHunters: () => world.dismiss_summoned_predators(),
@@ -235,7 +240,7 @@ async function boot() {
 function build_panels() {
     for (const id of ['legend-colors', 'legend-shapes', 'legend-tiles',
                       'legend-deaths', 'legend-composite', 'genome-panel', 'graphs',
-                      'species-list']) {
+                      'species-list', 'disease-panel']) {
         document.getElementById(id).innerHTML = '';
     }
     TRAIT_BOUNDS = trait_bounds();
@@ -247,6 +252,10 @@ function build_panels() {
     update_genome_panel = initGenomePanel(TRAIT_BOUNDS);
     update_graphs = initGraphs(document.getElementById('graphs'));
     update_archetypes = initArchetypes(document.getElementById('archetypes'));
+    update_diseases = initDiseasePanel(
+        document.getElementById('disease-panel'),
+        id => species_rows.find(s => s.id === id)?.name ?? (id === 0 ? 'unassigned' : `species ${id}`),
+    );
     update_species = initSpeciesPanel(
         document.getElementById('species-list'),
         s => species_swatch(s),
@@ -332,12 +341,14 @@ function clear_run_panels() {
     closeFloatingPrefix('graph:');
     closeFloatingPrefix('species:');
     closeFloatingPrefix('tree:');
+    closeFloatingPrefix('disease:');
     for (const id of ['legend-colors', 'legend-shapes', 'legend-tiles',
                       'legend-deaths', 'legend-composite', 'genome-panel', 'graphs',
-                      'species-list']) {
+                      'species-list', 'disease-panel']) {
         document.getElementById(id).innerHTML = '';
     }
     update_legend_counts = null;
+    update_diseases = null;
     update_genome_panel = null;
     update_graphs = null;
 }
@@ -777,8 +788,14 @@ function refresh_species() {
     const unassigned = last_agents.filter(a => !assigned.has(a.species)).length;
     update_species?.(species_rows, current_step, unassigned);
     // The tree reads the same roster, so it refreshes on the same tick rather
-    // than polling for a change it cannot see.
+    // than polling for a change it cannot see. Diseases refresh here too: the
+    // panel names species, so it wants the roster that was just decoded.
     refreshPhylogeny(phylogeny_source, species_swatch);
+    update_diseases?.(
+        parseDiseases(world.disease_list(), disease_stride(),
+                      disease_species_columns(), world.disease_names()),
+        current_step,
+    );
 
     // First roster of a run seeds the "already seen" sets silently; only genuinely
     // new promotions and extinctions after that are worth interrupting for.

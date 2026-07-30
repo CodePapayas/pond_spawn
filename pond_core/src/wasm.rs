@@ -42,6 +42,10 @@ pub fn state_death_stride() -> u32 { DEATH_STRIDE as u32 }
 #[wasm_bindgen]
 pub fn species_stride() -> u32 { SPECIES_STRIDE as u32 }
 #[wasm_bindgen]
+pub fn disease_stride() -> u32 { DISEASE_STRIDE as u32 }
+#[wasm_bindgen]
+pub fn disease_species_columns() -> u32 { DISEASE_SPECIES_COLUMNS as u32 }
+#[wasm_bindgen]
 pub fn predator_state_stride() -> u32 { PREDATOR_STATE_STRIDE as u32 }
 /// Distance at which an agent stops belonging to a species. The inspector shows
 /// an agent's distance from its centroid against this, so drifting out is
@@ -69,6 +73,17 @@ const DEATH_STRIDE: usize = 4;
 /// `species.js` mirrors this layout offset for offset. Changing the order here
 /// without changing it there silently reads the wrong field.
 const SPECIES_STRIDE: usize = 14 + crate::species::SIG_LEN * 3;
+/// Disease row:
+/// [id, origin_species, emerged, severity, contagion, jumped, carriers,
+///  DISEASE_SPECIES_COLUMNS × carriers-by-species].
+/// `jumped` is 1 once the pathogen has crossed into a second species. The
+/// per-species block is indexed by species id, with column 0 for unassigned
+/// carriers; ids beyond the block are folded into the last column.
+///
+/// `disease.js` mirrors this layout offset for offset.
+const DISEASE_SPECIES_COLUMNS: usize = 13;   // species ids 1..=MAX_SPECIES, plus unassigned
+const DISEASE_STRIDE: usize = 7 + DISEASE_SPECIES_COLUMNS;
+
 /// Predator record: [id, leaving, tier, angle, reach].
 const PREDATOR_STATE_STRIDE: usize = 5;
 
@@ -186,6 +201,42 @@ impl WasmWorld {
             }
         }
         buf
+    }
+
+    /// Every pathogen this run has produced, flat, `len / disease_stride()`
+    /// rows. Includes burnt-out ones with no carriers left: a disease that
+    /// killed its way through a lineage and vanished is part of the run's
+    /// history, exactly as an extinct species is.
+    pub fn disease_list(&self) -> Vec<f32> {
+        let census = self.inner.disease_carrier_census(DISEASE_SPECIES_COLUMNS);
+        let mut buf = Vec::with_capacity(self.inner.diseases.len() * DISEASE_STRIDE);
+        for (i, d) in self.inner.diseases.iter().enumerate() {
+            let row = &census[i];
+            buf.push(d.id as f32);
+            buf.push(d.origin_species as f32);
+            buf.push(d.emerged_step as f32);
+            buf.push(d.severity as f32);
+            buf.push(d.contagion as f32);
+            buf.push(if d.jumped { 1.0 } else { 0.0 });
+            buf.push(row.iter().sum::<u32>() as f32);
+            for &c in row {
+                buf.push(c as f32);
+            }
+        }
+        buf
+    }
+
+    /// Disease names, parallel to `disease_list()` rows. A separate call for the
+    /// same reason species names are: strings cannot ride a `Float32Array`.
+    pub fn disease_names(&self) -> Vec<JsValue> {
+        self.inner.diseases.iter().map(|d| JsValue::from_str(&d.name)).collect()
+    }
+
+    pub fn set_disease_enabled(&mut self, on: bool) {
+        self.inner.disease_enabled = on;
+    }
+    pub fn disease_enabled(&self) -> bool {
+        self.inner.disease_enabled
     }
 
     /// Morphology knobs for species row `index`, so the legend swatch can be

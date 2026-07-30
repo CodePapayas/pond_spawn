@@ -40,4 +40,6 @@
 ///   the inspector's trait block all grow.
 /// - 4 — `immunity` joins the traits and the species signature: 11 traits,
 ///   `SIG_LEN` 9, so the species row and the composite buffer grow again.
-pub const SCHEMA_VERSION: u32 = 4;
+/// - 5 — disease roster exported: `disease_list` / `disease_names` and the
+///   `disease_stride` layout.
+pub const SCHEMA_VERSION: u32 = 5;

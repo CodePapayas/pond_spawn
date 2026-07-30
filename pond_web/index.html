@@ -409,6 +409,14 @@ canvas { display: block; }
 }
 .sp-fossil { opacity: 0.5; }
 .sp-fossil .sp-age { width: auto; }
+.dz-dot {
+  width: 9px; height: 9px; flex-shrink: 0;
+  border-radius: 2px;
+  background: rgba(180, 230, 60, 0.85);
+  box-shadow: 0 0 6px rgba(180, 230, 60, 0.6);
+}
+.dz-dot.jumped { background: rgba(255, 105, 90, 0.9); box-shadow: 0 0 7px rgba(255,105,90,.7); }
+.dz-jumped { color: rgba(255, 140, 110, 0.9); }
 .sp-selectable { cursor: pointer; }
 .sp-selectable:hover { background: rgba(120, 255, 245, 0.12); }
 
@@ -715,6 +723,8 @@ body.zen #graph-hover-preview { display: none !important; }
 
   <h2>deaths</h2>
   <div id="legend-deaths"></div>
+
+  <div id="disease-panel"></div>
 
   <h2>average genome</h2>
   <div id="genome-panel"></div>
