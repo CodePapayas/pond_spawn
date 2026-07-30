@@ -60,7 +60,7 @@ canvas { display: block; }
 /* Stacked, not a bottom strip. At fit zoom the pond is letterboxed on the long
    axis and a full-width row of keybinds lay straight across it; a narrow column
    sits in the letterbox bar instead. Zoomed in there is no bar to hide in, which
-   is unavoidable — that is what h is for. */
+   is unavoidable — click it to dismiss, or C to clear the UI entirely. */
 #hint {
   position: fixed;
   bottom: 16px; left: 16px;
@@ -184,7 +184,7 @@ canvas { display: block; }
 #side-right {
   top: 16px; right: 16px;
   width: 230px;
-  display: block;   /* legend on by default; L toggles */
+  display: block;   /* legend on by default; C clears the whole UI */
 }
 .legend-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
 .legend-swatch {
@@ -603,6 +603,37 @@ canvas { display: block; }
 }
 .float-close:hover { color: white; background: rgba(255,60,120,.2); }
 .float-body { padding: 10px; font-size: 10px; }
+
+/* ── Phylogeny window ─────────────────────────────────────────────────── */
+.float-tree .float-body { padding: 8px 10px 10px; }
+.tree-actions { display: flex; gap: 6px; margin-bottom: 6px; }
+.tree-actions button {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(120, 255, 245, 0.35);
+  border-radius: 3px;
+  color: rgba(190, 245, 255, 0.85);
+  font-family: inherit; font-size: 10px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 4px 8px; cursor: pointer;
+}
+.tree-actions button:hover { background: rgba(120, 255, 245, 0.15); }
+.float-tree canvas { display: block; background: rgba(0, 0, 0, 0.28); border-radius: 3px; }
+.tree-note {
+  margin-top: 7px; max-width: 520px;
+  color: rgba(110, 140, 155, 0.8); font-size: 9px; line-height: 1.55;
+}
+
+/* ── Zen mode ─────────────────────────────────────────────────────────── */
+/* C clears the UI. One class, and every panel's own state is left untouched,
+   so leaving zen restores exactly what was open. */
+body.zen #hud,
+body.zen .panel,
+body.zen #hint,
+body.zen #hint-show,
+body.zen #species-toast,
+body.zen #paused-banner,
+body.zen .float-window,
+body.zen #graph-hover-preview { display: none !important; }
 .graph-expanded { display: block; background: rgba(0,0,0,.28); border-radius: 3px; }
 .graph-expanded-key { margin-top: 6px; word-spacing: 5px; }
 #graph-hover-preview {
@@ -656,14 +687,14 @@ canvas { display: block; }
   <div class="hk"><b>0</b><span>reset view</span></div>
   <div class="hk"><b>space</b><span>pause</span></div>
   <div class="hk"><b>+/-</b><span>speed</span></div>
-  <div class="hk"><b>l</b><span>legend</span></div>
   <div class="hk"><b>g</b><span>graphs</span></div>
   <div class="hk"><b>b</b><span>archetypes</span></div>
   <div class="hk"><b>t</b><span>tuning</span></div>
+  <div class="hk"><b>p</b><span>phylogeny</span></div>
   <div class="hk"><b>d</b><span>debug clusters</span></div>
   <div class="hk"><b>n</b><span>restart run</span></div>
   <div class="hk"><b>esc</b><span>deselect</span></div>
-  <div class="hk"><b>h</b><span>hide this</span></div>
+  <div class="hk"><b>c</b><span>clear ui</span></div>
 </div>
 
 <div id="hint-show" title="show controls">?</div>

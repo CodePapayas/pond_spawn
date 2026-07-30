@@ -26,6 +26,7 @@ import { initSetup } from './setup.js';
 import { initGod } from './god.js';
 import { initInspector } from './inspector.js';
 import { initTuning } from './tuning.js';
+import { openPhylogeny, refreshPhylogeny } from './phylogeny.js';
 import { closeFloatingPrefix } from './floating.js';
 
 // ── Sim config ────────────────────────────────────────────────────────────────
@@ -139,7 +140,8 @@ let species_seeded = false;
 let current_step = 0;
 let last_species_tick = -1;
 let TRAIT_BOUNDS = null;
-let hint_visible = true;   // the bottom-left controls key; H or ? toggles it
+let hint_visible = true;   // the bottom-left controls key; click it or the ? chip
+let zen = false;           // C hides the whole UI (see toggle_zen)
 let graphs_timer = null;
 const GRAPH_REFRESH_MS = 1000;   // series only gain a sample every 10 sim steps
 let last_panel_step = -1;
@@ -210,8 +212,8 @@ async function boot() {
 
     document.getElementById('h-newrun').addEventListener('click', open_setup);
     document.getElementById('h-predators').addEventListener('click', toggle_predators);
-    document.getElementById('hint').addEventListener('click', toggle_hint);
-    document.getElementById('hint-show').addEventListener('click', toggle_hint);
+    document.getElementById('hint').addEventListener('click', toggle_hint_click);
+    document.getElementById('hint-show').addEventListener('click', toggle_hint_click);
 
     window.addEventListener('keydown', on_key);
 
@@ -323,6 +325,7 @@ function clear_run_panels() {
     document.getElementById('graphs').style.display = 'none';
     closeFloatingPrefix('graph:');
     closeFloatingPrefix('species:');
+    closeFloatingPrefix('tree:');
     for (const id of ['legend-colors', 'legend-shapes', 'legend-tiles',
                       'legend-deaths', 'legend-composite', 'genome-panel', 'graphs',
                       'species-list']) {
@@ -609,6 +612,13 @@ function on_dblclick(e) {
 }
 
 function on_key(e) {
+    // Typing in a panel field is not a shortcut. Without this, entering a seed
+    // toggles half the UI on the way through — and now that C clears the screen
+    // and P opens a window, a keystroke in a text box is expensive.
+    const el = e.target;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) {
+        return;
+    }
     if (e.key === ' ') {
         e.preventDefault();
         paused = !paused;
@@ -616,15 +626,13 @@ function on_key(e) {
     }
     if (e.key === '+' || e.key === '=') speed_mult = Math.min(speed_mult * 2, 16);
     if (e.key === '-')                  speed_mult = Math.max(speed_mult / 2, 0.25);
-    if (e.key === 'l' || e.key === 'L') {
-        const panel = document.getElementById('side-right');
-        panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
-    }
     if (e.key === 'g' || e.key === 'G') toggle_graphs();
     if (e.key === 'b' || e.key === 'B') toggle_archetypes();
     if (e.key === 't' || e.key === 'T') toggle_tuning();
     if (e.key === 'd' || e.key === 'D') toggle_debug();
-    if (e.key === 'h' || e.key === 'H' || e.key === '?') toggle_hint();
+    // Zen while the setup panel is up would hide the only way to start a run.
+    if ((e.key === 'c' || e.key === 'C') && !setup.isOpen()) toggle_zen();
+    if (e.key === 'p' || e.key === 'P') toggle_phylogeny();
     if (e.key === 'n' || e.key === 'N') open_setup();
 
     // Camera. Arrows pan by a fixed world distance, so a keypress covers the
@@ -654,14 +662,37 @@ function on_key(e) {
     document.getElementById('h-speed').textContent = `speed ×${speed_mult}`;
 }
 
-/** Show/hide the controls key. It is the largest permanent thing on screen and
- *  the first thing you stop needing, so it hides. It is a narrow left-hand
- *  column now rather than a bottom strip, so it no longer competes with the
- *  graph panel for the same band. */
-function toggle_hint() {
+/** The controls key is still dismissable by clicking it, and the ? chip brings
+ *  it back — it is the one panel you stop needing within a minute. Only the
+ *  keyboard binding went; C now clears everything at once. */
+function toggle_hint_click() {
     hint_visible = !hint_visible;
     document.getElementById('hint').style.display = hint_visible ? 'block' : 'none';
     document.getElementById('hint-show').style.display = hint_visible ? 'none' : 'block';
+}
+
+/** Clear the UI — zen mode. One key for "get out of the way", replacing the
+ *  separate hint and legend toggles, which nobody wanted individually.
+ *
+ *  It is a single class on <body> and the stylesheet does the hiding. Nothing
+ *  else is touched: every panel's own visible flag, the graph timers and the
+ *  engine-side brain clustering all stay exactly as they were, so leaving zen
+ *  restores precisely what was open with no state to fall out of sync. */
+function toggle_zen() {
+    zen = !zen;
+    document.body.classList.toggle('zen', zen);
+}
+
+/** The phylogeny window. Built from the roster on open, refreshed on the same
+ *  cadence as the species panel. Closing it is the window's own × button. */
+function toggle_phylogeny() {
+    openPhylogeny(phylogeny_source, species_swatch);
+}
+
+/** What the tree reads. A function, not a snapshot, so the window tracks the
+ *  run instead of freezing at the moment it was opened. */
+function phylogeny_source() {
+    return { rows: species_rows, step: current_step, seed: String(SEED) };
 }
 
 /** Show/hide the stat panel. Redraw only runs while it is visible — reading and
@@ -765,6 +796,9 @@ function refresh_species() {
     const assigned = new Set(species_rows.filter(s => s.extinctAt === null).map(s => s.id));
     const unassigned = last_agents.filter(a => !assigned.has(a.species)).length;
     update_species?.(species_rows, current_step, unassigned);
+    // The tree reads the same roster, so it refreshes on the same tick rather
+    // than polling for a change it cannot see.
+    refreshPhylogeny(phylogeny_source, species_swatch);
 
     // First roster of a run seeds the "already seen" sets silently; only genuinely
     // new promotions and extinctions after that are worth interrupting for.

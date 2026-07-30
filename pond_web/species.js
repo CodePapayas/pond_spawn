@@ -27,7 +27,10 @@ const S_DRIFT = 9;
 const S_SPREAD = 10;
 const S_ENTRY_GENERATIONS = 11;
 const S_PROBATION_GENERATIONS = 12;
-const S_CENTROID = 13;
+// The species this one split from — nearest kin at promotion, 0 for a root.
+// Same lookup that lends the genus, so name and ancestry always agree.
+const S_PARENT = 13;
+const S_CENTROID = 14;
 const SIG_LEN = 7;
 const S_FOUNDING_CENTROID = S_CENTROID + SIG_LEN;
 const S_POPULATION_CENTROID = S_FOUNDING_CENTROID + SIG_LEN;
@@ -64,6 +67,7 @@ export function parseSpecies(flat, stride, names) {
             spread: flat[off + S_SPREAD],
             entryGenerations: flat[off + S_ENTRY_GENERATIONS],
             probationGenerations: flat[off + S_PROBATION_GENERATIONS],
+            parentId: flat[off + S_PARENT] | 0,
             centroid: Array.from(flat.slice(off + S_CENTROID, off + S_CENTROID + SIG_LEN)),
             foundingCentroid: Array.from(flat.slice(
                 off + S_FOUNDING_CENTROID, off + S_FOUNDING_CENTROID + SIG_LEN)),

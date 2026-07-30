@@ -121,6 +121,19 @@ pub struct Species {
     /// centroid is a *new* species: convergent evolution is the more
     /// interesting reading, and resurrection would make the timeline lie.
     pub id: u32,
+    /// Nearest kin at promotion — the species this one is read as having split
+    /// from — or `UNASSIGNED` for a lineage that founded in empty trait space.
+    ///
+    /// It is the same nearest-within-`GENUS_RADIUS` neighbour whose genus this
+    /// species inherits, so name and ancestry cannot disagree. Extinct species
+    /// are eligible: a lineage that re-radiates after a bottleneck descends from
+    /// the one that died.
+    ///
+    /// This is an inference, not an observed birth: nothing watches a population
+    /// split, and a species promoting near an unrelated lineage that happens to
+    /// have converged on the same shape will be recorded as its child. Read it
+    /// as "nearest relative at the time it earned a name".
+    pub parent_id: u32,
     /// Trait signature, tracked slowly toward the member mean.
     pub centroid: [f64; SIG_LEN],
     /// Signature at promotion, kept unchanged for the lineage record.
@@ -472,16 +485,19 @@ impl SpeciesRegistry {
         c.streak_start_generation = mean_generation;
     }
 
-    /// Genus of the nearest species — live or extinct — close enough to be read
-    /// as the same lineage. Extinct ones count: a lineage that re-radiates after
-    /// a bottleneck should keep its family name even though the parent is gone.
-    fn inherited_genus(&self, centroid: &[f64; SIG_LEN]) -> Option<String> {
+    /// The nearest species — live or extinct — close enough to be read as the
+    /// same lineage. Extinct ones count: a lineage that re-radiates after a
+    /// bottleneck should keep its family name even though the parent is gone.
+    ///
+    /// One lookup serves both the genus and `parent_id`, so a species can never
+    /// carry one lineage's name and another's ancestry.
+    fn nearest_kin(&self, centroid: &[f64; SIG_LEN]) -> Option<&Species> {
         self.species
             .iter()
             .map(|s| (dist_sq(centroid, &s.founding_centroid), s))
             .filter(|(d, _)| *d < GENUS_RADIUS * GENUS_RADIUS)
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(_, s)| s.name.genus.clone())
+            .map(|(_, s)| s)
     }
 
     fn promote_ready(
@@ -525,17 +541,24 @@ impl SpeciesRegistry {
                 deviation[d] = centroid[d] - population_centroid[d];
             }
             let taken: Vec<String> = self.species.iter().map(|s| s.name.full()).collect();
+            // One lookup, two uses: the genus this lineage inherits and the id it
+            // descends from. Borrow ends before the push below.
+            let (parent_id, inherited_genus) = match self.nearest_kin(&centroid) {
+                Some(kin) => (kin.id, Some(kin.name.genus.clone())),
+                None => (UNASSIGNED, None),
+            };
             let name = naming::generate(
                 id,
                 self.world_seed,
                 &deviation,
-                self.inherited_genus(&centroid).as_deref(),
+                inherited_genus.as_deref(),
                 &taken,
             );
 
             self.species.push(Species {
                 name: name.clone(),
                 id,
+                parent_id,
                 centroid,
                 founding_centroid: centroid,
                 founding_population_centroid: *population_centroid,
@@ -850,6 +873,7 @@ mod tests {
         reg.species.push(Species {
             name: Name { genus: genus.to_string(), epithet: "ferox".into() },
             id,
+            parent_id: UNASSIGNED,
             centroid,
             founding_centroid: centroid,
             founding_population_centroid: centroid,
@@ -878,14 +902,94 @@ mod tests {
         // Just inside the radius: same lineage, same genus.
         let mut near = base;
         near[0] += GENUS_RADIUS * 0.5;
-        assert_eq!(reg.inherited_genus(&near).as_deref(), Some("Thalura"));
+        assert_eq!(reg.nearest_kin(&near).map(|s| s.name.genus.as_str()), Some("Thalura"));
 
         // Well outside: a new lineage, and a new genus.
         let mut far = base;
         for d in 0..SIG_LEN {
             far[d] += GENUS_RADIUS;
         }
-        assert_eq!(reg.inherited_genus(&far), None);
+        assert!(reg.nearest_kin(&far).is_none());
+    }
+
+    /// Drive a registry until something promotes, so ancestry is tested on real
+    /// promotions rather than on planted rows.
+    fn run_until_promotion(reg: &mut SpeciesRegistry) {
+        for r in 0..(STABILITY_RUNS + 40) {
+            let genomes = blobs(60, r);
+            run(reg, &genomes, 100 + r * 50);
+            if !reg.all().is_empty() { return; }
+        }
+    }
+
+    #[test]
+    fn a_lineage_founding_in_empty_space_is_a_root() {
+        let mut reg = SpeciesRegistry::new(42);
+        run_until_promotion(&mut reg);
+        let first = reg.all().first().expect("expected at least one promotion");
+        assert_eq!(first.parent_id, UNASSIGNED,
+            "the first species in a pond has no kin to descend from");
+    }
+
+    #[test]
+    fn ancestry_and_genus_name_the_same_kin() {
+        // Whatever the parent is, the genus must have come from that same
+        // species — one lookup feeds both, and this is what pins them together.
+        //
+        // Two passes: the first learns where this fixture promotes, the second
+        // plants a lineage there so the promotion has kin to descend from. The
+        // blobs are far enough apart in signature space that every promotion is
+        // otherwise a root, which would prove nothing.
+        let mut scout = SpeciesRegistry::new(42);
+        run_until_promotion(&mut scout);
+        let landing = scout.all().first().expect("expected a promotion").founding_centroid;
+
+        let mut reg = SpeciesRegistry::new(42);
+        // Far enough that the planted lineage does not simply absorb the members
+        // (MEMBERSHIP_RADIUS), close enough to still be kin (GENUS_RADIUS).
+        let mut planted_at = landing;
+        planted_at[0] += (MEMBERSHIP_RADIUS + GENUS_RADIUS) / 2.0;
+        planted(&mut reg, 900, planted_at, "Kinara");
+        for r in 0..(STABILITY_RUNS + 40) {
+            let genomes = blobs(60, r);
+            run(&mut reg, &genomes, 100 + r * 50);
+            if reg.all().iter().any(|s| s.id != 900) { break; }
+        }
+
+        let child = reg.all().iter().find(|s| s.id != 900)
+            .expect("expected a promotion beside the planted lineage");
+        assert_eq!(child.parent_id, 900, "{} should descend from the planted lineage",
+            child.name.full());
+        assert_eq!(child.name.genus, "Kinara",
+            "ancestry and genus must name the same kin");
+    }
+
+    #[test]
+    fn an_extinct_lineage_can_be_a_parent() {
+        // Same rule as genus inheritance: a lineage that re-radiates after a
+        // bottleneck descends from the one that died.
+        let mut reg = SpeciesRegistry::new(42);
+        let base = [0.5; SIG_LEN];
+        planted(&mut reg, 1, base, "Vorixa");
+        reg.species[0].extinct_at = Some(500);
+
+        let mut near = base;
+        near[2] += GENUS_RADIUS * 0.4;
+        assert_eq!(reg.nearest_kin(&near).map(|s| s.id), Some(1));
+    }
+
+    #[test]
+    fn the_nearest_kin_wins_not_the_first() {
+        let mut reg = SpeciesRegistry::new(42);
+        let base = [0.5; SIG_LEN];
+        planted(&mut reg, 1, base, "Thalura");
+        let mut closer = base;
+        closer[0] += GENUS_RADIUS * 0.2;
+        planted(&mut reg, 2, closer, "Thalura");
+
+        let mut probe = base;
+        probe[0] += GENUS_RADIUS * 0.25;
+        assert_eq!(reg.nearest_kin(&probe).map(|s| s.id), Some(2));
     }
 
     #[test]
@@ -899,7 +1003,7 @@ mod tests {
 
         let mut near = base;
         near[2] += GENUS_RADIUS * 0.4;
-        assert_eq!(reg.inherited_genus(&near).as_deref(), Some("Vorixa"));
+        assert_eq!(reg.nearest_kin(&near).map(|s| s.name.genus.as_str()), Some("Vorixa"));
     }
 
     #[test]

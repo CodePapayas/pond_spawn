@@ -38,12 +38,17 @@ const DEATH_STRIDE: usize = 4;
 /// [id, members, peak, founded, extinct,
 ///  founder_members, founder_population, founder_generation,
 ///  promotion_streak, promotion_drift, promotion_spread,
-///  entry_generation_advance, probation_generation_advance,
+///  entry_generation_advance, probation_generation_advance, parent,
 ///  7 × current centroid, 7 × founding centroid,
 ///  7 × founding population centroid].
 /// `extinct` is -1 while alive — a Float32Array has no null, and f32 represents
-/// integers exactly far past any step count.
-const SPECIES_STRIDE: usize = 13 + crate::species::SIG_LEN * 3;
+/// integers exactly far past any step count. `parent` is 0 for a lineage that
+/// founded with no kin nearby; it is the species this one split from, and the
+/// phylogeny is drawn from it (see `Species::parent_id`).
+///
+/// `species.js` mirrors this layout offset for offset. Changing the order here
+/// without changing it there silently reads the wrong field.
+const SPECIES_STRIDE: usize = 14 + crate::species::SIG_LEN * 3;
 /// Predator record: [id, leaving, tier, angle, reach].
 const PREDATOR_STATE_STRIDE: usize = 5;
 
@@ -149,6 +154,7 @@ impl WasmWorld {
             buf.push(s.promotion_spread as f32);
             buf.push(s.entry_generation_advance);
             buf.push(s.probation_generation_advance);
+            buf.push(s.parent_id as f32);
             for v in s.centroid {
                 buf.push(v as f32);
             }

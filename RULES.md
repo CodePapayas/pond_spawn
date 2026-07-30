@@ -441,6 +441,25 @@ resurrection would make the timeline lie. Ids are monotonic and never reused.
 Live species are capped at 12; at the cap promotion is refused rather than
 evicting a live species, which would write a false `extinct_at`.
 
+### Ancestry
+
+Every promoted species records a `parent_id`: the nearest species — live or
+extinct — within `GENUS_RADIUS` of its founding centroid, or **0** if it founded
+with nothing nearby. It is the *same* lookup that lends the genus, so a species
+can never carry one lineage's name and another's ancestry.
+
+**This is an inference, not an observed birth.** Nothing in the sim watches a
+population split. A species promoting beside an unrelated lineage that happens to
+have converged on the same shape is recorded as its child, and a lineage whose
+real ancestor drifted out of range before it promoted is recorded as a root. Read
+an edge as "nearest relative at the time it earned a name".
+
+The phylogeny panel (`P` in the web build) draws these edges as a pine: the trunk
+is time, each bough leaves its parent at its own founding step, bough length is
+lifespan and thickness is peak members. Founding and extinction steps are always
+multiples of 50 — the registry only advances on a cluster tick — so the tree's
+time axis is quantised to that.
+
 ### Names
 
 Promoted species get a binomial, generated deterministically from
