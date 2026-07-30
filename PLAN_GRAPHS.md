@@ -105,7 +105,7 @@ differencing the tally at sample time.
 - Field `pub stats_history: StatHistory` on `World`.
 - Sample at the **end** of `step()`, after `reap_dead`, when
   `step_count % SAMPLE_INTERVAL == 0`. Do not insert this into the middle of the
-  step loop — the nine-phase order is load-bearing (the project rules), and sampling is
+  step loop — the nine-phase order is load-bearing (project rules), and sampling is
   an observation, not a phase.
 - `min_age`/`max_age` come from a single pass over `self.age` for living agents.
   At ~10k agents once per 10 steps this is free; do not add per-tick tracking.
@@ -136,7 +136,7 @@ Follows the existing `panels.js` shape: build DOM once, return an updater.
 
 - Five stacked `<canvas>` elements, ~260 × 70 each, in a collapsible left panel
   (`#side-left`), mirroring `#side-right`. **Must not overlay the grid** — side
-  panel only (the project rules visualizer rule; it applies to the web renderer for the
+  panel only (the visualizer rule applies to the web renderer for the
   same reason it applied to pygame).
 - Toggle with `G`. Default hidden, so first paint stays clean.
 - Drawing: plain Canvas2D polyline per series, matching the existing sparkline

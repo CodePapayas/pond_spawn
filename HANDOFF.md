@@ -169,7 +169,6 @@ run of the seed table above.
 - `pond_core/pkg/` was rebuilt (`wasm-pack build pond_core --target web
   --features wasm`) so the browser build includes the clustering change. That
   directory is gitignored.
-- local editor settings was already modified before this pass.
 - Baseline and post-fix run logs are in the session scratchpad
   (`base_*.txt`, `sleepfix_*.txt`, `spec_*.txt`, `stats42.csv`); regenerate with
   `./target/release/run 12 100 2000 <seed>`.

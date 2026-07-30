@@ -142,7 +142,7 @@ the ramps. Same contract as an energy heatmap.
 ### Panel
 
 Toggle with `B`, mirroring `G` for graphs. Side panel, never over the grid
-(the project rules).
+(see the project rules).
 
 - **Archetype list** — one row per coloured cluster: swatch, member count, share
   of population. Tail row at the bottom in grey.
