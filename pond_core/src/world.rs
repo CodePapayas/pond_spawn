@@ -2858,6 +2858,11 @@ impl World {
     /// predators are pushed with a flat 100.0, which is over the cap for any
     /// genome whose `energy_capacity` is below 1.0 — invisible until an ambient
     /// predator put one in every pond and the capacity invariant test found it.
+    // Eight positional arguments is one past clippy's threshold. Grouping them
+    // into a struct would mean a second spawn type beside `PendingAgent` that
+    // three of the four callers would have to fill in with placeholders, which
+    // is more ceremony than the warning is worth.
+    #[allow(clippy::too_many_arguments)]
     fn push_agent(
         &mut self,
         x: f32,
