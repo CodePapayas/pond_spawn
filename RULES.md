@@ -13,13 +13,47 @@
 
 ## World
 
-- Grid: Square grid, default 12x12
+- Grid: Square grid. The headless runner (`bin/run`) still defaults to 12×12/100;
+  the **browser opens at 24×24 with 150 agents**, which is the calibrated
+  default — see [Opening run](#opening-run).
 - Toroidal map (edges wrap)
 - Each tile is a biome with properties:
   - `movement_speed`: 0.8–1.05
   - `visibility`: 0.25–1.0
   - `fertility`: 0.01–1.6
   - `food_units`: 0–3 (initial; barren tiles start at 0, fertile tiles 0–3)
+
+### Opening run
+
+The browser starts a run on load — **24×24, 150 agents, seed 10** — wound
+forward 4,200 ticks before it is shown, and covered by the opening card until
+dismissed. A run started from the setup panel is not wound forward: it begins at
+tick 0.
+
+Why these numbers, and why not the old 12×12/100:
+
+- **Every pond overshoots and crashes.** Population peaks in the first few
+  hundred ticks, eats the pond flat, and bottoms out in a bottleneck a few
+  hundred ticks later. That is the ecology working, not a fault.
+- **What kills a run is how deep the bottleneck goes**, which is set by area.
+  On 144 tiles it bottoms out at single digits, and single digits drift to
+  zero. Measured over 10,000 ticks, 8 seeds per cell: 12×12 survived ~2/3 of
+  seeds at every starting density from 0.26 to 0.69 agents per tile, while
+  14×14, 16×16, 18×18, 20×20 and 24×24 each survived **8/8 across that whole
+  density range**. Starting density is not the lever; area is.
+- **It is not predation.** With `set_automatic_predators(false)` the 12×12/100
+  crash happens on the same schedule and the survival rate barely moves
+  (5/8 seeds vs 5–7/8 with hunters in the water).
+- **24×24/150 holds long-term.** 10/10 seeds alive at 120,000 ticks — 100
+  minutes of wall clock at 20 Hz — running 59–317 animals at the end, and
+  turning over 4–79 named species along the way.
+- **The warm start is about speciation, not survival.** First promotion lands
+  around tick 1,700–3,200 (see [Speciation](#speciation) — promotion needs four
+  generations of advance), so a pond shown from tick 0 is unnamed for several
+  minutes. At tick 4,200 seed 10 has three live species and ~125 animals.
+
+Small ponds are still worth running and are not clamped out; the setup panel
+warns below 14 tiles a side.
 
 ## Food
 

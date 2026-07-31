@@ -29,12 +29,22 @@ fn main() {
     let steps: u32      = positional.get(2).and_then(|s| s.parse().ok()).unwrap_or(500);
     let seed: u64       = positional.get(3).and_then(|s| s.parse().ok()).unwrap_or(42);
 
+    // Calibration levers. The pond's survival is a product of several of these
+    // at once, and a sweep that cannot switch one off cannot say which one it
+    // was — so the runner exposes them even though the browser fixes them at
+    // construction.
+    let no_predators = args.iter().any(|a| a == "--no-predators");
+    let regen: Option<f64> = args.iter().position(|a| a == "--regen")
+        .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok());
+
     println!("pond_core — headless runner");
     println!("grid={}×{}  pop={}  steps={}  seed={}", grid_size, grid_size, population, steps, seed);
     println!("{:<8} {:<8} {:<12} {:<12} {:<10}", "step", "agents", "avg_energy", "total_food", "ms/step");
     println!("{}", "-".repeat(56));
 
     let mut world = World::new(grid_size, population, seed);
+    if no_predators { world.set_automatic_predators(false); }
+    if let Some(r) = regen { world.set_food_regen_scale(r); }
     let print_every = (steps / 20).max(1);
     let total_start = Instant::now();
 

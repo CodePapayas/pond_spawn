@@ -27,6 +27,7 @@ import {
 } from './species.js';
 import { initGraphs } from './graphs.js';
 import { initSetup } from './setup.js';
+import { initSplash } from './splash.js';
 import { initGod } from './god.js';
 import { initInspector } from './inspector.js';
 import { openPhylogeny, refreshPhylogeny } from './phylogeny.js';
@@ -43,9 +44,55 @@ const EXPECTED_SCHEMA = 7;
 // ── Sim config ────────────────────────────────────────────────────────────────
 // Set from the setup panel (`N`) and fixed for the life of a run — changing any
 // of them means building a new World, which restart() does.
-let GRID = 12;
-let POPULATION = 100;
-let SEED = 42n;
+//
+// These are the opening pond's parameters, and they are chosen rather than
+// arbitrary. The old 12×12/100 default went extinct in roughly a third of seeds
+// inside 10,000 ticks and in most of them eventually: every pond overshoots its
+// food early, crashes, and bottoms out in a bottleneck, and on 144 tiles that
+// bottleneck is a handful of animals that drift to zero. The pond is not
+// short of food and predation is not the cause — the same crash happens with
+// ambient predators switched off. It is the area.
+//
+// Measured, 10,000 ticks, 8 seeds each: at 12×12 survival is ~2/3 at any
+// starting density between 0.26 and 0.69 agents per tile, and every grid from
+// 14 up survives 8/8 across that whole density range. 24×24 with 150 agents
+// (0.26/tile) then survived 10/10 seeds to 120,000 ticks — 100 minutes of real
+// time at 20 Hz — averaging 60–320 animals and turning over dozens of species.
+const GRID_DEFAULT = 24;
+const POPULATION_DEFAULT = 150;
+// Seed 10 of that table, kept because of where it is at the warm-start mark:
+// three live species with a large one, a small one and a remnant, and a pond of
+// ~125 at healthy energy. Any seed survives; this one arrives interesting.
+const SEED_DEFAULT = 10n;
+// Ticks the opening pond is wound forward before it is shown. Speciation needs
+// generations — the first promotion lands around tick 1,700–3,200 — so a pond
+// shown from tick 0 is unnamed grey soup for several minutes, which is longer
+// than anyone gives it. Only the auto-started pond is warmed: a run started
+// from the setup panel begins at tick 0, because that one was asked for.
+const WARM_START_STEPS = 4200;
+// Milliseconds per frame spent winding forward, so the page keeps painting and
+// the card stays clickable while it happens.
+const WARM_BUDGET_MS = 12;
+// The white curtain over the opening pond is a five-second CSS fade (see #veil
+// in index.html). It is deliberately not tied to warm-start progress: driving
+// it from the tick count made it stutter with the frame budget and finish
+// whenever the wasm happened to finish, which is not a timing anyone chose.
+// This copy of its length only schedules the fallback reveal of the welcome
+// card; the animation itself is the stylesheet's.
+const VEIL_MS = 5000;
+// How long the curtain is solid white, matching the 30% stop in `veil-fade`.
+// A run started by hand is held still for exactly this long: the first ticks of
+// a fresh pond are the ones worth seeing, and running them behind an opaque
+// sheet spends them on nobody. The opening pond is exempt — it is being wound
+// forward on purpose.
+const VEIL_HOLD_MS = 1500;
+// Bumped on every restart, so a hold timer left over from a run that has since
+// been replaced cannot start the wrong world.
+let run_epoch = 0;
+
+let GRID = GRID_DEFAULT;
+let POPULATION = POPULATION_DEFAULT;
+let SEED = SEED_DEFAULT;
 
 // Fallback family swatches. Bodies no longer use these — colour comes from the
 // genome — but the legend needs a swatch before any member of
@@ -94,11 +141,13 @@ let dying = [];           // death-dissolve effects in flight (see reap_stale)
 const DEATH_SEC = 0.85;   // death dissolve duration
 let prev_ts = 0;
 let paused = false;
-// The world exists from boot (the panels and the first frame need something to
-// read), but it does not advance until a run is actually started. Choosing
-// parameters while the pond you're configuring runs behind the panel would mean
-// the run you start is never the run you were looking at.
-let sim_running = false;
+// The opening pond runs from boot. It stops only while the setup panel is up:
+// choosing parameters while the pond you're configuring runs behind the panel
+// would mean the run you start is never the run you were looking at.
+let sim_running = true;
+// Ticks still owed to the warm start. Counted down in frame_body a chunk at a
+// time; zero means the pond is running at ordinary speed.
+let warm_remaining = 0;
 let speed_mult = 1;       // applied to delta_ms before world.update()
 let automatic_predators = true;
 let frame_delta = 16.67;  // last frame's raw delta, for color smoothing
@@ -128,6 +177,7 @@ let selected_pos = null;  // interpolated world pos of selected agent this frame
 
 // Panels
 let update_legend_counts, update_genome_panel, update_graphs, setup, god;
+let splash;
 let update_diseases;
 // The rule dials, fixed for the life of a run and set from the setup panel.
 // Held here so a restart can re-apply them to the new world.
@@ -192,7 +242,18 @@ async function boot() {
     build_panels();
     setup = initSetup(document.getElementById('setup'), restart, {
         grid: GRID, population: POPULATION, seed: SEED,
-    }, tunable_ranges());
+    }, tunable_ranges(), cancel_setup);
+    splash = initSplash(document.getElementById('splash'), {
+        // The pond is already running behind the card; continuing only has to
+        // get out of the way, and take the setup panel with it if it is up.
+        onContinue: cancel_setup,
+        onNewRun: open_setup,
+    });
+    // Wind the opening pond forward to where it has lineages in it. Started
+    // here and finished a chunk per frame, so the card is readable and
+    // clickable throughout — with the curtain down over it meanwhile.
+    warm_remaining = WARM_START_STEPS;
+    run_veil(true);
     god = initGod(document.getElementById('god'), {
         smiteRadius: (x, y, r) => world.smite_radius(x, y, r),
         smiteBand: (x0, x1) => world.smite_band(x0, x1),
@@ -270,6 +331,11 @@ function build_panels() {
  *  restart from 0 in the new world, so a stale entry would hand a fresh agent
  *  the body of a dead one. */
 function restart({ grid, population, seed, dials: chosen }) {
+    // A run that was asked for starts where a run starts, and is watched from
+    // the first tick: the warm start belongs to the opening pond only (see
+    // WARM_START_STEPS). The curtain is not the warm start's — every run comes
+    // up behind it — so it plays here too, without the welcome card.
+    warm_remaining = 0;
     GRID = grid;
     POPULATION = population;
     SEED = seed;
@@ -304,34 +370,72 @@ function restart({ grid, population, seed, dials: chosen }) {
     species_seeded = false;
     last_species_tick = -1;
 
+    // The old run's panels and floating windows describe a pond that no longer
+    // exists — they go before the new ones are built.
+    clear_run_panels();
     build_panels();
-    if (graphs_visible) refresh_graphs();
     reset_camera();
     close_setup();
+    run_veil(false);
+    hold_for_curtain();
 }
 
-/** Open the setup panel and freeze the sim while it's up. */
+/** Keep a freshly started run still until the curtain starts to lift, so its
+ *  opening ticks happen in view rather than behind solid white. */
+function hold_for_curtain() {
+    const epoch = ++run_epoch;
+    sim_running = false;
+    setTimeout(() => {
+        // Not if this run has been replaced, or the setup panel is up: both
+        // mean the world this timer was started for is not the one on screen.
+        if (epoch !== run_epoch || setup.isOpen()) return;
+        sim_running = true;
+    }, VEIL_HOLD_MS);
+}
+
+/** Open the setup panel and freeze the sim while it's up.
+ *
+ *  Freeze, not end. The panel used to tear the run down on the way in, on the
+ *  grounds that a "new run" screen over a live pond is a lie about a sim that
+ *  is merely paused — but that left no way back out of a panel you opened by
+ *  mistake, and no way to change your mind. It closes now (`close`, Escape, or
+ *  the opening card's continue button) and the pond picks up where it stopped.
+ *  Starting a run from it still discards everything; that is what start does. */
 function open_setup() {
     if (setup.isOpen()) return;
+    splash?.hide();
+    // The setup panel stops the world, so a warm start still in flight would
+    // stall half-faded behind it. Abandon it, and lift the curtain — what is
+    // behind this panel is the title scene, which needs no covering.
+    warm_remaining = 0;
+    clear_veil();
     sim_running = false;
     setup.show();
     document.getElementById('setup-banner').style.display = 'block';
-
-    // Opening the panel ends the run there and then. There is no resume: the
-    // pond is replaced by the idle scene, the panels that described it are
-    // emptied, and Escape does not close this. The only way out is Start Run.
-    //
-    // Otherwise the previous run stays clickable behind the idle scene — its
-    // agents selectable, its families and graphs still on screen — and the
-    // "new run" screen is a lie about a sim that is merely paused.
-    deselect();
-    last_agents = [];
-    clear_run_panels();
 }
 
-/** Empty every panel that describes a run. They are rebuilt by build_panels()
- *  when the next run starts. */
+/** Dismiss the setup panel without starting anything: the run that was frozen
+ *  when it opened resumes. */
+function cancel_setup() {
+    if (!setup.isOpen()) return;
+    setup.hide();
+    document.getElementById('setup-banner').style.display = 'none';
+    sim_running = true;
+}
+
+/** Empty every panel and floating window that describes a run, and stop the
+ *  graph timer. Called on restart, before build_panels() refills them for the
+ *  run that replaces it. */
 function clear_run_panels() {
+    // Announcements outlive their run otherwise: the toast queue is timed, and
+    // a promotion from the pond you just discarded would scroll past over the
+    // one that replaced it.
+    // Guarded rather than called straight: a browser holding a cached
+    // species.js from before `clear` existed would otherwise take the restart
+    // down with a TypeError, and a stale toast is a much smaller problem than
+    // a run that will not start.
+    announce?.clear?.();
+    announce = null;
     graphs_visible = false;
     if (graphs_timer) {
         clearInterval(graphs_timer);
@@ -649,7 +753,8 @@ function on_key(e) {
     // Zen while the setup panel is up would hide the only way to start a run.
     if ((e.key === 'c' || e.key === 'C') && !setup.isOpen()) toggle_zen();
     if (e.key === 'p' || e.key === 'P') toggle_phylogeny();
-    if (e.key === 'n' || e.key === 'N') open_setup();
+    // N toggles: the panel it opens is dismissable now, so the same key closes it.
+    if (e.key === 'n' || e.key === 'N') setup.isOpen() ? cancel_setup() : open_setup();
 
     // Camera. Arrows pan by a fixed world distance, so a keypress covers the
     // same ground regardless of zoom.
@@ -672,9 +777,10 @@ function on_key(e) {
         clamp_camera();
     }
 
-    // Escape does not dismiss the setup panel: opening it ended the run, and
-    // there is nothing to go back to.
-    if (e.key === 'Escape' && !setup.isOpen()) deselect();
+    // Escape backs out of the setup panel — it freezes the run rather than
+    // ending it, so there is something to go back to.
+    if (e.key === 'Escape' && setup.isOpen()) { cancel_setup(); return; }
+    if (e.key === 'Escape') deselect();
     document.getElementById('h-speed').textContent = `speed ×${speed_mult}`;
 }
 
@@ -891,9 +997,10 @@ function frame_body(ts) {
     prev_ts = ts;
     frame_delta = Math.min(raw_delta, 200);
 
-    // While parameters are being chosen there is no run to show, so the pond is
-    // replaced by an idle scene rather than a frozen still of a world that is
-    // about to be thrown away.
+    // While parameters are being chosen, the pond behind the panel is the
+    // title scene — one creature and the wordmark — not the run itself. The run
+    // is only frozen, and `close` gives it straight back; showing a still of it
+    // under a panel that says "new run" reads as though it were already gone.
     if (!sim_running && setup.isOpen()) {
         draw_idle_scene(ts / 1000);
         return;
@@ -901,7 +1008,9 @@ function frame_body(ts) {
 
     god.update(ts / 1000);
 
-    if (!paused && sim_running) {
+    if (warm_remaining > 0) {
+        run_warm_start_chunk();
+    } else if (!paused && sim_running) {
         // Cap delta to 200ms to avoid spiral of death after tab-switch
         const delta = frame_delta * speed_mult;
         world.update(delta);
@@ -917,6 +1026,74 @@ function frame_body(ts) {
     } catch (err) {
         report_frame_error(err);
     }
+}
+
+/** Drop the white curtain and fade it out. Every run starts behind it: the
+ *  opening pond because it is being wound forward, a run started by hand
+ *  because the first hundred ticks of a fresh pond are the least interesting
+ *  it will ever be.
+ *
+ *  `reveal_card` brings the welcome card up when the curtain lifts, and is for
+ *  the opening pond only — someone who just filled in the setup panel has
+ *  answered everything the card asks. Belt and braces on the timing:
+ *  `animationend` is the real signal, the timer is there so a browser that
+ *  never fires it (a background tab at load, reduced motion) does not leave the
+ *  card permanently hidden. */
+function run_veil(reveal_card) {
+    const veil = document.getElementById('veil');
+    if (!veil) { if (reveal_card) splash?.show(); return; }
+
+    // Restart the animation rather than assume it has never run: re-adding a
+    // class the element already has does nothing at all.
+    veil.classList.remove('fade');
+    veil.style.opacity = '';
+    void veil.offsetWidth;   // reflow, so the removal is committed first
+    veil.classList.add('fade');
+
+    if (!reveal_card) return;
+    let shown = false;
+    const reveal = () => {
+        if (shown) return;
+        shown = true;
+        // Not if the run has already been taken over by hand — opening the
+        // setup panel is a decision the card has nothing left to offer.
+        if (!setup.isOpen()) splash?.show();
+    };
+    veil.addEventListener('animationend', reveal, { once: true });
+    setTimeout(reveal, VEIL_MS + 250);
+}
+
+/** Lift the curtain at once, mid-fade or not. */
+function clear_veil() {
+    const veil = document.getElementById('veil');
+    if (!veil) return;
+    veil.classList.remove('fade');
+    veil.style.opacity = '0';
+}
+
+/** One frame's worth of warm start: step the world until the budget is spent,
+ *  Chunked rather than run in one go because 4,200 ticks is a second or two of wasm, and a page that stops
+ *  painting for that long on load reads as one that has failed to load.
+ *
+ *  A pond that goes extinct mid-warm-start ends it early — `fast_forward`
+ *  returns short, and there is nothing left to wind forward. */
+function run_warm_start_chunk() {
+    const budget_end = performance.now() + WARM_BUDGET_MS;
+    // 25 at a time: enough that the per-call overhead is noise, short enough
+    // that the budget is honoured to within a fraction of a frame.
+    const chunk = 25;
+    while (warm_remaining > 0 && performance.now() < budget_end) {
+        const want = Math.min(chunk, warm_remaining);
+        const ran = world.fast_forward(want);
+        warm_remaining -= want;
+        if (ran < want) { warm_remaining = 0; break; }   // extinct
+    }
+    if (warm_remaining <= 0) {
+        warm_remaining = 0;
+        splash?.setStatus(null);
+        return;
+    }
+    splash?.setStatus('warming the pond');
 }
 
 // Errors are logged once per distinct message. At 60 fps a recurring fault
@@ -951,6 +1128,10 @@ const IDLE_MORPH = {             // mid-range knobs — a generic, readable body
 // it belongs to no run and has no genome, and the arc's colours all mean
 // something about a lineage that doesn't exist yet.
 const IDLE_RGB = [0xC4, 0xFE, 0x01];
+// Unassigned creatures stay neutral in their body colour, but this cool-blue
+// edge keeps them legible against the pond without borrowing the title card's
+// acid-lime identity.
+const UNASSIGNED_OUTLINE_RGB = [0x4D, 0xA3, 0xFF];
 let idle_spec = null, idle_chain = null;
 
 // The README's ASCII wordmark, drawn on the canvas rather than in the DOM —
@@ -1609,10 +1790,10 @@ function draw_agents(buf, n, alpha, L, time_sec) {
         });
         // Strategy moved off hue and onto the halo when species took the hue.
         const glow = strategyGlow(a.morph);
-        // Agents with no lineage wear the title screen's lime as an edge. Grey
+        // Agents with no lineage wear a blue edge. Grey
         // alone read as something failing to render; an outline reads as a
         // creature waiting for a name, which is what it is.
-        const outline = a.species === 0 ? IDLE_RGB : null;
+        const outline = a.species === 0 ? UNASSIGNED_OUTLINE_RGB : null;
         // Creatures are the subject; food orbs were drawn ~4x their size and the
         // pond read as a field of green dots with specks swimming in it.
         const base_r = scale_px * (0.105 + a.energyNorm * 0.07 + a.morph.pointiness * 0.05);

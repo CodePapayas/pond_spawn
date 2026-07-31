@@ -254,7 +254,18 @@ function vectorDistance(a, b) {
  */
 export function initToast(root) {
     const queue = [];
+    // Timers in flight, so `clear` can cancel them. A promotion announced by a
+    // run that has since been thrown away used to keep its place in the queue
+    // and its 4.2-second slot, and would still be scrolling past over the top
+    // of the pond that replaced it — a species that does not exist, announced
+    // to a world that never had it.
+    const timers = new Set();
     let showing = false;
+
+    function later(fn, ms) {
+        const id = setTimeout(() => { timers.delete(id); fn(); }, ms);
+        timers.add(id);
+    }
 
     function next() {
         if (queue.length === 0) { showing = false; return; }
@@ -264,16 +275,30 @@ export function initToast(root) {
             `<span class="toast-dot" style="background:rgb(${rgb[0]},${rgb[1]},${rgb[2]})"></span>${text}`;
         root.style.display = 'block';
         root.style.opacity = '1';
-        setTimeout(() => {
+        later(() => {
             root.style.opacity = '0';
-            setTimeout(() => { root.style.display = 'none'; next(); }, 400);
+            later(() => { root.style.display = 'none'; next(); }, 400);
         }, 4200);
     }
 
-    return function announce(text, rgb) {
+    function announce(text, rgb) {
         queue.push({ text, rgb });
         if (!showing) next();
+    }
+
+    /** Drop everything queued and anything on screen. Called when the run that
+     *  produced them is discarded. */
+    announce.clear = function clear() {
+        queue.length = 0;
+        for (const id of timers) clearTimeout(id);
+        timers.clear();
+        showing = false;
+        root.innerHTML = '';
+        root.style.display = 'none';
+        root.style.opacity = '0';
     };
+
+    return announce;
 }
 
 /** Euclidean distance from an agent's signature to its species centroid. */

@@ -167,6 +167,25 @@ impl WasmWorld {
         }
     }
 
+    /// Step the world `steps` times as fast as it will go, ignoring wall clock.
+    ///
+    /// For the warm start: the opening pond is shown some thousands of ticks in,
+    /// because that is where speciation has had time to happen and a pond with
+    /// named lineages in it is the thing worth looking at. Driving that through
+    /// `update` would mean lying about elapsed time to a fixed-timestep loop;
+    /// this just runs the steps. Returns how many actually ran, which is short
+    /// of `steps` only if the pond went extinct on the way.
+    pub fn fast_forward(&mut self, steps: u32) -> u32 {
+        let mut done = 0;
+        while done < steps && self.inner.agent_count() > 0 {
+            self.inner.step();
+            done += 1;
+        }
+        self.last_cluster_step = self.inner.step_count - (self.inner.step_count % 50);
+        self.accumulator = 0.0;
+        done
+    }
+
     /// All species, live and extinct, in promotion order. Flat, same convention
     /// as `get_state()`: `len / species_stride()` rows.
     ///

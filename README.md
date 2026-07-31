@@ -50,14 +50,9 @@ What the refactor changed at a glance:
 **Inspect individual agents genetic makeup and neural network**
 Click on any agent and view their genome and neural network to see how an agent makes their decisions in real time.
 
-> **Status: in development.** Not published anywhere yet — run it locally per
-> below. An itch.io release is on the roadmap, see
-> [`REFACTOR_RUST_ROADMAP.md`](REFACTOR_RUST_ROADMAP.md).
->
-> **Next up: speciation.** Stable genome clusters will be promoted to named
-> species with their own colour, founding step and lineage record, instead of
-> today's k-means labels that carry no identity across re-fits. Full plan in
-> [`PLAN_SPECIATION.md`](PLAN_SPECIATION.md).
+> **Status: in development.** Run it locally per below. The browser build
+> packages for itch.io with `./scripts/package_itch.sh` — upload steps in
+> [`ITCH_RELEASE.md`](ITCH_RELEASE.md).
 
 *************************
 
@@ -74,6 +69,12 @@ Click on any agent and view their genome and neural network to see how an agent 
   is derived directly from its own genome traits, so lineages are visually
   distinguishable at a glance. Colour reads the lineage's combat strategy on a
   three-ramp palette: lime is passive, cyan is middling, magenta is aggressive.
+- **Opens on a living pond** — the page starts a calibrated run on load
+  (24×24, 150 agents, wound 4,200 ticks forward so it already has named
+  lineages in it) behind a card that explains the controls and offers a custom
+  run instead. The old 12×12/100 default went extinct in about a third of seeds
+  inside 10,000 ticks; the numbers and the measurements behind them are in
+  [`RULES.md`](RULES.md#opening-run).
 - **Run setup + live stat graphs** — choose grid size, starting population and
   seed before a run; a toggleable panel plots population, food, average energy,
   the lifespan band and per-cause deaths over the last ~6000 steps, sampled
@@ -132,6 +133,15 @@ Controls in the browser:
 | `+` / `-` | Speed up / slow down |
 | `l` | Toggle legend |
 | `Esc` | Deselect agent |
+
+To package the browser build for itch.io:
+
+```bash
+./scripts/package_itch.sh
+# → dist/pond_spawn_itch.zip — upload as an HTML project
+```
+
+Upload steps and embed settings are in [`ITCH_RELEASE.md`](ITCH_RELEASE.md).
 
 To run the sim headless (no renderer, for testing/perf work):
 

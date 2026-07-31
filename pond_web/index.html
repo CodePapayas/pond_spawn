@@ -9,6 +9,44 @@
 body { background: #06010f; overflow: hidden; font-family: 'Courier New', monospace; }
 canvas { display: block; }
 
+/* The warm start runs thousands of ticks in a couple of seconds, which on
+   screen is a strobe of births, deaths and dissolves at fifty times speed —
+   unreadable, and a bad first thing to see. A white sheet covers it and fades
+   out over five seconds, so the pond arrives rather than flickering into
+   existence: a second and a half of solid white, then a fade. Fixed
+   duration, not tied to how long the warm start actually
+   takes: this is a curtain, and a curtain that waits for the stagehands is a
+   worse curtain. Sits above the canvas and below every panel by DOM order.
+   The renderer adds .fade once the run is underway (see boot). */
+#veil {
+  position: fixed;
+  inset: 0;
+  background: #ffffff;
+  opacity: 1;
+  pointer-events: none;
+}
+#veil.fade { animation: veil-fade 5s linear forwards; }
+/* Solid white for the first second and a half — a curtain that is already
+   translucent is not a curtain — then three and a half seconds of fade.
+   Linear timing on the animation, with the shape in the stops. */
+@keyframes veil-fade {
+  0%, 30%  { opacity: 1; }
+  65%      { opacity: 0.5; }
+  100%     { opacity: 0; }
+}
+/* Something to read while the pond is being dug. Inside the veil, so it fades
+   with it rather than needing its own timing. */
+#veil-msg {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  color: #12061f;
+  font-family: 'Courier New', monospace;
+  font-size: 15px;
+  letter-spacing: 3px;
+  white-space: nowrap;
+}
+
 #hud {
   position: fixed;
   top: 16px; left: 16px;
@@ -283,7 +321,7 @@ canvas { display: block; }
 /* The sim is frozen while the setup panel is open, so say so — a still pond
    with no banner reads as a hang. Sits above the panel, which is centred. */
 #setup-banner {
-  display: block;
+  display: none;   /* shown with the setup panel, which is closed on load */
   color: rgba(255, 60, 220, 0.75);
   font-family: 'Courier New', monospace;
   font-size: 13px;
@@ -316,7 +354,9 @@ canvas { display: block; }
 #setup {
   position: static;
   width: 300px;
-  display: block;   /* open on load so a run always starts deliberately */
+  /* Closed on load. The pond auto-starts and the splash card covers it; the
+     panel opens from there, from `new run`, or from N. */
+  display: none;
   border-color: rgba(255, 60, 220, 0.45);
   box-shadow: 0 0 40px rgba(255, 60, 220, 0.18);
   min-height: 0;    /* so the panel, not the stack, is what scrolls */
@@ -352,6 +392,46 @@ canvas { display: block; }
   color: rgba(255, 150, 240, 0.98);
 }
 .setup-actions button.primary:hover { background: rgba(255, 60, 220, 0.18); }
+
+/* ── Opening card (centre, shown once on load) ────────────────────────── */
+/* Same chrome as the setup panel, because it is the same kind of object: a
+   thing in front of the pond that you dismiss to get at the pond. Wider, since
+   it is read rather than filled in. */
+#splash {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 380px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  display: none;
+  border-color: rgba(255, 60, 220, 0.45);
+  box-shadow: 0 0 40px rgba(255, 60, 220, 0.18);
+}
+.splash-blurb {
+  color: rgba(190, 230, 240, 0.9);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 8px 0 12px;
+}
+.splash-keys { display: flex; flex-direction: column; gap: 3px; }
+.splash-key { display: flex; align-items: baseline; gap: 9px; font-size: 11px; }
+.splash-key b {
+  flex: 0 0 74px;
+  font-family: 'Courier New', monospace;
+  font-weight: 400;
+  color: rgba(120, 255, 245, 0.95);
+}
+.splash-key span { color: rgba(190, 230, 240, 0.8); }
+/* Only on screen while the opening pond is winding forward. */
+.splash-status {
+  display: none;
+  margin-top: 12px;
+  color: rgba(255, 105, 165, 0.95);
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
 
 /* ── Stat graphs (bottom strip, G toggles) ────────────────────────────── */
 /* Centred so it clears the inspector on the left and the legend on the right.
@@ -690,6 +770,10 @@ body.zen #graph-hover-preview { display: none !important; }
 <body>
 <canvas id="c"></canvas>
 
+<!-- Opening curtain: white, fades out over five seconds while the pond is
+     wound forward behind it. -->
+<div id="veil"><span id="veil-msg">digging a pond for u ;)</span></div>
+
 <div id="hud">
   <div id="h-step">step —</div>
   <div id="h-agents">agents —</div>
@@ -713,7 +797,7 @@ body.zen #graph-hover-preview { display: none !important; }
   <div class="hk"><b>b</b><span>archetypes</span></div>
   <div class="hk"><b>p</b><span>phylogeny</span></div>
   <div class="hk"><b>d</b><span>debug clusters</span></div>
-  <div class="hk"><b>n</b><span>restart run</span></div>
+  <div class="hk"><b>n</b><span>new run panel</span></div>
   <div class="hk"><b>esc</b><span>deselect</span></div>
   <div class="hk"><b>c</b><span>clear ui</span></div>
 </div>
@@ -790,6 +874,10 @@ body.zen #graph-hover-preview { display: none !important; }
   <div id="setup-banner">new simulation run parameters</div>
   <div id="setup" class="panel"></div>
 </div>
+
+<!-- Centre: the opening card, over a pond that is already running. Shown once
+     per page load and dismissed for good. -->
+<div id="splash" class="panel"></div>
 
 <!-- Top right, above the legend: player powers -->
 <div id="god" class="panel"></div>

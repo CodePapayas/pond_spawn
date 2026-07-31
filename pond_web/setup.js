@@ -13,9 +13,18 @@
 // seed reproduce it exactly, which is the property the seed exists for.
 
 const LIMITS = {
-    grid: { min: 6, max: 64, default: 12 },
-    population: { min: 1, max: 5000, default: 100 },
+    grid: { min: 6, max: 64, default: 24 },
+    population: { min: 1, max: 5000, default: 150 },
 };
+
+// Below this many tiles a side a run is unlikely to last. Every pond overshoots
+// its food in the first few hundred ticks and crashes into a bottleneck; on a
+// small grid that bottleneck is a handful of animals, and a handful of animals
+// drift to zero. Measured at 10,000 ticks: 12×12 survived roughly two thirds of
+// seeds at any starting density, 14×14 and up survived all of them. Small ponds
+// are still worth running — they are where a crash is legible — so this warns
+// rather than clamps.
+const FRAGILE_GRID = 14;
 
 // Above this, expect the frame rate to drop — every agent is drawn as a full
 // kinematic body, with no culling or instancing (see draw_agents).
@@ -65,8 +74,10 @@ const DIALS = [
  * @param {(p: {grid: number, population: number, seed: bigint, dials: object}) => void} onStart
  * @param {{grid: number, population: number, seed: bigint}} defaults
  * @param {Float32Array} ranges  [default, min, max] × 3, from tunable_ranges()
+ * @param {() => void} onCancel  back out without starting anything; the run
+ *                               that was frozen when the panel opened resumes
  */
-export function initSetup(root, onStart, defaults, ranges) {
+export function initSetup(root, onStart, defaults, ranges, onCancel) {
     const dials = DIALS.map((d, i) => ({
         ...d, def: ranges[i * 3], min: ranges[i * 3 + 1], max: ranges[i * 3 + 2],
     }));
@@ -82,10 +93,14 @@ export function initSetup(root, onStart, defaults, ranges) {
         `<div class="setup-actions">` +
         `<button id="setup-random">random seed</button>` +
         `<button id="setup-defaults">default rules</button>` +
+        `</div>` +
+        `<div class="setup-actions">` +
+        `<button id="setup-close">close</button>` +
         `<button id="setup-start" class="primary">start run</button>` +
         `</div>` +
-        `<div class="legend-note">restarting rebuilds the world from scratch — ` +
-        `stats, families and the current pond are discarded</div>`;
+        `<div class="legend-note">start run rebuilds the world from scratch — ` +
+        `stats, families and the current pond are discarded. close leaves the ` +
+        `current pond running.</div>`;
 
     const el = id => root.querySelector('#' + id);
     const grid_in = el('setup-grid');
@@ -127,8 +142,12 @@ export function initSetup(root, onStart, defaults, ranges) {
         seed_note.textContent = tuned
             ? 'same seed + same rules = same pond'
             : 'same seed = same pond';
-        warn.textContent = p.population >= HEAVY_POPULATION
-            ? `${p.population} agents will run slowly — every agent is drawn individually`
+        warn.textContent =
+            p.population >= HEAVY_POPULATION
+                ? `${p.population} agents will run slowly — every agent is drawn individually`
+            : p.grid < FRAGILE_GRID
+                ? `a ${p.grid}×${p.grid} pond usually goes extinct — too small to survive ` +
+                  `the first crash`
             : '';
         return p;
     }
@@ -159,12 +178,15 @@ export function initSetup(root, onStart, defaults, ranges) {
         onStart(reflect());
     }
     el('setup-start').addEventListener('click', start);
+    // Backing out is not the same as starting a run with the current values —
+    // it leaves the pond behind the panel exactly as it was.
+    el('setup-close').addEventListener('click', () => onCancel?.());
 
     reflect();
-    // The stylesheet opens the panel, but isOpen() reads the inline style, so
-    // make the initial state explicit rather than leaving it '' and reading as
-    // closed on the first frame.
-    root.style.display = 'block';
+    // Closed on load — the pond auto-starts and the splash card covers it. The
+    // stylesheet says the same thing, but isOpen() reads the inline style, so
+    // the initial state is set explicitly rather than left '' and read wrong.
+    root.style.display = 'none';
 
     return {
         show() { root.style.display = 'block'; },
