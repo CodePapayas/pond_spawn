@@ -75,14 +75,14 @@ const DEATH_STRIDE: usize = 4;
 const SPECIES_STRIDE: usize = 14 + crate::species::SIG_LEN * 3;
 /// Disease row:
 /// [id, origin_species, emerged, severity, contagion, duration, jumped,
-///  carriers, DISEASE_SPECIES_COLUMNS × carriers-by-species].
+///  carriers, resistant, DISEASE_SPECIES_COLUMNS × carriers-by-species].
 /// `jumped` is 1 once the pathogen has crossed into a second species. The
 /// per-species block is indexed by species id, with column 0 for unassigned
 /// carriers; ids beyond the block are folded into the last column.
 ///
 /// `disease.js` mirrors this layout offset for offset.
 const DISEASE_SPECIES_COLUMNS: usize = 13;   // species ids 1..=MAX_SPECIES, plus unassigned
-const DISEASE_STRIDE: usize = 8 + DISEASE_SPECIES_COLUMNS;
+const DISEASE_STRIDE: usize = 9 + DISEASE_SPECIES_COLUMNS;
 
 /// Predator record: [id, leaving, tier, angle, reach].
 const PREDATOR_STATE_STRIDE: usize = 5;
@@ -209,6 +209,7 @@ impl WasmWorld {
     /// history, exactly as an extinct species is.
     pub fn disease_list(&self) -> Vec<f32> {
         let census = self.inner.disease_carrier_census(DISEASE_SPECIES_COLUMNS);
+        let resistant = self.inner.disease_resistant_counts();
         let mut buf = Vec::with_capacity(self.inner.diseases.len() * DISEASE_STRIDE);
         for (i, d) in self.inner.diseases.iter().enumerate() {
             let row = &census[i];
@@ -220,6 +221,7 @@ impl WasmWorld {
             buf.push(d.duration as f32);
             buf.push(if d.jumped { 1.0 } else { 0.0 });
             buf.push(row.iter().sum::<u32>() as f32);
+            buf.push(resistant.get(i).copied().unwrap_or(0) as f32);
             for &c in row {
                 buf.push(c as f32);
             }

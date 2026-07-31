@@ -677,10 +677,14 @@ Immunity removes up to `IMMUNITY_DURATION_RELIEF` (75%) of an individual's share
 of that length and up to `IMMUNITY_SEVERITY_RELIEF` (70%) of the drain, on top of
 resisting the infection in the first place.
 
-**No acquired immunity.** Recovery confers nothing — the same animal can catch
-the same thing tomorrow. The heritable, costly trait is the only protection
-there is; a free permanent one would make an outbreak a one-shot event per
-lineage.
+**Acquired resistance.** Surviving an illness may leave an animal permanently
+resistant to *that* pathogen, at a chance of `ACQUIRED_IMMUNITY_CHANCE` (0.6)
+scaled by its immunity gene — an animal with no immune system has nothing to
+remember with. Resistance is per-disease, absolute, and **not inherited**: the
+gene is the heritable half and this is the earned half. If beating a plague
+vaccinated your descendants, one outbreak would immunise a lineage forever and
+disease would stop being a recurring pressure. Tracked as a 64-bit mask per
+agent, which is far more pathogens than a run produces.
 
 Illness used to be terminal, which sounded like the anti-equilibrium choice and
 was the opposite: measured over 100k ticks, seed 7 recorded 15,268 disease deaths

@@ -22,7 +22,8 @@ const D_CONTAGION = 4;
 const D_DURATION = 5;       // ticks an unprotected agent stays ill
 const D_JUMPED = 6;         // 1 once it has crossed into a second species
 const D_CARRIERS = 7;
-const D_BY_SPECIES = 8;     // disease_species_columns() entries; column 0 = unassigned
+const D_RESISTANT = 8;      // living agents that have beaten it for good
+const D_BY_SPECIES = 9;     // disease_species_columns() entries; column 0 = unassigned
 
 /** Parse the flat buffer into rows. */
 export function parseDiseases(flat, stride, columns, names) {
@@ -40,6 +41,7 @@ export function parseDiseases(flat, stride, columns, names) {
             duration: flat[off + D_DURATION] | 0,
             jumped: flat[off + D_JUMPED] > 0.5,
             carriers: flat[off + D_CARRIERS] | 0,
+            resistant: flat[off + D_RESISTANT] | 0,
             bySpecies: Array.from(
                 flat.slice(off + D_BY_SPECIES, off + D_BY_SPECIES + columns), v => v | 0),
         });
@@ -137,6 +139,8 @@ function renderDisease(body, d, step, speciesName) {
             ? `<div class="comp-note dz-jumped">has jumped species — it is no longer ` +
               `anyone's disease in particular and spreads at full contagion to anything</div>`
             : `<div class="comp-note">still confined to its host lineage</div>`) +
+        `<div class="comp-row"><span class="k">resistant</span>` +
+        `<span class="v">${d.resistant} alive</span></div>` +
         `<div class="comp-head" style="margin-top:8px">carriers — ${d.carriers}</div>` +
         (rows.length === 0
             ? `<div class="comp-note">nobody is carrying it. An outbreak ends when ` +
@@ -148,6 +152,7 @@ function renderDisease(body, d, step, speciesName) {
         `<div class="comp-note">severity drains energy, so deaths land as ` +
         `<em>disease</em> rather than starvation — but an outbreak still hits ` +
         `hardest where the pond is already hungry. Illness runs its length and ` +
-        `ends; immunity both shortens it and blunts the drain, and recovery ` +
-        `confers nothing — the same animal can catch it again.</div>`;
+        `ends; immunity both shortens it and blunts the drain. Surviving one may ` +
+        `leave an animal resistant to that pathogen for good — a chance scaled by ` +
+        `its immunity gene, earned rather than inherited.</div>`;
 }

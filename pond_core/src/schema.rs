@@ -44,4 +44,6 @@
 ///   `disease_stride` layout.
 /// - 6 — diseases end: `duration` joins the disease row, so illnesses have a
 ///   length and immunity shortens it.
-pub const SCHEMA_VERSION: u32 = 6;
+/// - 7 — acquired resistance: agents can beat a pathogen for good, and the
+///   disease row carries how many currently have.
+pub const SCHEMA_VERSION: u32 = 7;

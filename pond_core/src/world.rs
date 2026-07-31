@@ -9,9 +9,9 @@ use crate::brain::{forward as brain_forward, forward_traced, sigmoid_outputs, IN
 use crate::brain_cluster::BrainClusters;
 use crate::cluster::ClusterState;
 use crate::disease::{
-    Disease, CONTACT_RADIUS, CONTAGION_RANGE, CROSS_SPECIES_JUMP, CROWDING_FULL,
-    DISEASE_CHANCE, ILLNESS_TICKS, IMMUNITY_DURATION_RELIEF, IMMUNITY_SEVERITY_RELIEF,
-    SEVERITY_RANGE,
+    Disease, ACQUIRED_IMMUNITY_CHANCE, CONTACT_RADIUS, CONTAGION_RANGE, CROSS_SPECIES_JUMP,
+    CROWDING_FULL, DISEASE_CHANCE, ILLNESS_TICKS, IMMUNITY_DURATION_RELIEF,
+    IMMUNITY_SEVERITY_RELIEF, MAX_TRACKED_DISEASES, SEVERITY_RANGE,
 };
 use crate::species::SpeciesRegistry;
 use crate::genome::{Genome, TRAIT_COUNT};
@@ -748,6 +748,12 @@ pub struct World {
     /// Ticks of illness left. Set when the infection is caught, from the
     /// pathogen's duration and the agent's immunity; at zero the agent recovers.
     pub infection_ticks: Vec<u32>,
+    /// Diseases this agent has beaten and can no longer catch, as a bitmask —
+    /// bit `id - 1` per pathogen. Earned by surviving one, at a chance scaled by
+    /// the immunity gene, and **not inherited**: the gene is the heritable half,
+    /// this is the earned half, and keeping them apart is what stops a single
+    /// outbreak vaccinating a lineage forever.
+    pub resistance: Vec<u64>,
     /// Species id per agent, parallel to the agent arrays and refreshed on
     /// cluster runs. Stale between runs in exactly the way `cluster` is —
     /// `swap_remove` reshuffles slots, so consumers index defensively.
@@ -870,6 +876,7 @@ impl World {
             diseases: Vec::new(),
             infection: Vec::new(),
             infection_ticks: Vec::new(),
+            resistance: Vec::new(),
             immortal: false,
             predators: Vec::new(),
             predator_ids: HashSet::new(),
@@ -2233,13 +2240,17 @@ impl World {
                         let relief = 1.0 - IMMUNITY_SEVERITY_RELIEF * immunity;
                         self.energy[i] -= d.severity * relief * metabolism;
                     }
-                    // Recovery: the illness runs its length and ends. No acquired
-                    // immunity — the same animal can catch the same thing again
-                    // tomorrow, so surviving is not a permanent ticket and an
-                    // outbreak can come back through the survivors.
+                    // Recovery: the illness runs its length and ends. Coming out
+                    // of it may leave this animal resistant to *that* pathogen
+                    // for good, at a chance scaled by its immunity gene — an
+                    // animal with no immune system has nothing to remember with.
                     self.infection_ticks[i] = self.infection_ticks[i].saturating_sub(1);
                     if self.infection_ticks[i] == 0 {
+                        let beaten = self.infection[i];
                         self.infection[i] = 0;
+                        if self.rng.gen_bool((ACQUIRED_IMMUNITY_CHANCE * immunity).clamp(0.0, 1.0)) {
+                            self.grant_resistance(i, beaten);
+                        }
                     }
                 }
             }
@@ -2265,10 +2276,23 @@ impl World {
         }
     }
 
+    /// Mark an agent resistant to one pathogen, permanently.
+    fn grant_resistance(&mut self, idx: usize, disease_id: u32) {
+        if disease_id == 0 || disease_id > MAX_TRACKED_DISEASES { return; }
+        self.resistance[idx] |= 1u64 << (disease_id - 1);
+    }
+
+    /// Has this agent already beaten that pathogen?
+    pub fn is_resistant(&self, idx: usize, disease_id: u32) -> bool {
+        if disease_id == 0 || disease_id > MAX_TRACKED_DISEASES { return false; }
+        self.resistance.get(idx).is_some_and(|m| m & (1u64 << (disease_id - 1)) != 0)
+    }
+
     /// Start an infection: set the pathogen and how long this agent will carry
     /// it. Immunity shortens the illness as well as resisting it in the first
     /// place, floored so even a maximally immune animal is ill for a while.
     fn infect(&mut self, idx: usize, disease_id: u32) {
+        if self.is_resistant(idx, disease_id) { return; }
         let Some(d) = self.diseases.get(disease_id as usize - 1) else { return };
         let duration = d.duration as f64;
         let immunity = self.genome[idx].traits.immunity.clamp(0.0, 1.0);
@@ -2285,6 +2309,18 @@ impl World {
     /// Counted here rather than in JS because the page has no per-agent species
     /// *and* infection pairing without another array export, and this is a
     /// once-per-panel-refresh walk either way.
+    /// Living agents resistant to each disease, row `d` = disease id `d + 1`.
+    pub fn disease_resistant_counts(&self) -> Vec<u32> {
+        let mut out = vec![0u32; self.diseases.len()];
+        for i in 0..self.ids.len() {
+            if self.cause_of_death[i].is_some() || self.is_predator(i) { continue; }
+            for (d, slot) in out.iter_mut().enumerate() {
+                if self.is_resistant(i, d as u32 + 1) { *slot += 1; }
+            }
+        }
+        out
+    }
+
     pub fn disease_carrier_census(&self, species_columns: usize) -> Vec<Vec<u32>> {
         let mut out = vec![vec![0u32; species_columns]; self.diseases.len()];
         for i in 0..self.ids.len() {
@@ -2367,7 +2403,7 @@ impl World {
             let crowd = (neighbours.len() as f64 / CROWDING_FULL).clamp(0.0, 1.0);
             for &j in &neighbours {
                 if j == i || self.infection[j] != 0 || self.cause_of_death[j].is_some() { continue; }
-                if self.is_predator(j) { continue; }
+                if self.is_predator(j) || self.is_resistant(j, disease_id) { continue; }
                 // Once a pathogen has jumped it is nobody's disease in
                 // particular and spreads at full contagion to anything.
                 // Immunity is resistance to *catching* it and nothing else. An
@@ -3082,6 +3118,8 @@ impl World {
         // lineage, not an outbreak, and would never crash.
         self.infection.push(0);
         self.infection_ticks.push(0);
+        // Born naive. Acquired resistance is not passed on.
+        self.resistance.push(0);
         self.last_outputs.push([0f32; 8]);
         self.last_perception.push([0f32; INPUT_COUNT]);
         self.last_food_dir.push((0.0, 0.0));
@@ -3163,6 +3201,7 @@ impl World {
                 self.threat_head.swap_remove(i);
                 self.infection.swap_remove(i);
                 self.infection_ticks.swap_remove(i);
+                self.resistance.swap_remove(i);
                 self.last_outputs.swap_remove(i);
                 self.last_perception.swap_remove(i);
                 self.last_food_dir.swap_remove(i);
@@ -3193,6 +3232,7 @@ impl World {
                 self.threat_head.pop();
                 self.infection.pop();
                 self.infection_ticks.pop();
+                self.resistance.pop();
                 self.last_outputs.pop();
                 self.last_perception.pop();
                 self.last_food_dir.pop();
@@ -4359,11 +4399,60 @@ mod tests {
     }
 
     #[test]
-    fn recovery_confers_no_immunity() {
-        // Surviving is not a permanent ticket. Acquired immunity would make an
-        // outbreak a one-shot event per lineage and hand the pond a restoring
-        // force it should not have — the heritable, costly trait is the only
-        // protection there is.
+    fn surviving_can_leave_an_animal_resistant_for_good() {
+        // The earned half of immunity: beat a pathogen and you may never catch
+        // that one again. Scaled by the gene, so this is something the trait
+        // buys rather than something the pond hands out.
+        let mut w = World::new(12, 8, 5);
+        w.set_automatic_predators(false);
+        let id = plant_disease_lasting(&mut w, 0.0, 0.0, 0, 2);
+        let (naive, strong) = (0, 1);
+        w.genome[naive].traits.immunity = 0.0;
+        w.genome[strong].traits.immunity = 1.0;
+
+        // Repeated bouts: the immune animal should pick up resistance, the one
+        // with no immune system never can.
+        for _ in 0..40 {
+            if w.infection[strong] == 0 { w.infect(strong, id); }
+            if w.infection[naive] == 0 { w.infect(naive, id); }
+            w.step();
+        }
+        assert!(w.is_resistant(strong, id), "40 bouts at full immunity taught it nothing");
+        assert!(!w.is_resistant(naive, id),
+            "an animal with no immune system acquired resistance anyway");
+
+        // Resistance is absolute for that pathogen, and specific to it.
+        w.infect(strong, id);
+        assert_eq!(w.infection[strong], 0, "a resistant animal caught it again");
+        let other = plant_disease_lasting(&mut w, 0.0, 0.0, 0, 2);
+        w.infect(strong, other);
+        assert_eq!(w.infection[strong], other, "resistance leaked to another pathogen");
+    }
+
+    #[test]
+    fn acquired_resistance_is_not_inherited() {
+        // The gene is the heritable half. If beating a plague also vaccinated
+        // your descendants, one outbreak would immunise a lineage forever and
+        // disease would stop being a recurring pressure.
+        let mut w = World::new(12, 40, 6);
+        w.set_automatic_predators(false);
+        let id = plant_disease_lasting(&mut w, 0.0, 0.0, 0, 2);
+        let parent = 0;
+        w.grant_resistance(parent, id);
+        w.energy[parent] = MAX_ENERGY_BASE;
+        w.age[parent] = MATURITY_AGE + 1;
+        w.reproduction_cooldown[parent] = 0;
+        w.last_reproduced_age[parent] = None;
+        let child = w.do_reproduce(parent).expect("no offspring");
+        w.spawn_offspring(vec![child]);
+        let slot = w.ids.len() - 1;
+        assert!(!w.is_resistant(slot, id), "resistance was inherited");
+    }
+
+    #[test]
+    fn recovery_alone_confers_no_immunity() {
+        // Without the gene there is no memory: an animal with immunity 0
+        // recovers and is as catchable as it was before.
         let mut w = World::new(20, 30, 5);
         w.set_automatic_predators(false);
         // Non-contagious while patient zero recovers, or the scrum reinfects it
@@ -4373,7 +4462,7 @@ mod tests {
             w.pos_x[i] = 10.0;
             w.pos_y[i] = 10.0;
             w.species_ids[i] = 0;
-            w.genome[i].traits.immunity = 0.0;
+            w.genome[i].traits.immunity = 0.0;   // no gene, so no memory either
         }
         w.spatial.rebuild(&w.pos_x, &w.pos_y);
         w.infect(0, id);

@@ -92,6 +92,18 @@ pub const ILLNESS_TICKS: (u32, u32) = (150, 520);
 pub const IMMUNITY_DURATION_RELIEF: f64 = 0.75;
 /// Share of the per-tick drain immunity can remove.
 pub const IMMUNITY_SEVERITY_RELIEF: f64 = 0.70;
+/// Chance of coming out of an illness permanently resistant to *that* pathogen,
+/// at full immunity. Scaled by the gene, so an animal with no immune system
+/// never acquires anything — there is nothing there to remember with.
+///
+/// Acquired resistance is per-disease, per-animal, and dies with the animal: it
+/// is not inherited. The gene is the heritable half and this is the earned
+/// half, and keeping them separate is what stops one outbreak vaccinating a
+/// whole lineage forever.
+pub const ACQUIRED_IMMUNITY_CHANCE: f64 = 0.6;
+/// Diseases a single agent can be resistant to, set by the bitmask width. Runs
+/// produce a handful of pathogens, so 64 is not a limit anything reaches.
+pub const MAX_TRACKED_DISEASES: u32 = 64;
 
 /// Radius, in tiles, within which contact can transmit.
 pub const CONTACT_RADIUS: f32 = 1.1;
