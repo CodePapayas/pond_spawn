@@ -85,9 +85,31 @@ pub const DRIFT_EPS: f64 = 0.04;
 /// Max mean per-trait standard deviation for a candidate to count as a cluster
 /// rather than a bin.
 pub const SPREAD_MAX: f64 = 0.25;
-/// An agent belongs to the nearest species within this normalized distance.
-/// Outside every radius it is unassigned (species 0).
+/// Widest a species definition can be, in normalized signature distance.
 pub const MEMBERSHIP_RADIUS: f64 = 0.35;
+/// Narrowest, and the value most definitions actually take — promotion spreads
+/// run around 0.002-0.02, so the floor binds more often than the sigma does.
+///
+/// Swept against tree shape over 60k ticks, two surviving seeds: 0.020 gave 3
+/// and 2 species with one branch each; 0.015 gave 5 and 3 species with 3 and 2
+/// branches and chains two deep; 0.012 gave 6 and 2, no deeper. Below this a
+/// definition starts rejecting children faster than a lineage can hold itself
+/// together.
+pub const MEMBERSHIP_RADIUS_MIN: f64 = 0.015;
+/// A species definition is this many times the spread it was promoted with.
+///
+/// Fixed at 0.35 it was an order of magnitude too loose to ever exclude
+/// anything. Measured over 5,006 births into a species: mean distance from the
+/// founding centroid 0.015, p90 0.024, **max 0.033** — the entire birth cloud
+/// sat inside a tenth of the radius, so no child was ever born outside its
+/// parents' definition, the unassigned pool never refilled, and no lineage
+/// could bud. Every new species had to come from the founding pond, which is
+/// why the phylogeny was all roots and no branches.
+///
+/// Scaling to the promotion spread makes the definition mean the same thing in
+/// a tight pond and a varied one: "close to what this lineage was when it was
+/// named", measured in that lineage's own units.
+pub const DEFINITION_SIGMA: f64 = 3.0;
 /// How far a candidate centroid may sit from a tracked candidate and still be
 /// considered the same one. Wider than membership: candidates are still moving.
 pub const CANDIDATE_MATCH_RADIUS: f64 = 0.5;
@@ -194,6 +216,8 @@ struct Candidate {
     spread: f64,
     /// Set each run; candidates not seen this run are dropped.
     seen_this_run: bool,
+    /// Lineage these agents came out of, from the group that last matched.
+    natal_plurality: u32,
 }
 
 impl Candidate {
@@ -304,6 +328,7 @@ impl SpeciesRegistry {
         cluster: &ClusterState,
         step: u32,
         assignment: &mut Vec<u32>,
+        natal: &[u32],
     ) {
         let n = genomes.len();
         assignment.resize(n, UNASSIGNED);
@@ -332,7 +357,7 @@ impl SpeciesRegistry {
         for c in self.candidates.iter_mut() {
             c.seen_this_run = false;
         }
-        for group in unassigned_groups(&points, assignment, cluster) {
+        for group in unassigned_groups(&points, assignment, natal, cluster) {
             self.observe_candidate(group, min_members, mean_generation as f32, step);
         }
         // A candidate whose cluster vanished this run has broken its streak.
@@ -364,9 +389,10 @@ impl SpeciesRegistry {
         for id in founded {
             let Some(sp) = self.get(id) else { continue };
             let centre = sp.founding_centroid;
+            let r = definition_radius(sp);
             for (i, p) in points.iter().enumerate() {
                 if assignment[i] != UNASSIGNED { continue; }
-                if dist_sq(p, &centre) < MEMBERSHIP_RADIUS * MEMBERSHIP_RADIUS {
+                if dist_sq(p, &centre) < r * r {
                     assignment[i] = id;
                 }
             }
@@ -392,7 +418,10 @@ impl SpeciesRegistry {
             founder_population: 1,
             promotion_streak: STABILITY_RUNS,
             promotion_drift: 0.0,
-            promotion_spread: 0.0,
+            // A roomy definition: `definition_radius` scales with this, and a
+            // planted species with zero spread would take the narrowest possible
+            // definition and reject its own children.
+            promotion_spread: 0.05,
             entry_generation_advance: PROBATION_ENTRY_GENERATIONS,
             probation_generation_advance: PROBATION_TEST_GENERATIONS,
             extinct_at: None,
@@ -412,8 +441,8 @@ impl SpeciesRegistry {
     pub fn admits(&self, species_id: u32, traits: &Traits) -> bool {
         let Some(sp) = self.get(species_id) else { return false };
         if !sp.is_alive() { return false; }
-        dist_sq(&signature(traits), &sp.founding_centroid)
-            < MEMBERSHIP_RADIUS * MEMBERSHIP_RADIUS
+        let r = definition_radius(sp);
+        dist_sq(&signature(traits), &sp.founding_centroid) < r * r
     }
 
     /// Mutation clamp for an agent about to reproduce: `PROBATION_MUTATION_CLAMP`
@@ -436,6 +465,15 @@ impl SpeciesRegistry {
             .filter(|c| c.on_probation())
             .any(|c| dist_sq(&p, &c.centroid) < MEMBERSHIP_RADIUS * MEMBERSHIP_RADIUS);
         if inside { PROBATION_MUTATION_CLAMP } else { 1.0 }
+    }
+
+    /// Candidate state, for diagnosing why promotions do or do not happen:
+    /// `(members, drift, spread, streak, on_probation)` per tracked cluster.
+    #[cfg(test)]
+    pub(crate) fn candidate_debug(&self) -> Vec<(u32, f64, f64, u32, bool)> {
+        self.candidates.iter()
+            .map(|c| (c.members, c.drift, c.spread, c.streak, c.on_probation()))
+            .collect()
     }
 
     /// Clusters currently under the clamp.
@@ -519,6 +557,7 @@ impl SpeciesRegistry {
                 drift: f64::INFINITY,
                 spread: group.spread,
                 seen_this_run: true,
+                natal_plurality: group.natal_plurality,
             });
             return;
         };
@@ -529,6 +568,10 @@ impl SpeciesRegistry {
         c.centroid = group.centroid;
         c.members = group.count as u32;
         c.seen_this_run = true;
+        // Refreshed each run: a cluster's make-up shifts as its founders die and
+        // their children replace them, and the lineage that matters is whoever
+        // most of it came from when it is finally promoted.
+        c.natal_plurality = group.natal_plurality;
 
         if qualifies_alone && settled {
             c.streak += 1;
@@ -614,11 +657,22 @@ impl SpeciesRegistry {
                 deviation[d] = centroid[d] - population_centroid[d];
             }
             let taken: Vec<String> = self.species.iter().map(|s| s.name.full()).collect();
-            // One lookup, two uses: the genus this lineage inherits and the id it
-            // descends from. Borrow ends before the push below.
-            let (parent_id, inherited_genus) = match self.nearest_kin(&centroid) {
-                Some(kin) => (kin.id, Some(kin.name.genus.clone())),
-                None => (UNASSIGNED, None),
+            // Descent first, geometry second.
+            //
+            // `natal_plurality` is where most of this cluster's agents were
+            // *born from* — children that mutated past their parents' definition
+            // and were born unassigned. That is a real parent, and using it is
+            // what makes a new species a branch off an old one instead of
+            // another root beside it. Nearest-kin is the fallback for a cluster
+            // with no recorded lineage at all: the founding pond, or a group of
+            // orphans that found each other.
+            let natal = self.candidates[i].natal_plurality;
+            let (parent_id, inherited_genus) = match self.get(natal) {
+                Some(p) => (p.id, Some(p.name.genus.clone())),
+                None => match self.nearest_kin(&centroid) {
+                    Some(kin) => (kin.id, Some(kin.name.genus.clone())),
+                    None => (UNASSIGNED, None),
+                },
             };
             let name = naming::generate(
                 id,
@@ -660,11 +714,23 @@ impl SpeciesRegistry {
     }
 }
 
+/// How wide this species' definition is: `DEFINITION_SIGMA` times the spread it
+/// was promoted with, clamped. A tight lineage gets a tight definition, so its
+/// children can actually fall outside it and go on to found the next one.
+pub fn definition_radius(sp: &Species) -> f64 {
+    (sp.promotion_spread * DEFINITION_SIGMA).clamp(MEMBERSHIP_RADIUS_MIN, MEMBERSHIP_RADIUS)
+}
+
 /// One k-means cluster's worth of unassigned agents.
 struct Group {
     centroid: [f64; SIG_LEN],
     spread: f64,
     count: usize,
+    /// The species most of these agents were born out of, or `UNASSIGNED` when
+    /// most of them came from nowhere. This is what makes a promoted cluster a
+    /// *branch* of an existing lineage rather than another root: descent as
+    /// recorded at birth, not descent inferred from who it ended up nearest.
+    natal_plurality: u32,
 }
 
 /// Group the agents belonging to no species by their k-means label, merge the
@@ -680,6 +746,7 @@ struct Group {
 fn unassigned_groups(
     points: &[[f64; SIG_LEN]],
     assignment: &[u32],
+    natal: &[u32],
     cluster: &ClusterState,
 ) -> Vec<Group> {
     let mut buckets: Vec<Vec<usize>> = Vec::new();
@@ -704,6 +771,18 @@ fn unassigned_groups(
         .into_iter()
         .map(|members| {
             let count = members.len();
+            // Whose children are these? Plurality, ignoring the ones with no
+            // lineage at all, so a cluster of mostly-orphans is a root and a
+            // cluster of mostly-Thalura-children is Thalura's.
+            let mut tally: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+            for &i in &members {
+                let from = natal.get(i).copied().unwrap_or(UNASSIGNED);
+                if from != UNASSIGNED { *tally.entry(from).or_insert(0) += 1; }
+            }
+            let natal_plurality = tally.into_iter()
+                .max_by_key(|&(_, n)| n)
+                .map(|(id, _)| id)
+                .unwrap_or(UNASSIGNED);
             let mut centroid = [0f64; SIG_LEN];
             for &i in &members {
                 for d in 0..SIG_LEN {
@@ -723,7 +802,7 @@ fn unassigned_groups(
                     / count as f64;
                 spread += var.sqrt();
             }
-            Group { centroid, spread: spread / SIG_LEN as f64, count }
+            Group { centroid, spread: spread / SIG_LEN as f64, count, natal_plurality }
         })
         .collect()
 }
@@ -840,7 +919,11 @@ mod tests {
         reg: &mut SpeciesRegistry, genomes: &[Genome], step: u32, assignment: &mut Vec<u32>,
     ) -> Vec<u32> {
         let cluster = ClusterState::run(genomes, 6, step, None);
-        reg.update(genomes, &cluster, step, assignment);
+        // Natal lineage: the harness has no birth history, so every agent reads
+        // as having come from nowhere and promotion falls back to nearest-kin —
+        // which is what these tests were written against.
+        let natal = vec![UNASSIGNED; genomes.len()];
+        reg.update(genomes, &cluster, step, assignment, &natal);
         assignment.clone()
     }
 
@@ -1289,7 +1372,7 @@ mod tests {
         let mut reg = SpeciesRegistry::new(42);
         let cluster = ClusterState::run(&[], 6, 50, None);
         let mut assignment = Vec::new();
-        reg.update(&[], &cluster, 50, &mut assignment);
+        reg.update(&[], &cluster, 50, &mut assignment, &[]);
         assert!(assignment.is_empty());
     }
 }

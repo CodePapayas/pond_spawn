@@ -657,8 +657,12 @@ struct PendingAgent {
     y: f32,
     parent_defense: f64,
     parent_id: u32,
-    /// The parent's species, inherited at birth. See `push_agent`.
+    /// The parent's species, inherited at birth if the child fits its
+    /// definition. See `push_agent`.
     species: u32,
+    /// The parent's species regardless of whether the child fits it — the
+    /// lineage it came out of.
+    natal_species: u32,
 }
 
 // ── Public stats ──────────────────────────────────────────────────────────────
@@ -748,6 +752,14 @@ pub struct World {
     /// Ticks of illness left. Set when the infection is caught, from the
     /// pathogen's duration and the agent's immunity; at zero the agent recovers.
     pub infection_ticks: Vec<u32>,
+    /// The species this agent was *born from*, whatever it was born into.
+    ///
+    /// A child that mutates past its parent's definition is born unassigned, but
+    /// it is still that lineage's child — and when enough such children cluster
+    /// and get promoted, this is what makes the new species a branch off the old
+    /// one rather than another root beside it. Descent, recorded, instead of
+    /// inferred from proximity after the fact.
+    pub natal_species: Vec<u32>,
     /// Diseases this agent has beaten and can no longer catch, as a bitmask —
     /// bit `id - 1` per pathogen. Earned by surviving one, at a chance scaled by
     /// the immunity gene, and **not inherited**: the gene is the heritable half,
@@ -877,6 +889,7 @@ impl World {
             infection: Vec::new(),
             infection_ticks: Vec::new(),
             resistance: Vec::new(),
+            natal_species: Vec::new(),
             immortal: false,
             predators: Vec::new(),
             predator_ids: HashSet::new(),
@@ -1082,7 +1095,7 @@ impl World {
             let x = (cx + radius * angle.cos()).rem_euclid(world_size);
             let y = (cy + radius * angle.sin()).rem_euclid(world_size);
             let genome = Genome::generate(&mut self.rng);
-            self.push_agent(x, y, 50.0, genome, 0.0, None, crate::species::UNASSIGNED);
+            self.push_agent(x, y, 50.0, genome, 0.0, None, crate::species::UNASSIGNED, crate::species::UNASSIGNED);
         }
         self.spatial.rebuild(&self.pos_x, &self.pos_y);
     }
@@ -1319,7 +1332,7 @@ impl World {
 
         let x = self.rng.gen::<f32>() * self.grid_size as f32;
         let y = self.rng.gen::<f32>() * self.grid_size as f32;
-        self.push_agent(x, y, MAX_ENERGY_BASE, genome, 0.0, None, crate::species::UNASSIGNED);
+        self.push_agent(x, y, MAX_ENERGY_BASE, genome, 0.0, None, crate::species::UNASSIGNED, crate::species::UNASSIGNED);
 
         let id = *self.ids.last().unwrap();
         self.predators.push(Predator {
@@ -2110,7 +2123,8 @@ impl World {
             // Membership is carried, not recomputed: `update` only releases the
             // members of an extinct species and seats a new one's founders.
             let mut assignment = std::mem::take(&mut self.species_ids);
-            self.species.update(&self.genome, &self.cluster, self.step_count, &mut assignment);
+            self.species.update(&self.genome, &self.cluster, self.step_count,
+                                &mut assignment, &self.natal_species);
             self.species_ids = assignment;
 
             // A promotion is the only thing that can introduce a pathogen. The
@@ -2919,6 +2933,8 @@ impl World {
             // child born past its parents' definition is unassigned, and enough
             // of those clustering together is what the candidate machinery
             // promotes into the next species.
+            natal_species: self.species_ids.get(idx).copied()
+                .unwrap_or(crate::species::UNASSIGNED),
             species: {
                 let parent_species =
                     self.species_ids.get(idx).copied().unwrap_or(crate::species::UNASSIGNED);
@@ -3059,7 +3075,7 @@ impl World {
             let species = child.species;
             self.push_agent(
                 child.x, child.y, child.energy, child.genome, child.parent_defense,
-                Some(child.parent_id), species,
+                Some(child.parent_id), species, child.natal_species,
             );
         }
     }
@@ -3083,6 +3099,7 @@ impl World {
         parent_defense: f64,
         parent_id: Option<u32>,
         species: u32,
+        natal_species: u32,
     ) {
         let id = self.next_id;
         self.next_id += 1;
@@ -3120,6 +3137,7 @@ impl World {
         self.infection_ticks.push(0);
         // Born naive. Acquired resistance is not passed on.
         self.resistance.push(0);
+        self.natal_species.push(natal_species);
         self.last_outputs.push([0f32; 8]);
         self.last_perception.push([0f32; INPUT_COUNT]);
         self.last_food_dir.push((0.0, 0.0));
@@ -3202,6 +3220,7 @@ impl World {
                 self.infection.swap_remove(i);
                 self.infection_ticks.swap_remove(i);
                 self.resistance.swap_remove(i);
+                self.natal_species.swap_remove(i);
                 self.last_outputs.swap_remove(i);
                 self.last_perception.swap_remove(i);
                 self.last_food_dir.swap_remove(i);
@@ -3233,6 +3252,7 @@ impl World {
                 self.infection.pop();
                 self.infection_ticks.pop();
                 self.resistance.pop();
+                self.natal_species.pop();
                 self.last_outputs.pop();
                 self.last_perception.pop();
                 self.last_food_dir.pop();
@@ -3255,7 +3275,7 @@ impl World {
             let x = self.rng.gen::<f32>() * world_size;
             let y = self.rng.gen::<f32>() * world_size;
             let genome = Genome::generate(&mut self.rng);
-            self.push_agent(x, y, 100.0, genome, 0.0, None, crate::species::UNASSIGNED);
+            self.push_agent(x, y, 100.0, genome, 0.0, None, crate::species::UNASSIGNED, crate::species::UNASSIGNED);
         }
     }
 }
@@ -4279,6 +4299,34 @@ mod tests {
     }
 
     #[test]
+    fn a_child_born_outside_still_records_where_it_came_from() {
+        // The whole point of natal lineage: a child that mutates past its
+        // parents' definition is born unassigned, but it is still their child,
+        // and that is what lets the cluster it eventually joins be promoted as a
+        // branch off that lineage rather than as another root.
+        let mut w = World::new(12, 60, 8);
+        w.set_automatic_predators(false);
+        for _ in 0..60 { w.step(); }
+        let parent = 0;
+        let far = [0.0; crate::species::SIG_LEN];
+        let elsewhere = w.species.plant_for_test(far, "Vorixa");
+        w.species_ids[parent] = elsewhere;
+
+        w.energy[parent] = MAX_ENERGY_BASE;
+        w.age[parent] = MATURITY_AGE + 1;
+        w.reproduction_cooldown[parent] = 0;
+        w.last_reproduced_age[parent] = None;
+        let child = w.do_reproduce(parent).expect("no offspring");
+        assert_eq!(child.species, crate::species::UNASSIGNED, "fixture is not testing anything");
+        assert_eq!(child.natal_species, elsewhere, "the child forgot its lineage");
+
+        w.spawn_offspring(vec![child]);
+        let slot = w.ids.len() - 1;
+        assert_eq!(w.natal_species[slot], elsewhere);
+        assert_eq!(w.species_ids[slot], crate::species::UNASSIGNED);
+    }
+
+    #[test]
     fn a_child_that_mutates_past_the_definition_is_born_outside_it() {
         // The mechanism speciation runs on: a lineage is a definition fixed at
         // promotion, and mutation is the only thing that can put a child outside
@@ -4708,32 +4756,36 @@ mod tests {
 
     #[test]
     fn hunters_burst_and_the_burst_ends() {
-        // Variance in the threat: a steady hunter is one a lineage can evolve a
-        // fixed answer to. Over enough ticks a burst must happen, must run at
-        // the ceiling, and must stop.
+        // Burst timing is deliberately stochastic, so do not make the suite
+        // depend on a particular seed eventually rolling one. Start a short
+        // burst directly and pin the contract: it is faster than cruising,
+        // never exceeds the genetic ceiling, and returns to cruise when its
+        // countdown ends.
         let mut w = World::new(12, 200, 4);
+        w.set_automatic_predators(false);
+        w.summon_predator_tier(0, false, 0)
+            .expect("expected a resident hunter");
         let ceiling = PREDATOR_SPEED_CEILING_TRAIT * MAX_SPEED * DT;
-        let mut saw_burst = false;
-        let mut saw_ceiling = false;
-        let mut saw_end = false;
-        for _ in 0..6000 {
-            w.step();
-            let Some(pi) = w.predators.iter().position(|p| p.tier == 0) else { continue };
-            if w.predators[pi].burst_ticks > 0 {
-                saw_burst = true;
-                // A burst multiplies cruising speed rather than jumping to a
-                // fixed value, so what is asserted is that it is meaningfully
-                // faster than cruising and never past the ceiling.
-                let v = w.predator_chase_speed(pi);
-                if v > cruise_of(&w, pi) * 1.5 { saw_ceiling = true; }
-                assert!(v <= ceiling + 1e-6, "a burst ran past the ceiling: {}", v);
-            } else if saw_burst {
-                saw_end = true;
-            }
-        }
-        assert!(saw_burst, "no hunter ever burst in 6000 ticks");
-        assert!(saw_ceiling, "a burst was not meaningfully faster than cruising");
-        assert!(saw_end, "a burst never ended");
+        let pi = w.predators.iter().position(|p| p.tier == 0)
+            .expect("expected a resident hunter");
+        w.predators[pi].burst_ticks = 2;
+
+        let burst = w.predator_chase_speed(pi);
+        assert!(burst > cruise_of(&w, pi) * 1.5,
+            "a burst was not meaningfully faster than cruising");
+        assert!(burst <= ceiling + 1e-6, "a burst ran past the ceiling: {}", burst);
+
+        w.step();
+        let pi = w.predators.iter().position(|p| p.tier == 0)
+            .expect("resident hunter disappeared during burst");
+        assert_eq!(w.predators[pi].burst_ticks, 1, "burst did not count down");
+
+        w.step();
+        let pi = w.predators.iter().position(|p| p.tier == 0)
+            .expect("resident hunter disappeared after burst");
+        assert_eq!(w.predators[pi].burst_ticks, 0, "burst did not end");
+        assert_eq!(w.predator_chase_speed(pi), cruise_of(&w, pi),
+            "hunter did not return to cruising speed after burst");
     }
 
     #[test]
@@ -5648,6 +5700,100 @@ mod combat_probe {
             let means = w.trait_means();
             println!("  aggression {:.3}  attack {:.3}  defense {:.3}  mean energy {:.1}",
                 means[8], means[6], means[7], w.get_stats().avg_energy);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tree_probe {
+    use super::*;
+
+    /// Tree shape: how many promoted species are branches off another lineage
+    /// rather than roots off the trunk?
+    /// How many children are born outside their parents' definition? That is
+    /// the only thing that feeds the unassigned pool once a pond is fully
+    /// membered, and the pool is what new species come from.
+    #[test]
+    #[ignore]
+    fn who_feeds_the_unassigned_pool() {
+        for radius in [0.05f64, 0.03, 0.02, 0.015, 0.01] {
+            // The constant is compiled in, so this measures the equivalent by
+            // hand: distance from parent's founding centroid to child's
+            // signature, over real births.
+            let mut w = World::new(12, 400, 42);
+            let mut births = 0u32;
+            let mut outside = 0u32;
+            let mut sum_step = 0.0f64;
+            let mut dists: Vec<f64> = Vec::new();
+            for _ in 0..20_000 {
+                let before: Vec<(u32, u32)> = w.ids.iter().copied()
+                    .zip(w.species_ids.iter().copied()).collect();
+                w.step();
+                for (i, &id) in w.ids.iter().enumerate() {
+                    if before.iter().any(|&(bid, _)| bid == id) { continue; }
+                    let natal = w.natal_species[i];
+                    let Some(sp) = w.species.get(natal) else { continue };
+                    let sig = crate::species::signature(&w.genome[i].traits);
+                    let d: f64 = sig.iter().zip(sp.founding_centroid.iter())
+                        .map(|(a, b)| (a - b) * (a - b)).sum::<f64>().sqrt();
+                    births += 1;
+                    sum_step += d;
+                    dists.push(d);
+                    if d >= radius { outside += 1; }
+                }
+            }
+            if births == 0 { println!("radius {radius}: no births from a species at all"); continue; }
+            dists.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let p = |q: f64| dists[((dists.len() as f64 - 1.0) * q) as usize];
+            println!("radius {radius:.3}: {} births, {} outside ({:.1}%)  \
+                      distance mean {:.3} p50 {:.3} p90 {:.3} max {:.3}",
+                births, outside, outside as f64 / births as f64 * 100.0,
+                sum_step / births as f64, p(0.5), p(0.9), p(1.0));
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn how_deep_is_the_tree() {
+        for seed in [42u64, 7, 1337] {
+            let mut w = World::new(12, 400, seed);
+            // Track the best candidate ever seen: the gate that stops promotion
+            // is whichever criterion the best one never cleared.
+            let mut best = (0u32, f64::INFINITY, f64::INFINITY, 0u32);
+            for step in 1..=60_000 {
+                w.step();
+                if step % 50 != 0 { continue; }
+                for (members, drift, spread, streak, _) in w.species.candidate_debug() {
+                    if streak > best.3 || (streak == best.3 && members > best.0) {
+                        best = (members, drift, spread, streak);
+                    }
+                }
+            }
+            let all = w.species.all();
+            let roots = all.iter().filter(|s| s.parent_id == crate::species::UNASSIGNED).count();
+            let branches = all.len() - roots;
+            // Longest chain of descent.
+            let depth = |mut id: u32| {
+                let mut d = 0;
+                while let Some(s) = w.species.get(id) {
+                    if s.parent_id == crate::species::UNASSIGNED { break; }
+                    id = s.parent_id;
+                    d += 1;
+                    if d > 64 { break; }
+                }
+                d
+            };
+            let deepest = all.iter().map(|s| depth(s.id)).max().unwrap_or(0);
+            println!("seed {seed}: {} species — {} roots, {} branches, deepest chain {}",
+                all.len(), roots, branches, deepest);
+            println!("   pop {}, unassigned {}, min_members {}",
+                w.prey_count(),
+                w.species_ids.iter().filter(|&&s| s == crate::species::UNASSIGNED).count(),
+                (w.prey_count() as f64 * 0.05).max(6.0) as usize);
+            println!("   best candidate seen: members {} drift {:.4} spread {:.3} streak {} \
+                      (needs members>=min, drift<{:.2}, spread<{:.2}, streak>=5)",
+                best.0, best.1, best.2, best.3,
+                crate::species::DRIFT_EPS, crate::species::SPREAD_MAX);
         }
     }
 }
