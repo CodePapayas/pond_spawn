@@ -355,11 +355,14 @@ const CULL_DEPTH: f64 = 0.72;
 /// `cap × (1 + band)` and leave at `cap × (1 - band)`, so a population sitting
 /// near the cap isn't culled every few steps — it gets room to breathe.
 pub const PREDATOR_POP_BAND: f64 = 0.10;
-/// Most predators that may be in the pond at once. High enough to hold the whole
-/// escalation ladder — the tier pack sizes sum to 11, and a cap below that would
-/// silently stop a wave escalating past the tier that filled it. Steady state is
-/// far lower: only the triangles stay, and the top two depart.
-pub const PREDATOR_MAX: usize = 12;
+/// Most predators that may be in the pond at once, of any tier.
+///
+/// Three. It was 12 — sized to hold the whole escalation ladder at once, since
+/// the tier pack sizes sum to 11 — but that is a ceiling for a pathological
+/// case, not a number the pond should ever approach. Residents never leave, so
+/// the pack only ratchets upward, and a pond that had a rough century ended up
+/// permanently patrolled by a crowd.
+pub const PREDATOR_MAX: usize = 3;
 /// Steps between reinforcement checks. Long enough that a new arrival has time
 /// to make a dent before the next is considered.
 const PREDATOR_REINFORCE_STEPS: u32 = 120;
@@ -471,8 +474,14 @@ const TIER_SPIN: [f32; PREDATOR_TIERS] = [0.0, 0.20, 0.045];
 /// have; the top two are lethal enough not to need company.
 ///
 /// Only the triangle entry is used automatically, and only as the size of the
-/// *first* pack: after that the pond earns one more per threshold crossing.
-const TIER_PACK: [usize; PREDATOR_TIERS] = [3, 5, 2];
+/// *first* pack: after that the pond earns one more per threshold crossing, up
+/// to `PREDATOR_MAX`.
+///
+/// The triangle entry is 1 rather than 3 because the cap is 3: starting a wave
+/// at the cap meant the pond went from one ambient hunter to the maximum on its
+/// first boom, and the ratchet — the pond earning hunters by repeatedly
+/// outgrowing the ones it has — never happened at all.
+const TIER_PACK: [usize; PREDATOR_TIERS] = [1, 5, 2];
 /// Whether a tier stays in the pond after its quota is met. Only the triangles
 /// do: the other two are far too lethal to leave in the water.
 const TIER_RESIDENT: [bool; PREDATOR_TIERS] = [true, false, false];
@@ -5437,6 +5446,83 @@ mod speed_probe {
                 sp(&a), sp(&b), sp(&c), mt(&a), mt(&b), mt(&c),
                 a.agent_count(), b.agent_count(), c.agent_count(),
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod combat_probe {
+    use super::*;
+
+    /// Where do the bodies come from? Counts every gate agent-on-agent combat
+    /// passes through, so a claim about the death mix can be checked rather than
+    /// argued about.
+    ///
+    /// Run it with:
+    ///   cargo test -p pond_core why_is_combat_lethal -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn why_is_combat_lethal() {
+        // Predators off: the question is what agent-on-agent combat does on its
+        // own, and hunters both eat agents directly and change who is left to
+        // fight. 100k ticks, because the mix at 3k is not the mix at 100k.
+        for (grid, pop, seed) in [(12usize, 100usize, 42u64), (12, 100, 7), (12, 400, 42)] {
+            let mut w = World::new(grid, pop, seed);
+            w.set_automatic_predators(false);
+            let mut tiles_contested = 0u64;   // tiles with 2+ occupants
+            let mut passed_aggression = 0u64;
+            let mut passed_hunger = 0u64;
+            let mut had_victim = 0u64;
+            let mut samples = 0u64;
+
+            for step in 1..=100_000 {
+                w.step();
+                if step % 250 != 0 { continue; }
+                samples += 1;
+                let gs = w.grid_size;
+                for ty in 0..gs {
+                    for tx in 0..gs {
+                        let occ: Vec<usize> = w.spatial.agents_at_tile(tx, ty).iter().copied()
+                            .filter(|&i| w.cause_of_death[i].is_none() && !w.is_predator(i))
+                            .collect();
+                        if occ.len() < 2 { continue; }
+                        tiles_contested += 1;
+                        for &a in &occ {
+                            if w.genome[a].traits.aggression
+                                < w.tunables().hunt_aggression_threshold { continue; }
+                            passed_aggression += 1;
+                            let cap = MAX_ENERGY_BASE * w.genome[a].traits.energy_capacity;
+                            if w.energy[a] > HUNT_HUNGER_FRAC * cap { continue; }
+                            passed_hunger += 1;
+                            let sp = w.species_ids.get(a).copied().unwrap_or(0);
+                            let cannibal = is_cannibal(&w.genome[a].traits);
+                            if occ.iter().any(|&v| v != a
+                                && (sp == 0 || cannibal
+                                    || w.species_ids.get(v).copied().unwrap_or(0) != sp)) {
+                                had_victim += 1;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let d = w.death_counts();
+            let total: u32 = d.iter().sum();
+            let pct = |v: u32| if total > 0 { v as f64 / total as f64 * 100.0 } else { 0.0 };
+            println!("\n{}x{} pop {} seed {seed}: {} deaths over 100k ticks, final pop {}", grid, grid, pop, total, w.prey_count());
+            println!("  starvation {:>5} ({:>4.1}%)   old age {:>5} ({:>4.1}%)",
+                d[0], pct(d[0]), d[1], pct(d[1]));
+            println!("  combat     {:>5} ({:>4.1}%)   eaten   {:>5} ({:>4.1}%)   disease {:>4}",
+                d[2], pct(d[2]), d[3], pct(d[3]), d[5]);
+            println!("  per sampled tick: contested tiles {:.1}, aggression-pass {:.1}, \
+                      hunger-pass {:.1}, had-victim {:.1}",
+                tiles_contested as f64 / samples as f64,
+                passed_aggression as f64 / samples as f64,
+                passed_hunger as f64 / samples as f64,
+                had_victim as f64 / samples as f64);
+            let means = w.trait_means();
+            println!("  aggression {:.3}  attack {:.3}  defense {:.3}  mean energy {:.1}",
+                means[8], means[6], means[7], w.get_stats().avg_energy);
         }
     }
 }

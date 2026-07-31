@@ -553,6 +553,11 @@ time axis is quantised to that.
 
 ### Ambient predation
 
+At most `PREDATOR_MAX` (3) predators exist at once, of any tier. Residents never
+leave, so the pack only ever ratchets upward — a cap of 12 meant a pond that had
+a few rough centuries ended up permanently patrolled by a crowd. Waves start at
+one extra hunter and earn another per threshold crossing, up to the cap.
+
 One resident triangle is in the water whenever prey clears
 `PREDATOR_AMBIENT_MIN_PREY` (30), with a quota of zero: it never sates and never
 stops. The capacity rule still stacks a cull pack on top when the population
