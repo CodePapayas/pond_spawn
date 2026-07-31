@@ -393,7 +393,7 @@ pub const PREDATOR_TIERS: usize = 3;
 ///
 /// Tiers 1 and 2 are god-mode powers and keep these flat, deliberately unfair
 /// values. **Tier 0 does not use its entry**: the ambient triangle takes its
-/// speed from the pond instead, at `PREDATOR_SPEED_FRAC` of the mean speed trait
+/// speed from the pond instead, at `PREDATOR_CRUISE_FRAC` of the mean speed trait
 /// of the family it is hunting (see `predator_chase_speed`).
 ///
 /// The old constant was 0.95 world units *per tick*, while the fastest possible
@@ -444,14 +444,6 @@ const PREDATOR_BURST_CHANCE: f64 = 0.0004;
 /// chase and of several others behind it.
 const PREDATOR_BURST_TICKS: (u32, u32) = (150, 400);
 
-/// Fraction of its prey's mean speed an ambient hunter moves at.
-///
-/// Below 1.0 on purpose. A hunter slower than the average animal in its target
-/// family cannot catch the above-average ones, so escape becomes positional:
-/// the goal is not to outrun the predator, it is to be harder to catch than the
-/// neighbour. That is the pressure that makes speed and flee worth evolving,
-/// and it is what stops predation being a flat tax everyone pays equally.
-const PREDATOR_SPEED_FRAC: f32 = 0.95;
 /// Bite reach per tier. For the rectangle this is the half-length of its long
 /// edge rather than a radius — see `tier_bite_hits`.
 const TIER_BITE: [f32; PREDATOR_TIERS] = [0.55, 1.90, 3.20];
