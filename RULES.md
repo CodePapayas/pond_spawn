@@ -584,6 +584,14 @@ average animal outpaces a cruising hunter and the ordinary state of the pond is
 search-image review: a fixed multiplier is a fixed safe margin, and a fixed safe
 margin is something a lineage evolves to sit exactly on top of.
 
+**Effort scales with crowding.** Both the burst chance and the cruising band are
+multiplied by `predator_pressure()` — prey count against the cull trigger,
+clamped to `PREDATOR_PRESSURE_RANGE` (0.35–1.5). A predator in a teeming pond
+hunts hard; one crossing an empty map between meals does not sprint at every
+shadow, so a crashed pond is left alone to recover rather than chased into the
+ground at boom-time intensity. Bounded at the bottom, so an empty pond still has
+a hunter in it doing something.
+
 Catching happens in **bursts**. A small per-tick chance
 (`PREDATOR_BURST_CHANCE`, about one per 2,500 ticks per hunter) starts a
 150–400 tick burst at `PREDATOR_BURST_MULT` (1.9×) cruising speed. Cruising

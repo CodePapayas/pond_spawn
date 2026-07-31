@@ -435,7 +435,20 @@ const PREDATOR_CRUISE_FRAC: (f32, f32) = (0.80, 0.90);
 /// bursting is for the last few tiles.
 const PREDATOR_BURST_MULT: f32 = 1.9;
 
-/// Per-tick chance a hunter goes into a burst.
+/// How hard hunters work, as a function of how crowded the pond is.
+///
+/// A predator in an empty pond is not the same animal as a predator in a
+/// teeming one: hunting is expensive, and something that has to cross the map
+/// between meals does not sprint at every shadow. Scaled by prey count against
+/// the cull trigger, so pressure rises as the pond fills and falls away as it
+/// empties — which also means a crashed pond is left alone to recover instead
+/// of being chased into the ground by hunters running at boom-time intensity.
+///
+/// Clamped rather than proportional at the bottom: even an empty pond has a
+/// hunter in it doing something.
+const PREDATOR_PRESSURE_RANGE: (f32, f32) = (0.35, 1.5);
+
+/// Per-tick chance a hunter goes into a burst, at pressure 1.0.
 ///
 /// Roughly one burst per hunter per 2,500 ticks. The point is variance: a
 /// steady threat is one a lineage can evolve a fixed answer to, and then the
@@ -1470,6 +1483,15 @@ impl World {
         (toughest + PREDATOR_ATTACK_MARGIN).clamp(base, base + PREDATOR_ATTACK_MAX_ADAPT)
     }
 
+    /// How hard the hunters are working right now: prey count against the cull
+    /// trigger, clamped. 1.0 is "the pond is at the level that would summon a
+    /// cull"; below that hunting slackens, above it intensifies.
+    fn predator_pressure(&self) -> f32 {
+        let trigger = self.cull_trigger_pop().max(1) as f32;
+        (self.prey_count() as f32 / trigger)
+            .clamp(PREDATOR_PRESSURE_RANGE.0, PREDATOR_PRESSURE_RANGE.1)
+    }
+
     /// Chase speed for one hunter, in world units per tick.
     ///
     /// Tiers above 0 keep their constant. The ambient triangle cruises at a
@@ -1587,10 +1609,14 @@ impl World {
             let attack = self.predators[pi].attack;
             self.predators[pi].attack = attack + (want - attack) * PREDATOR_ATTACK_ADAPT;
             self.predators[pi].image_armour = mean;
-            // New place in the cruising band. A hunter whose margin never moves
-            // is a margin a lineage can settle exactly on top of.
+            // New place in the cruising band, shaded by how crowded the pond is.
+            // A hunter whose margin never moves is a margin a lineage can settle
+            // exactly on top of; a hunter that works equally hard in a teeming
+            // pond and an empty one is a fixed tax rather than a predator.
+            let pressure = self.predator_pressure();
+            let band = self.rng.gen_range(PREDATOR_CRUISE_FRAC.0..=PREDATOR_CRUISE_FRAC.1);
             self.predators[pi].cruise_frac =
-                self.rng.gen_range(PREDATOR_CRUISE_FRAC.0..=PREDATOR_CRUISE_FRAC.1);
+                (band * (0.85 + 0.15 * pressure)).clamp(0.60, 1.0);
         }
     }
 
@@ -1610,7 +1636,8 @@ impl World {
         if self.predators[pi].burst_ticks > 0 {
             self.predators[pi].burst_ticks -= 1;
         } else if tier_resident(self.predators[pi].tier)
-            && self.rng.gen_bool(PREDATOR_BURST_CHANCE)
+            && self.rng.gen_bool(
+                (PREDATOR_BURST_CHANCE * self.predator_pressure() as f64).clamp(0.0, 1.0))
         {
             self.predators[pi].burst_ticks =
                 self.rng.gen_range(PREDATOR_BURST_TICKS.0..=PREDATOR_BURST_TICKS.1);
@@ -4573,6 +4600,24 @@ mod tests {
         if count == 0 { return PREDATOR_SPEED_FLOOR_TRAIT * MAX_SPEED * DT; }
         ((sum / count as f32) * MAX_SPEED * DT * w.predators[pi].cruise_frac)
             .max(PREDATOR_SPEED_FLOOR_TRAIT * MAX_SPEED * DT)
+    }
+
+    #[test]
+    fn hunters_work_harder_in_a_crowded_pond() {
+        // Density-dependent effort: a predator crossing an empty map between
+        // meals does not sprint at every shadow, and a crashed pond gets left
+        // alone to recover rather than chased into the ground.
+        let mut empty = World::new(12, 12, 3);
+        let mut packed = World::new(12, 12, 3);
+        for _ in 0..40 { empty.step(); packed.step(); }
+        packed.pour_agents(6.0, 6.0, packed.cull_trigger_pop() + 50);
+        assert!(packed.predator_pressure() > empty.predator_pressure(),
+            "pressure did not rise with the population: {} vs {}",
+            packed.predator_pressure(), empty.predator_pressure());
+        // And it is bounded at both ends — an empty pond still has a hunter in
+        // it doing something, and a boom does not make one omnipotent.
+        assert!(empty.predator_pressure() >= PREDATOR_PRESSURE_RANGE.0);
+        assert!(packed.predator_pressure() <= PREDATOR_PRESSURE_RANGE.1);
     }
 
     #[test]
