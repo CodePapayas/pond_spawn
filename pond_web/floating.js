@@ -35,6 +35,20 @@ export function openFloating({ key, title, className = '', render }) {
     });
     win.addEventListener('mousedown', () => focus(win));
     makeDraggable(win, win.querySelector('.float-head'));
+    // Re-render on resize. Canvas content is drawn at a fixed pixel size, so a
+    // window that grows would otherwise just add empty space around the chart.
+    if (typeof ResizeObserver === 'function') {
+        let last = 0;
+        const ro = new ResizeObserver(() => {
+            // Coalesce: a drag fires this continuously, and each render rebuilds
+            // a canvas and repaints a few hundred samples.
+            const now = performance.now();
+            if (now - last < 60) return;
+            last = now;
+            render(win.querySelector('.float-body'));
+        });
+        ro.observe(win);
+    }
     render(win.querySelector('.float-body'));
     open.set(key, win);
     return win;

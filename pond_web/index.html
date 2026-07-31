@@ -470,6 +470,17 @@ canvas { display: block; }
   display: none;
   padding: 8px 10px;
 }
+.arch-key {
+  color: rgba(150, 185, 200, 0.85);
+  font-size: 9px; line-height: 1.5;
+  margin: 2px 0 6px;
+}
+.arch-letter {
+  flex: 0 0 12px;
+  color: rgba(190, 245, 255, 0.75);
+  font-size: 9px; text-align: center;
+}
+.arch-mhead { display: flex; align-items: center; gap: 3px; margin-bottom: 2px; }
 .arch-title {
   font-size: 10px;
   letter-spacing: 0.09em;
@@ -561,6 +572,13 @@ canvas { display: block; }
   border-top: 1px solid rgba(120, 255, 245, 0.14);
 }
 .graph-note { color: rgba(110, 140, 155, 0.7); font-size: 10px; }
+.graph-info {
+  color: rgba(150, 185, 200, 0.85);
+  font-size: 10px; line-height: 1.55;
+  margin-bottom: 7px; max-width: 520px;
+}
+.graph-title .tune-info { margin: 0 4px 0 2px; }
+.graph-expanded-key { word-spacing: 2px; letter-spacing: 0.02em; }
 .graph-scale {
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(120, 255, 245, 0.3);
@@ -576,9 +594,13 @@ canvas { display: block; }
   position: fixed;
   width: min-content;
   min-width: 340px;
+  min-height: 160px;
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
   overflow: auto;
+  /* Drag the bottom-right corner. Charts re-render to whatever size they are
+     given, so a graph window is worth making bigger. */
+  resize: both;
   background: rgba(4, 10, 18, 0.96);
   border: 1px solid rgba(120, 255, 245, 0.38);
   border-radius: 6px;

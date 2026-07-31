@@ -17,6 +17,22 @@
 //     weight space; calling one "forager" would assert an interpretation the data
 //     does not carry. Size, colour, and the cross-tab are claims that hold.
 
+/// What the panel is, in one paragraph, for the `i` popover.
+const KEY_TEXT =
+    'Every agent has a small neural network. This clusters those networks by ' +
+    'their weights, so each group is a set of agents that would react to the ' +
+    'same situation the same way. It is deliberately unrelated to genes or ' +
+    'family: two unrelated lineages can end up in one group, and one lineage ' +
+    'can spread across several. The groups have no names because they are ' +
+    'directions in weight space — calling one "forager" would claim an ' +
+    'interpretation the data does not support. While this panel is open the ' +
+    'agents in the pond are tinted by group, so you can see where each one ' +
+    'swims. Clustering is off until you open it: it is the most expensive ' +
+    'thing in the simulation.';
+
+/// Letters for the groups, so the grid can be read out loud.
+const LETTERS = 'ABCDEFGH';
+
 // Clusters coloured individually. k is 24 in the engine, and 24 hues sit ~15°
 // apart, which reads as noise — so the largest few are coloured and the rest are
 // pooled into one grey row whose size is still shown.
@@ -96,13 +112,24 @@ export function summarize(agents) {
  * @returns {(agents: Array) => void}
  */
 export function initArchetypes(root) {
-    root.innerHTML = `
-        <div class="arch-title">behavioural archetypes</div>
-        <div class="arch-note" data-note></div>
-        <div data-list></div>
-        <div class="arch-title arch-title-sub">archetype &times; lineage</div>
-        <div class="arch-note" data-matrix-note></div>
-        <div data-matrix></div>`;
+    root.innerHTML =
+        `<div class="arch-title">behavioural archetypes` +
+        `<span class="tune-info" tabindex="0" role="note" aria-label="${KEY_TEXT}">i` +
+        `<span class="tune-blurb">${KEY_TEXT}</span></span></div>` +
+        `<div class="arch-key">Each row is a group of agents whose <b>brains</b> are ` +
+        `similar — not their genes, not their family. Bar = share of the pond. ` +
+        `Letters name the groups so the grid below can refer to them; the colours ` +
+        `are the same ones the agents are tinted with while this panel is open.</div>` +
+        `<div class="arch-note" data-note></div>` +
+        `<div data-list></div>` +
+        `<div class="arch-title arch-title-sub">archetype &times; lineage</div>` +
+        `<div class="arch-key">One row per lineage, one column per group above. ` +
+        `Brighter = more of that lineage behaves that way. A row split across ` +
+        `several columns is a lineage hedging; the same column bright on two ` +
+        `unrelated rows is convergent evolution — two families that arrived at ` +
+        `the same strategy independently.</div>` +
+        `<div class="arch-note" data-matrix-note></div>` +
+        `<div data-matrix></div>`;
 
     const noteEl = root.querySelector('[data-note]');
     const listEl = root.querySelector('[data-list]');
@@ -131,8 +158,9 @@ export function initArchetypes(root) {
         const pct = n => ((n / total) * 100).toFixed(0);
         const swatch = rgb => `background: rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
 
-        listEl.innerHTML = rows.map(r => `
+        listEl.innerHTML = rows.map((r, i) => `
             <div class="arch-row">
+                <span class="arch-letter">${LETTERS[i] ?? '·'}</span>
                 <span class="arch-swatch" style="${swatch(r.rgb)}"></span>
                 <span class="arch-bar"><i style="${swatch(r.rgb)};width:${pct(r.count)}%"></i></span>
                 <span class="arch-n">${r.count}</span>
@@ -140,6 +168,7 @@ export function initArchetypes(root) {
             </div>`).join('')
             + (tail > 0 ? `
             <div class="arch-row arch-tail">
+                <span class="arch-letter">·</span>
                 <span class="arch-swatch" style="${swatch(TAIL_RGB)}"></span>
                 <span class="arch-bar"><i style="${swatch(TAIL_RGB)};width:${pct(tail)}%"></i></span>
                 <span class="arch-n">${tail}</span>
@@ -155,7 +184,12 @@ export function initArchetypes(root) {
             : 'row = lineage, column = archetype';
 
         const cols = rows.length + (tail > 0 ? 1 : 0);
-        matrixEl.innerHTML = matrix.map(m => {
+        // Column headers, so a cell can be identified without counting across.
+        const header = `<div class="arch-mrow arch-mhead"><span class="arch-mlabel"></span>` +
+            Array.from({ length: cols }, (_, i) =>
+                `<span class="arch-letter">${i < rows.length ? (LETTERS[i] ?? '·') : '·'}</span>`
+            ).join('') + `</div>`;
+        matrixEl.innerHTML = header + matrix.map(m => {
             const cells = m.cells.slice(0, cols).map((c, i) => {
                 const rgb = i < rows.length ? rows[i].rgb : TAIL_RGB;
                 // Alpha by share *within the lineage*: the question is how this
