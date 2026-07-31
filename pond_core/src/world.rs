@@ -409,13 +409,20 @@ pub const PREDATOR_AMBIENT_MIN_PREY: usize = 30;
 
 /// Floor under an ambient hunter's speed, as a speed *trait* equivalent.
 ///
-/// This is an apex predator in open water: it is fast, full stop. Tracking the
-/// prey's mean alone made the pressure purely relative — you only ever needed
-/// to be a little quicker than your neighbours, so the whole distribution slid
-/// downward together while movement kept costing energy in absolute terms, and
-/// the pond turned into a bowl of slow round things. The floor is what makes
-/// slowness cost something no matter what the neighbours are doing.
-const PREDATOR_SPEED_FLOOR_TRAIT: f32 = 0.95;
+/// This is an apex predator in open water: it is fast. Tracking the prey's mean
+/// alone made the pressure purely relative — you only ever needed to be a
+/// little quicker than your neighbours, so the whole distribution slid downward
+/// together while movement kept costing energy in absolute terms, and the pond
+/// turned into a bowl of slow round things. The floor is what makes slowness
+/// cost something no matter what the neighbours are doing.
+///
+/// 0.80 is a deliberate middle. At 0.62 five seeds averaged 0.910 speed; at
+/// 0.95 they averaged 0.828 but split — 0.53, 1.00, 0.77, 0.96, 0.88 — because
+/// a hunter that fast makes escape all-or-nothing, so a pond either commits
+/// everything to speed or abandons the trait and buys armour instead. A floor
+/// here leaves a gradient: incremental speed still buys something, and being
+/// slow still costs.
+const PREDATOR_SPEED_FLOOR_TRAIT: f32 = 0.80;
 /// Ceiling, as a speed trait equivalent. Just under 1.0 — the fastest animal
 /// the genome can produce is still, barely, the fastest thing in the pond.
 /// Escape stays possible for something that has spent everything on speed, and

@@ -568,7 +568,7 @@ above-average ones, so escape is positional. The goal is not to outrun the
 predator, it is to be harder to catch than a neighbour.
 
 **Floor and ceiling.** A hunter's speed is clamped to
-`[PREDATOR_SPEED_FLOOR_TRAIT (0.95), PREDATOR_SPEED_CEILING_TRAIT (0.99)]` of
+`[PREDATOR_SPEED_FLOOR_TRAIT (0.80), PREDATOR_SPEED_CEILING_TRAIT (0.99)]` of
 `MAX_SPEED`. It is an apex predator in open water: fast, always. The ceiling
 sits just under the quickest animal the genome can build (trait max 1.0), so a
 lineage that spends everything on speed can still escape and one that has not,
