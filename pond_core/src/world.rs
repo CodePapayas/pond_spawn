@@ -407,6 +407,22 @@ const TIER_SPEED: [f32; PREDATOR_TIERS] = [0.95, 1.30, 1.55];
 /// recovering from something and does not need a resident predator on top of it.
 pub const PREDATOR_AMBIENT_MIN_PREY: usize = 30;
 
+/// Floor under an ambient hunter's speed, as a speed *trait* equivalent.
+///
+/// Without one, tracking the prey's mean makes the pressure purely relative:
+/// you only ever need to be a little faster than your neighbours, so the whole
+/// distribution can slide downward together and nothing ever punishes it.
+/// Movement, meanwhile, costs energy in absolute terms — so the equilibrium
+/// walks down until the pond is a bowl of slow round things.
+///
+/// Measured over three seeds: no predators at all gave mean speed 0.70, the
+/// tracking hunter with no floor gave 0.85, and a flat fast hunter pinned it to
+/// 1.00 — and killed the pond down to three agents. The floor keeps the
+/// adaptive behaviour where it matters (a fast pond gets a fast hunter) while
+/// restoring an absolute cost to being slow: a lineage that slides under this
+/// meets something it cannot outrun, whatever its neighbours are doing.
+const PREDATOR_SPEED_FLOOR_TRAIT: f32 = 0.62;
+
 /// Fraction of its prey's mean speed an ambient hunter moves at.
 ///
 /// Below 1.0 on purpose. A hunter slower than the average animal in its target
@@ -760,6 +776,10 @@ pub struct World {
     pub stats_history: StatHistory,
     /// The three live dials. See `Tunables`.
     tunables: Tunables,
+    /// Test hook: hold tier-0 hunters at the flat `TIER_SPEED` constant instead
+    /// of tracking their prey, so the two regimes can be compared on one seed.
+    #[cfg(test)]
+    pub pin_predator_speed_for_test: bool,
     /// Set when `cluster_k` changes, so the next step reclusters instead of
     /// waiting out the rest of the 50-step cycle — otherwise the dial looks
     /// dead for up to 50 steps.
@@ -843,6 +863,8 @@ impl World {
             last_reinforce_step: 0,
             stats_history: StatHistory::new(),
             tunables: Tunables::default(),
+            #[cfg(test)]
+            pin_predator_speed_for_test: false,
             cluster_dirty: false,
             tile_last_eaten: vec![None; grid_size * grid_size],
             tile_eat_count_this_tick: vec![0u16; grid_size * grid_size],
@@ -1418,8 +1440,16 @@ impl World {
         let tier = self.predators[pi].tier as usize;
         let base = TIER_SPEED[tier.min(PREDATOR_TIERS - 1)];
         if tier != 0 { return base; }
+        #[cfg(test)]
+        if self.pin_predator_speed_for_test { return base; }
 
-        let Some(image) = self.predators[pi].search_image else { return base };
+        // Never slower than a middling animal, whatever the pond has done to
+        // itself — see PREDATOR_SPEED_FLOOR_TRAIT.
+        let floor = PREDATOR_SPEED_FLOOR_TRAIT * MAX_SPEED * DT;
+        // No image yet — first ticks of a run, before the first clustering pass.
+        // The floor, not the tier constant: a hunter that has not yet worked out
+        // what it is hunting should not be at full unavoidable speed.
+        let Some(image) = self.predators[pi].search_image else { return floor };
         let mut sum = 0.0f32;
         let mut count = 0usize;
         for i in 0..self.ids.len() {
@@ -1432,7 +1462,8 @@ impl World {
         // Trait → tiles per tick, the same conversion an agent's own velocity
         // cap goes through: `speed_trait × MAX_SPEED` is tiles per second, and a
         // tick is DT of one.
-        (sum / count as f32) * MAX_SPEED * DT * PREDATOR_SPEED_FRAC
+        let tracked = (sum / count as f32) * MAX_SPEED * DT * PREDATOR_SPEED_FRAC;
+        tracked.max(floor)
     }
 
     /// Re-form every hunter's search image, and train its bite on that family's
@@ -3720,6 +3751,12 @@ mod tests {
         w.summon_predator_tier(0, false, 0);
         let id = w.predators[0].id;
         let prey_id = *w.ids.iter().find(|&&i| i != id).unwrap();
+        // A slow animal. Hunters are deliberately slower than average prey now,
+        // so "runs it down" is only true of something it can actually outpace —
+        // this test is about the turn limit not making it miss, not about it
+        // being able to catch anything at all.
+        let prey_slot = w.slot_of(prey_id).unwrap();
+        w.genome[prey_slot].traits.speed = crate::genome::Traits::BOUNDS[1].0;
 
         let mut caught = None;
         for step in 0..600 {
@@ -5267,3 +5304,38 @@ mod predation_selection {
     }
 }
 
+
+#[cfg(test)]
+mod speed_probe {
+    use super::*;
+
+    /// Why is the pond slow? Three conditions, same seeds.
+    #[test]
+    #[ignore]
+    fn what_drives_speed() {
+        for seed in [42u64, 7, 1337] {
+            // A: predators off entirely.
+            let mut a = World::new(12, 400, seed);
+            a.set_automatic_predators(false);
+            for _ in 0..3000 { a.step(); }
+
+            // B: predators on, speed pinned to the old flat constant.
+            let mut b = World::new(12, 400, seed);
+            b.pin_predator_speed_for_test = true;
+            for _ in 0..3000 { b.step(); }
+
+            // C: as shipped — hunter tracks its prey's mean speed.
+            let mut c = World::new(12, 400, seed);
+            for _ in 0..3000 { c.step(); }
+
+            let sp = |w: &World| w.trait_means()[1];
+            let mt = |w: &World| w.trait_means()[2];
+            println!(
+                "seed {seed}: speed  no-pred {:.3} | flat-pred {:.3} | tracking {:.3}   \
+                 metabolism {:.3} / {:.3} / {:.3}   pop {} / {} / {}",
+                sp(&a), sp(&b), sp(&c), mt(&a), mt(&b), mt(&c),
+                a.agent_count(), b.agent_count(), c.agent_count(),
+            );
+        }
+    }
+}
