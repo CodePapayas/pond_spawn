@@ -74,15 +74,15 @@ const DEATH_STRIDE: usize = 4;
 /// without changing it there silently reads the wrong field.
 const SPECIES_STRIDE: usize = 14 + crate::species::SIG_LEN * 3;
 /// Disease row:
-/// [id, origin_species, emerged, severity, contagion, jumped, carriers,
-///  DISEASE_SPECIES_COLUMNS × carriers-by-species].
+/// [id, origin_species, emerged, severity, contagion, duration, jumped,
+///  carriers, DISEASE_SPECIES_COLUMNS × carriers-by-species].
 /// `jumped` is 1 once the pathogen has crossed into a second species. The
 /// per-species block is indexed by species id, with column 0 for unassigned
 /// carriers; ids beyond the block are folded into the last column.
 ///
 /// `disease.js` mirrors this layout offset for offset.
 const DISEASE_SPECIES_COLUMNS: usize = 13;   // species ids 1..=MAX_SPECIES, plus unassigned
-const DISEASE_STRIDE: usize = 7 + DISEASE_SPECIES_COLUMNS;
+const DISEASE_STRIDE: usize = 8 + DISEASE_SPECIES_COLUMNS;
 
 /// Predator record: [id, leaving, tier, angle, reach].
 const PREDATOR_STATE_STRIDE: usize = 5;
@@ -217,6 +217,7 @@ impl WasmWorld {
             buf.push(d.emerged_step as f32);
             buf.push(d.severity as f32);
             buf.push(d.contagion as f32);
+            buf.push(d.duration as f32);
             buf.push(if d.jumped { 1.0 } else { 0.0 });
             buf.push(row.iter().sum::<u32>() as f32);
             for &c in row {

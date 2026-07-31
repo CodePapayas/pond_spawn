@@ -306,15 +306,6 @@ reach behaviour through perception inputs and the separation force instead.
 
 ## Combat
 
-**Cannibalism.** Before speciation the pond is a free-for-all: an agent with no
-lineage has no relatives, so nothing is protected from it. Once a lineage is
-promoted, a member will only attack its *own species* if its aggression is at
-least `CANNIBAL_AGGRESSION_MIN` (0.95) **and** its intelligence sits below 55% of
-its range — bright species recognise their kin, dull furious ones do not. Other
-species are always fair game; this is kin recognition, not pacifism. It is a rule
-over existing traits rather than a twelfth gene, so the behaviour falls out of a
-combination the pond already selects on.
-
 Two combat paths exist:
 
 ### Passive combat phase (`_resolve_combat`, runs every tick after actions)
@@ -679,9 +670,23 @@ needed should be a liability: without a price the trait goes to fixation and
 stops being a decision, which is what happened to defense for the life of the
 project. Measured over six seeds it settles at **0.45**, mid-range.
 
-**No recovery.** An infected agent carries it until it dies, and offspring are
-born clean. Recovery would be a restoring force and would turn every outbreak
-into a damped oscillation converging on equilibrium.
+**Illness ends.** Each disease has a `duration` (`ILLNESS_TICKS`, 150–520),
+rolled at creation and bounded under the longest death age the pool produces
+(~674) — an illness longer than a lifetime is a death sentence with extra steps.
+Immunity removes up to `IMMUNITY_DURATION_RELIEF` (75%) of an individual's share
+of that length and up to `IMMUNITY_SEVERITY_RELIEF` (70%) of the drain, on top of
+resisting the infection in the first place.
+
+**No acquired immunity.** Recovery confers nothing — the same animal can catch
+the same thing tomorrow. The heritable, costly trait is the only protection
+there is; a free permanent one would make an outbreak a one-shot event per
+lineage.
+
+Illness used to be terminal, which sounded like the anti-equilibrium choice and
+was the opposite: measured over 100k ticks, seed 7 recorded 15,268 disease deaths
+out of 18,176 — 84%. An infection that always kills is a death sentence with a
+variable delay, so a pathogen that jumps species eventually becomes the ecology.
+Offspring are still born clean.
 
 **Cross-species jump** at `CROSS_SPECIES_JUMP` (1.5e-6) per contact, once per
 pathogen: after it jumps it belongs to nobody and spreads at full contagion to

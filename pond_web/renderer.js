@@ -38,7 +38,7 @@ import { closeFloatingPrefix } from './floating.js';
 // and every flat buffer the page reads would be off by some number of floats —
 // silently, producing plausible wrong numbers rather than an error. See
 // pond_core/src/schema.rs.
-const EXPECTED_SCHEMA = 5;
+const EXPECTED_SCHEMA = 6;
 
 // ── Sim config ────────────────────────────────────────────────────────────────
 // Set from the setup panel (`N`) and fixed for the life of a run — changing any

@@ -14,10 +14,17 @@
 //!    crowding only. An outbreak in a tight cluster runs the same whether the
 //!    pond holds 40 agents or 400, which is what lets it overshoot and crash
 //!    instead of trimming toward a setpoint.
-//! 3. **There is no recovery.** An infected agent carries it until it dies.
-//!    Recovery would give the system a restoring force and turn every outbreak
-//!    into a damped oscillation converging on an equilibrium — the exact
-//!    behaviour these mechanics exist to prevent.
+//! 3. **Recovery is fixed by the pathogen, not by the pond.** Each disease has
+//!    a `duration`; immunity shortens an individual's share of it and blunts
+//!    the drain, and nothing else touches either. There is no acquired
+//!    immunity: surviving is not a permanent ticket, so an outbreak can come
+//!    back through the same animals.
+//!
+//!    Illness used to be terminal, which sounded like the anti-equilibrium
+//!    choice and was the opposite. Measured over 100k ticks, seed 7 recorded
+//!    15,268 disease deaths out of 18,176 — 84%. An infection that always kills
+//!    is a death sentence with a variable delay, so a pathogen that jumps
+//!    species eventually owns the pond and *is* the equilibrium.
 //!
 //! Severity is an energy drain, so an outbreak interacts with the food economy:
 //! it kills the already-marginal first and hits hardest exactly when the pond is
@@ -42,6 +49,10 @@ pub struct Disease {
     pub contagion: f64,
     /// Step it first appeared.
     pub emerged_step: u32,
+    /// How long the illness runs, in ticks, before an agent shrugs it off.
+    /// Rolled once at creation and fixed — a property of the pathogen, never of
+    /// the population, or the mechanic becomes a controller.
+    pub duration: u32,
     /// Set once it has crossed into a second species. After that it is no longer
     /// a disease *of* one lineage and spreads at full contagion to anything.
     ///
@@ -70,6 +81,18 @@ pub const DISEASE_CHANCE: f64 = 0.30;
 pub const SEVERITY_RANGE: (f64, f64) = (0.02, 0.14);
 /// Contagion range: per-contact infection chance at full local crowding.
 pub const CONTAGION_RANGE: (f64, f64) = (0.02, 0.30);
+/// How long an illness lasts, in ticks, before recovery.
+///
+/// Bounded under the longest death age the pool produces (~674, see
+/// `create_death_range`): a disease must be survivable in principle, or
+/// "recovery" is a word for a slower death.
+pub const ILLNESS_TICKS: (u32, u32) = (150, 520);
+/// Share of an illness's length immunity can remove. At full immunity an agent
+/// is ill for `1 - this` of the pathogen's duration — still ill, briefly.
+pub const IMMUNITY_DURATION_RELIEF: f64 = 0.75;
+/// Share of the per-tick drain immunity can remove.
+pub const IMMUNITY_SEVERITY_RELIEF: f64 = 0.70;
+
 /// Radius, in tiles, within which contact can transmit.
 pub const CONTACT_RADIUS: f32 = 1.1;
 /// Neighbours within `CONTACT_RADIUS` at which crowding is considered maximal.

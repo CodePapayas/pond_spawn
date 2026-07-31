@@ -42,4 +42,6 @@
 ///   `SIG_LEN` 9, so the species row and the composite buffer grow again.
 /// - 5 — disease roster exported: `disease_list` / `disease_names` and the
 ///   `disease_stride` layout.
-pub const SCHEMA_VERSION: u32 = 5;
+/// - 6 — diseases end: `duration` joins the disease row, so illnesses have a
+///   length and immunity shortens it.
+pub const SCHEMA_VERSION: u32 = 6;

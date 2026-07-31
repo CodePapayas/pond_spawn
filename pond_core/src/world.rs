@@ -10,7 +10,8 @@ use crate::brain_cluster::BrainClusters;
 use crate::cluster::ClusterState;
 use crate::disease::{
     Disease, CONTACT_RADIUS, CONTAGION_RANGE, CROSS_SPECIES_JUMP, CROWDING_FULL,
-    DISEASE_CHANCE, SEVERITY_RANGE,
+    DISEASE_CHANCE, ILLNESS_TICKS, IMMUNITY_DURATION_RELIEF, IMMUNITY_SEVERITY_RELIEF,
+    SEVERITY_RANGE,
 };
 use crate::species::SpeciesRegistry;
 use crate::genome::{Genome, TRAIT_COUNT};
@@ -95,34 +96,6 @@ const SLEEP_RECOVERY: f64 = 0.05;
 // Passive metabolism drain per tick, as a multiple of `metabolism`. Named only so
 // the sleep invariant above is checkable — the value is unchanged.
 const BASE_DRAIN: f64 = 0.1;
-
-// ── Cannibalism ───────────────────────────────────────────────────────────────
-//
-// Eating your own kind is a decision, not a default. Ordinary predation between
-// agents needs aggression over the hunt threshold; turning on a *member of your
-// own species* needs more than that, and it needs the animal to be too dull to
-// know better.
-//
-// Framed as a rule over existing traits rather than as a twelfth gene. A
-// cannibalism trait would be a second aggression that only matters against one
-// class of target, and it would drift on its own — this way the behaviour falls
-// out of a combination the pond already selects on, and an intelligent lineage
-// gets kin recognition for free as a side effect of being intelligent.
-
-/// Aggression an agent needs before it will turn on its own species — above the
-/// ordinary hunt threshold, because this is the more extreme act.
-const CANNIBAL_AGGRESSION_MIN: f64 = 0.95;
-/// Intelligence at or above which an agent will not eat its own kind, as a
-/// fraction of the trait's range. Smart animals recognise their relatives; the
-/// dull ones see food.
-const CANNIBAL_INTELLIGENCE_MAX_FRAC: f64 = 0.55;
-
-/// Would this agent eat a member of its own species?
-fn is_cannibal(traits: &crate::genome::Traits) -> bool {
-    let (lo, hi) = crate::genome::Traits::BOUNDS[9];
-    let smart = (traits.intelligence - lo) / (hi - lo);
-    traits.aggression >= CANNIBAL_AGGRESSION_MIN && smart < CANNIBAL_INTELLIGENCE_MAX_FRAC
-}
 
 // ── Defense upkeep ────────────────────────────────────────────────────────────
 //
@@ -772,6 +745,9 @@ pub struct World {
     pub diseases: Vec<Disease>,
     /// Disease id per agent, 0 for healthy. Parallel to the agent arrays.
     pub infection: Vec<u32>,
+    /// Ticks of illness left. Set when the infection is caught, from the
+    /// pathogen's duration and the agent's immunity; at zero the agent recovers.
+    pub infection_ticks: Vec<u32>,
     /// Species id per agent, parallel to the agent arrays and refreshed on
     /// cluster runs. Stale between runs in exactly the way `cluster` is —
     /// `swap_remove` reshuffles slots, so consumers index defensively.
@@ -893,6 +869,7 @@ impl World {
             species_ids: Vec::new(),
             diseases: Vec::new(),
             infection: Vec::new(),
+            infection_ticks: Vec::new(),
             immortal: false,
             predators: Vec::new(),
             predator_ids: HashSet::new(),
@@ -2247,12 +2224,22 @@ impl World {
                 // So is an immune system.
                 self.energy[i] -=
                     IMMUNITY_UPKEEP * self.genome[i].traits.immunity * metabolism;
-                // Being ill costs. Severity is a drain rather than a death roll,
-                // so an outbreak lands on the food economy and takes the
-                // already-marginal first.
+                // Being ill costs, and immunity blunts it. Severity is a drain
+                // rather than a death roll, so an outbreak lands on the food
+                // economy and takes the already-marginal first.
                 if self.infection[i] != 0 {
+                    let immunity = self.genome[i].traits.immunity.clamp(0.0, 1.0);
                     if let Some(d) = self.disease_of(i) {
-                        self.energy[i] -= d.severity * metabolism;
+                        let relief = 1.0 - IMMUNITY_SEVERITY_RELIEF * immunity;
+                        self.energy[i] -= d.severity * relief * metabolism;
+                    }
+                    // Recovery: the illness runs its length and ends. No acquired
+                    // immunity — the same animal can catch the same thing again
+                    // tomorrow, so surviving is not a permanent ticket and an
+                    // outbreak can come back through the survivors.
+                    self.infection_ticks[i] = self.infection_ticks[i].saturating_sub(1);
+                    if self.infection_ticks[i] == 0 {
+                        self.infection[i] = 0;
                     }
                 }
             }
@@ -2276,6 +2263,18 @@ impl World {
                 }
             }
         }
+    }
+
+    /// Start an infection: set the pathogen and how long this agent will carry
+    /// it. Immunity shortens the illness as well as resisting it in the first
+    /// place, floored so even a maximally immune animal is ill for a while.
+    fn infect(&mut self, idx: usize, disease_id: u32) {
+        let Some(d) = self.diseases.get(disease_id as usize - 1) else { return };
+        let duration = d.duration as f64;
+        let immunity = self.genome[idx].traits.immunity.clamp(0.0, 1.0);
+        let ticks = duration * (1.0 - IMMUNITY_DURATION_RELIEF * immunity);
+        self.infection[idx] = disease_id;
+        self.infection_ticks[idx] = ticks.round().max(1.0) as u32;
     }
 
     /// The pathogen an agent is carrying, if any.
@@ -2320,9 +2319,10 @@ impl World {
         let id = self.diseases.len() as u32 + 1;
         let severity = self.rng.gen_range(SEVERITY_RANGE.0..=SEVERITY_RANGE.1);
         let contagion = self.rng.gen_range(CONTAGION_RANGE.0..=CONTAGION_RANGE.1);
+        let duration = self.rng.gen_range(ILLNESS_TICKS.0..=ILLNESS_TICKS.1);
         let name = crate::naming::disease_name(genus, id, self.species.world_seed());
         self.diseases.push(Disease {
-            id, name, origin_species: species_id, severity, contagion,
+            id, name, origin_species: species_id, severity, contagion, duration,
             emerged_step: self.step_count, jumped: false,
         });
 
@@ -2332,7 +2332,7 @@ impl World {
             self.cause_of_death[i].is_none() && !self.is_predator(i)
                 && self.species_ids.get(i).copied() == Some(species_id)
         });
-        if let Some(i) = first { self.infection[i] = id; }
+        if let Some(i) = first { self.infect(i, id); }
     }
 
     /// Spread every live infection by contact.
@@ -2388,7 +2388,7 @@ impl World {
             }
         }
         for (j, id) in caught {
-            if self.infection[j] == 0 { self.infection[j] = id; }
+            if self.infection[j] == 0 { self.infect(j, id); }
         }
         for id in jumps {
             if let Some(d) = self.diseases.get_mut(id as usize - 1) { d.jumped = true; }
@@ -2929,30 +2929,16 @@ impl World {
                     let a_ec = self.genome[attacker].traits.energy_capacity;
                     if self.energy[attacker] > HUNT_HUNGER_FRAC * MAX_ENERGY_BASE * a_ec { continue; }
 
-                    // Who is fair game.
-                    //
-                    // Before speciation: everyone. An agent with no lineage has
-                    // no relatives, and nothing about it is protected — the pond
-                    // starts as a free-for-all and that is the baseline the rest
-                    // of the economy was balanced against.
-                    //
-                    // After promotion: a species that is bright enough stops
-                    // eating itself. Only aggression over CANNIBAL_AGGRESSION_MIN
-                    // *and* intelligence under the cutoff will turn on its own
-                    // lineage. Other species are always fair game — this is kin
-                    // recognition, not pacifism.
-                    let a_species = self.species_ids.get(attacker).copied()
-                        .unwrap_or(crate::species::UNASSIGNED);
-                    let cannibal = is_cannibal(&self.genome[attacker].traits);
+                    // Anything alive on the tile. Kin protection lived here for a
+                    // while — bright species declining to eat their own — and it
+                    // was a bottleneck rather than a nuance: measured over 100k
+                    // ticks, 52 attackers per sampled tick cleared the aggression
+                    // gate, 43 cleared the hunger gate, and *zero* found a legal
+                    // victim, because once a pond speciates everyone left is
+                    // family. Combat fell to 1-2% of deaths.
                     let victim = occupants.iter()
                         .copied()
-                        .find(|&i| {
-                            if i == attacker || self.cause_of_death[i].is_some() { return false; }
-                            if a_species == crate::species::UNASSIGNED { return true; }
-                            let same = self.species_ids.get(i).copied()
-                                .unwrap_or(crate::species::UNASSIGNED) == a_species;
-                            !same || cannibal
-                        });
+                        .find(|&i| i != attacker && self.cause_of_death[i].is_none());
                     let Some(victim) = victim else { continue };
 
                     let atk = self.genome[attacker].traits.attack;
@@ -3095,6 +3081,7 @@ impl World {
         // that infected every newborn of a lineage would be a property of the
         // lineage, not an outbreak, and would never crash.
         self.infection.push(0);
+        self.infection_ticks.push(0);
         self.last_outputs.push([0f32; 8]);
         self.last_perception.push([0f32; INPUT_COUNT]);
         self.last_food_dir.push((0.0, 0.0));
@@ -3175,6 +3162,7 @@ impl World {
                 self.threat_ring.swap_remove(i);
                 self.threat_head.swap_remove(i);
                 self.infection.swap_remove(i);
+                self.infection_ticks.swap_remove(i);
                 self.last_outputs.swap_remove(i);
                 self.last_perception.swap_remove(i);
                 self.last_food_dir.swap_remove(i);
@@ -3204,6 +3192,7 @@ impl World {
                 self.threat_ring.pop();
                 self.threat_head.pop();
                 self.infection.pop();
+                self.infection_ticks.pop();
                 self.last_outputs.pop();
                 self.last_perception.pop();
                 self.last_food_dir.pop();
@@ -4094,10 +4083,18 @@ mod tests {
     /// Plant a pathogen directly, so transmission can be tested without waiting
     /// for a promotion to roll one.
     fn plant_disease(w: &mut World, severity: f64, contagion: f64, origin: u32) -> u32 {
+        plant_disease_lasting(w, severity, contagion, origin, u32::MAX)
+    }
+
+    /// Same, with an explicit illness length — for the tests that are about
+    /// recovery rather than about spread.
+    fn plant_disease_lasting(
+        w: &mut World, severity: f64, contagion: f64, origin: u32, duration: u32,
+    ) -> u32 {
         let id = w.diseases.len() as u32 + 1;
         w.diseases.push(Disease {
             id, name: format!("Testibus morbus {}", id), origin_species: origin,
-            severity, contagion, emerged_step: w.step_count, jumped: false,
+            severity, contagion, duration, emerged_step: w.step_count, jumped: false,
         });
         id
     }
@@ -4119,7 +4116,7 @@ mod tests {
         w.tick_disease();
         assert!(w.infection.iter().all(|&v| v == 0), "infection appeared from nowhere");
 
-        w.infection[0] = id;
+        w.infect(0, id);
         w.tick_disease();
         let infected = w.infection.iter().filter(|&&v| v != 0).count();
         assert!(infected > 1, "a full-contagion carrier in a scrum infected nobody");
@@ -4150,7 +4147,7 @@ mod tests {
                 w.pos_y[i] = 25.0 + (i / 10) as f32 % 10.0;
             }
             w.spatial.rebuild(&w.pos_x, &w.pos_y);
-            w.infection[0] = id;
+            w.infect(0, id);
             for _ in 0..3 { w.tick_disease(); }
             w.infection.iter().take(8).filter(|&&v| v != 0).count()
         };
@@ -4174,7 +4171,7 @@ mod tests {
                 w.species_ids[i] = 2;      // nobody is of the origin species
             }
             w.spatial.rebuild(&w.pos_x, &w.pos_y);
-            w.infection[0] = id;
+            w.infect(0, id);
             for _ in 0..40 { w.tick_disease(); }
             w.infection.iter().filter(|&&v| v != 0).count()
         };
@@ -4198,7 +4195,7 @@ mod tests {
             w.genome[i].traits.immunity = 0.0;
         }
         w.spatial.rebuild(&w.pos_x, &w.pos_y);
-        w.infection[0] = id;
+        w.infect(0, id);
 
         w.disease_enabled = false;
         for _ in 0..20 { w.tick_disease(); }
@@ -4239,101 +4236,6 @@ mod tests {
         assert_eq!(w.ids.len(), before + 1);
         assert_eq!(*w.species_ids.last().unwrap(), species,
             "a newborn was filed as unassigned until the next cluster tick");
-    }
-
-    // ── Cannibalism ───────────────────────────────────────────────────────────
-
-    /// Two agents of one species on one tile, both starving, attacker maxed for
-    /// aggression. Returns whether the attacker ate its relative.
-    fn cannibalism_between_kin(intelligence: f64) -> bool {
-        let mut w = World::new(8, 6, 17);
-        w.set_automatic_predators(false);
-        let (a, b) = (0, 1);
-        for &i in &[a, b] {
-            w.pos_x[i] = 2.5;
-            w.pos_y[i] = 2.5;
-            w.species_ids[i] = 3;                 // same lineage
-            w.energy[i] = 5.0;                    // hungry enough to hunt
-            w.genome[i].traits.aggression = 1.05;
-            w.genome[i].traits.intelligence = intelligence;
-        }
-        // The attacker must be able to win the roll for the test to be about
-        // the kin rule rather than about combat odds.
-        w.genome[a].traits.attack = 1.25;
-        w.genome[b].traits.defense = 0.5;
-        w.parent_defense_bonus[b] = 0.0;
-        w.spatial.rebuild(&w.pos_x, &w.pos_y);
-
-        for _ in 0..40 {
-            w.resolve_combat_spatial();
-            if w.cause_of_death[b] == Some(CauseOfDeath::KilledInCombat) { return true; }
-        }
-        false
-    }
-
-    #[test]
-    fn before_speciation_anything_is_food() {
-        // The pond starts as a free-for-all. An unassigned agent has no
-        // relatives, so nothing is protected from it however bright it is —
-        // kin recognition is something a lineage gets on promotion.
-        let mut w = World::new(8, 6, 17);
-        w.set_automatic_predators(false);
-        let (a, b) = (0, 1);
-        for &i in &[a, b] {
-            w.pos_x[i] = 2.5;
-            w.pos_y[i] = 2.5;
-            w.energy[i] = 5.0;
-            w.species_ids[i] = crate::species::UNASSIGNED;
-            w.genome[i].traits.aggression = 1.05;
-            w.genome[i].traits.intelligence = crate::genome::Traits::BOUNDS[9].1;
-        }
-        w.genome[a].traits.attack = 1.25;
-        w.genome[b].traits.defense = 0.5;
-        w.parent_defense_bonus[b] = 0.0;
-        w.spatial.rebuild(&w.pos_x, &w.pos_y);
-
-        let mut ate = false;
-        for _ in 0..40 {
-            w.resolve_combat_spatial();
-            if w.cause_of_death[b] == Some(CauseOfDeath::KilledInCombat) { ate = true; break; }
-        }
-        assert!(ate, "kin protection reached agents that have no kin yet");
-    }
-
-    #[test]
-    fn the_dull_and_furious_eat_their_own_and_the_bright_do_not() {
-        let (lo, hi) = crate::genome::Traits::BOUNDS[9];
-        assert!(cannibalism_between_kin(lo), "a dull, maximally aggressive agent spared its kin");
-        assert!(!cannibalism_between_kin(hi), "a bright agent ate a member of its own species");
-    }
-
-    #[test]
-    fn kin_protection_does_not_extend_to_other_lineages() {
-        // The rule is about your own kind. A bright agent still hunts everything
-        // else — otherwise intelligence would be a pacifism trait.
-        let mut w = World::new(8, 6, 17);
-        w.set_automatic_predators(false);
-        let (a, b) = (0, 1);
-        for &i in &[a, b] {
-            w.pos_x[i] = 2.5;
-            w.pos_y[i] = 2.5;
-            w.energy[i] = 5.0;
-            w.genome[i].traits.aggression = 1.05;
-            w.genome[i].traits.intelligence = crate::genome::Traits::BOUNDS[9].1;
-        }
-        w.species_ids[a] = 3;
-        w.species_ids[b] = 4;                     // a different lineage
-        w.genome[a].traits.attack = 1.25;
-        w.genome[b].traits.defense = 0.5;
-        w.parent_defense_bonus[b] = 0.0;
-        w.spatial.rebuild(&w.pos_x, &w.pos_y);
-
-        let mut ate = false;
-        for _ in 0..40 {
-            w.resolve_combat_spatial();
-            if w.cause_of_death[b] == Some(CauseOfDeath::KilledInCombat) { ate = true; break; }
-        }
-        assert!(ate, "a bright agent refused to hunt another species");
     }
 
     #[test]
@@ -4401,7 +4303,7 @@ mod tests {
                 w.genome[i].traits.immunity = immunity;
             }
             w.spatial.rebuild(&w.pos_x, &w.pos_y);
-            w.infection[0] = id;
+            w.infect(0, id);
             // One tick. Given enough of them a 0.03 chance against forty
             // neighbours still infects everyone — resistance slows an outbreak,
             // it does not wall it off, and the measurement has to respect that.
@@ -4416,6 +4318,101 @@ mod tests {
     }
 
     #[test]
+    fn an_illness_runs_its_length_and_ends() {
+        let mut w = World::new(12, 6, 44);
+        w.set_automatic_predators(false);
+        let id = plant_disease_lasting(&mut w, 0.0, 0.0, 0, 40);
+        w.genome[0].traits.immunity = 0.0;     // no relief: the full length
+        w.infect(0, id);
+        assert_eq!(w.infection_ticks[0], 40);
+
+        for _ in 0..39 { w.step(); }
+        assert_eq!(w.infection[0], id, "recovered early");
+        w.step();
+        assert_eq!(w.infection[0], 0, "the illness never ended");
+    }
+
+    #[test]
+    fn immunity_shortens_the_illness_and_blunts_it() {
+        let mut w = World::new(12, 6, 44);
+        w.set_automatic_predators(false);
+        let id = plant_disease_lasting(&mut w, 0.5, 0.0, 0, 400);
+        let (weak, strong) = (0, 1);
+        for &i in &[weak, strong] {
+            w.genome[i].traits.metabolism = 1.0;
+            w.energy[i] = MAX_ENERGY_BASE;
+        }
+        w.genome[weak].traits.immunity = 0.0;
+        w.genome[strong].traits.immunity = 1.0;
+        w.infect(weak, id);
+        w.infect(strong, id);
+
+        assert!(w.infection_ticks[strong] < w.infection_ticks[weak],
+            "immunity did not shorten the illness: {} vs {}",
+            w.infection_ticks[strong], w.infection_ticks[weak]);
+
+        let before = (w.energy[weak], w.energy[strong]);
+        for _ in 0..20 { w.step(); }
+        let lost = (before.0 - w.energy[weak], before.1 - w.energy[strong]);
+        assert!(lost.1 < lost.0,
+            "immunity did not blunt the drain: lost {:.2} vs {:.2}", lost.1, lost.0);
+    }
+
+    #[test]
+    fn recovery_confers_no_immunity() {
+        // Surviving is not a permanent ticket. Acquired immunity would make an
+        // outbreak a one-shot event per lineage and hand the pond a restoring
+        // force it should not have — the heritable, costly trait is the only
+        // protection there is.
+        let mut w = World::new(20, 30, 5);
+        w.set_automatic_predators(false);
+        // Non-contagious while patient zero recovers, or the scrum reinfects it
+        // the moment it is clear and the test proves nothing.
+        let id = plant_disease_lasting(&mut w, 0.0, 0.0, 0, 5);
+        for i in 0..w.ids.len() {
+            w.pos_x[i] = 10.0;
+            w.pos_y[i] = 10.0;
+            w.species_ids[i] = 0;
+            w.genome[i].traits.immunity = 0.0;
+        }
+        w.spatial.rebuild(&w.pos_x, &w.pos_y);
+        w.infect(0, id);
+        for _ in 0..6 { w.step(); }
+        assert_eq!(w.infection[0], 0, "patient zero never recovered");
+
+        // Now make it contagious and put a carrier next to it: it catches again.
+        w.diseases[0].contagion = 1.0;
+        w.infect(1, id);
+        w.spatial.rebuild(&w.pos_x, &w.pos_y);
+        let mut reinfected = false;
+        for _ in 0..20 {
+            w.tick_disease();
+            if w.infection[0] != 0 { reinfected = true; break; }
+        }
+        assert!(reinfected, "a recovered agent was permanently immune");
+    }
+
+    #[test]
+    fn every_illness_is_survivable_in_principle() {
+        // An illness longer than a lifetime is not an illness, it is a death
+        // sentence with extra steps.
+        let longest_life = crate::genome::Traits::BOUNDS.len();   // silence unused
+        let _ = longest_life;
+        let mut w = World::new(12, 40, 3);
+        for i in 0..300u32 {
+            w.maybe_seed_disease(1, "Thalura");
+            let _ = i;
+        }
+        assert!(!w.diseases.is_empty(), "300 rolls produced no disease at all");
+        let max_death_age = w.death_range_pool.iter().copied().max().unwrap();
+        for d in &w.diseases {
+            assert!(d.duration < max_death_age,
+                "{} lasts {} ticks against a longest life of {}",
+                d.name, d.duration, max_death_age);
+        }
+    }
+
+    #[test]
     fn immunity_does_not_save_an_agent_already_infected() {
         // There is no recovery, at any immunity. Never catching it is the whole
         // defence — a curable disease is a restoring force and damps the
@@ -4423,8 +4420,8 @@ mod tests {
         let mut w = World::new(12, 6, 44);
         w.set_automatic_predators(false);
         let id = plant_disease(&mut w, 5.0, 0.0, 0);
-        w.infection[0] = id;
         w.genome[0].traits.immunity = 1.0;
+        w.infect(0, id);
         w.energy[0] = 1.0;
         for _ in 0..10 { w.step(); }
         assert!(w.death_counts()[CauseOfDeath::Disease.code() as usize] > 0,
@@ -4451,7 +4448,7 @@ mod tests {
         let mut w = World::new(12, 6, 44);
         w.set_automatic_predators(false);
         let id = plant_disease(&mut w, 5.0, 0.0, 0);   // brutal, non-contagious
-        w.infection[0] = id;
+        w.infect(0, id);
         w.energy[0] = 1.0;
         for _ in 0..5 { w.step(); }
         assert!(w.death_counts()[CauseOfDeath::Disease.code() as usize] > 0,
@@ -5539,13 +5536,7 @@ mod combat_probe {
                             let cap = MAX_ENERGY_BASE * w.genome[a].traits.energy_capacity;
                             if w.energy[a] > HUNT_HUNGER_FRAC * cap { continue; }
                             passed_hunger += 1;
-                            let sp = w.species_ids.get(a).copied().unwrap_or(0);
-                            let cannibal = is_cannibal(&w.genome[a].traits);
-                            if occ.iter().any(|&v| v != a
-                                && (sp == 0 || cannibal
-                                    || w.species_ids.get(v).copied().unwrap_or(0) != sp)) {
-                                had_victim += 1;
-                            }
+                            if occ.iter().any(|&v| v != a) { had_victim += 1; }
                         }
                     }
                 }

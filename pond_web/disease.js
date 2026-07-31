@@ -19,9 +19,10 @@ const D_ORIGIN = 1;
 const D_EMERGED = 2;
 const D_SEVERITY = 3;
 const D_CONTAGION = 4;
-const D_JUMPED = 5;         // 1 once it has crossed into a second species
-const D_CARRIERS = 6;
-const D_BY_SPECIES = 7;     // disease_species_columns() entries; column 0 = unassigned
+const D_DURATION = 5;       // ticks an unprotected agent stays ill
+const D_JUMPED = 6;         // 1 once it has crossed into a second species
+const D_CARRIERS = 7;
+const D_BY_SPECIES = 8;     // disease_species_columns() entries; column 0 = unassigned
 
 /** Parse the flat buffer into rows. */
 export function parseDiseases(flat, stride, columns, names) {
@@ -36,6 +37,7 @@ export function parseDiseases(flat, stride, columns, names) {
             emerged: flat[off + D_EMERGED] | 0,
             severity: flat[off + D_SEVERITY],
             contagion: flat[off + D_CONTAGION],
+            duration: flat[off + D_DURATION] | 0,
             jumped: flat[off + D_JUMPED] > 0.5,
             carriers: flat[off + D_CARRIERS] | 0,
             bySpecies: Array.from(
@@ -127,6 +129,8 @@ function renderDisease(body, d, step, speciesName) {
         `<span class="v">${d.severity.toFixed(3)}/tick</span></div>` +
         `<div class="comp-row"><span class="k">contagion</span>` +
         `<span class="v">${d.contagion.toFixed(3)}</span></div>` +
+        `<div class="comp-row"><span class="k">illness</span>` +
+        `<span class="v">${d.duration} ticks</span></div>` +
         `<div class="comp-row"><span class="k">age</span>` +
         `<span class="v">${step - d.emerged} steps</span></div>` +
         (d.jumped
@@ -135,13 +139,15 @@ function renderDisease(body, d, step, speciesName) {
             : `<div class="comp-note">still confined to its host lineage</div>`) +
         `<div class="comp-head" style="margin-top:8px">carriers — ${d.carriers}</div>` +
         (rows.length === 0
-            ? `<div class="comp-note">none left alive. It burned through its hosts ` +
-              `and stopped, which is how an outbreak ends here: there is no recovery, ` +
-              `so a pathogen runs out of the susceptible or runs out of pond.</div>`
+            ? `<div class="comp-note">nobody is carrying it. An outbreak ends when ` +
+              `it runs out of new hosts faster than its carriers recover — it can ` +
+              `come back if a carrier appears again.</div>`
             : rows.map(r =>
                 `<div class="comp-row"><span class="k">${r.label}</span>` +
                 bar(r.count) + `<span class="v">${r.count}</span></div>`).join('')) +
         `<div class="comp-note">severity drains energy, so deaths land as ` +
         `<em>disease</em> rather than starvation — but an outbreak still hits ` +
-        `hardest where the pond is already hungry.</div>`;
+        `hardest where the pond is already hungry. Illness runs its length and ` +
+        `ends; immunity both shortens it and blunts the drain, and recovery ` +
+        `confers nothing — the same animal can catch it again.</div>`;
 }
