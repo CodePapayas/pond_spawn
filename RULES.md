@@ -458,6 +458,11 @@ Promotion is therefore an experiment, not an observation: a shape still riding
 mutation toward a fit, or one k-means merely happened to bracket, loses its
 share once frozen and never promotes.
 
+**Predators are not agents.** A triangle is a hazard, not an inhabitant. It is
+excluded from the population count, the population graph, and the average-energy
+denominator — its energy is held at a floor and it never eats, so averaging it in
+drags the pond's apparent energy down as the pack grows.
+
 **Membership is decided once and held for life.** There are exactly two ways
 into a species:
 
@@ -567,23 +572,24 @@ slower than the average animal in the family it hunts cannot catch the
 above-average ones, so escape is positional. The goal is not to outrun the
 predator, it is to be harder to catch than a neighbour.
 
-**Floor and ceiling.** A hunter's speed is clamped to
-`[PREDATOR_SPEED_FLOOR_TRAIT (0.80), PREDATOR_SPEED_CEILING_TRAIT (0.99)]` of
-`MAX_SPEED`. It is an apex predator in open water: fast, always. The ceiling
-sits just under the quickest animal the genome can build (trait max 1.0), so a
-lineage that spends everything on speed can still escape and one that has not,
-cannot.
+**Cruise, then burst.** A tier-0 hunter cruises at `PREDATOR_CRUISE_FRAC`
+(0.80–0.90) of the mean speed of the family it is hunting — under 1.0, so an
+average animal outpaces a cruising hunter and the ordinary state of the pond is
+"not being caught". The fraction is a *band*, re-rolled per hunter on every
+search-image review: a fixed multiplier is a fixed safe margin, and a fixed safe
+margin is something a lineage evolves to sit exactly on top of.
 
-Tracking the prey's mean *alone* made the pressure purely relative — you only
-needed to be a little quicker than your neighbours, so the distribution slid
-downward together while movement kept costing energy in absolute terms.
+Catching happens in **bursts**. A small per-tick chance
+(`PREDATOR_BURST_CHANCE`, about one per 2,500 ticks per hunter) starts a
+150–400 tick burst at `PREDATOR_BURST_MULT` (1.9×) cruising speed. Cruising
+closes distance; the burst is what takes something down.
 
-**Bursts.** Each resident hunter has a small per-tick chance
-(`PREDATOR_BURST_CHANCE`, about one per 2,500 ticks) of running at the ceiling
-for 150–400 ticks. Variance in the threat: a steady predator is one a lineage
-can evolve a fixed answer to, after which the pond settles. An occasional
-faster-than-it-should-be hunter means the safe margin is never quite knowable —
-the same reason the search image moves.
+Both are clamped to `[PREDATOR_SPEED_FLOOR_TRAIT (0.50),
+PREDATOR_SPEED_CEILING_TRAIT (0.99)]` of `MAX_SPEED`. The floor is the slowest
+animal the genome can build — without it a pond that abandons speed also
+abandons the predator, and the relative band becomes a treadmill pointing down.
+The ceiling sits just under the quickest, so an all-in speed lineage keeps an
+edge even mid-burst.
 
 Tiers 1 and 2 keep their flat constants. They are god-mode powers and are meant
 to be unfair.

@@ -664,7 +664,9 @@ impl WasmWorld {
     pub fn cull_trigger_pop(&self) -> u32 { self.inner.cull_trigger_pop() as u32 }
 
     pub fn step_count(&self) -> u32 { self.inner.step_count }
-    pub fn agent_count(&self) -> usize { self.inner.agent_count() }
+    /// Living **prey**. Predators are hazards rather than inhabitants, so they
+    /// are not part of the number the HUD and the graphs call "agents".
+    pub fn agent_count(&self) -> usize { self.inner.prey_count() }
     pub fn grid_size(&self) -> usize { self.inner.grid_size }
 
     /// Brain/trait snapshot for one agent (inspector panel). Empty vec if the
