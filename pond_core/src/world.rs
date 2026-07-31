@@ -96,6 +96,34 @@ const SLEEP_RECOVERY: f64 = 0.05;
 // the sleep invariant above is checkable — the value is unchanged.
 const BASE_DRAIN: f64 = 0.1;
 
+// ── Cannibalism ───────────────────────────────────────────────────────────────
+//
+// Eating your own kind is a decision, not a default. Ordinary predation between
+// agents needs aggression over the hunt threshold; turning on a *member of your
+// own species* needs more than that, and it needs the animal to be too dull to
+// know better.
+//
+// Framed as a rule over existing traits rather than as a twelfth gene. A
+// cannibalism trait would be a second aggression that only matters against one
+// class of target, and it would drift on its own — this way the behaviour falls
+// out of a combination the pond already selects on, and an intelligent lineage
+// gets kin recognition for free as a side effect of being intelligent.
+
+/// Aggression an agent needs before it will turn on its own species — above the
+/// ordinary hunt threshold, because this is the more extreme act.
+const CANNIBAL_AGGRESSION_MIN: f64 = 0.95;
+/// Intelligence at or above which an agent will not eat its own kind, as a
+/// fraction of the trait's range. Smart animals recognise their relatives; the
+/// dull ones see food.
+const CANNIBAL_INTELLIGENCE_MAX_FRAC: f64 = 0.55;
+
+/// Would this agent eat a member of its own species?
+fn is_cannibal(traits: &crate::genome::Traits) -> bool {
+    let (lo, hi) = crate::genome::Traits::BOUNDS[9];
+    let smart = (traits.intelligence - lo) / (hi - lo);
+    traits.aggression >= CANNIBAL_AGGRESSION_MIN && smart < CANNIBAL_INTELLIGENCE_MAX_FRAC
+}
+
 // ── Defense upkeep ────────────────────────────────────────────────────────────
 //
 // Armour used to be free. Nothing anywhere charged for `defense`, while ordinary
@@ -2781,9 +2809,30 @@ impl World {
                     let a_ec = self.genome[attacker].traits.energy_capacity;
                     if self.energy[attacker] > HUNT_HUNGER_FRAC * MAX_ENERGY_BASE * a_ec { continue; }
 
+                    // Who is fair game.
+                    //
+                    // Before speciation: everyone. An agent with no lineage has
+                    // no relatives, and nothing about it is protected — the pond
+                    // starts as a free-for-all and that is the baseline the rest
+                    // of the economy was balanced against.
+                    //
+                    // After promotion: a species that is bright enough stops
+                    // eating itself. Only aggression over CANNIBAL_AGGRESSION_MIN
+                    // *and* intelligence under the cutoff will turn on its own
+                    // lineage. Other species are always fair game — this is kin
+                    // recognition, not pacifism.
+                    let a_species = self.species_ids.get(attacker).copied()
+                        .unwrap_or(crate::species::UNASSIGNED);
+                    let cannibal = is_cannibal(&self.genome[attacker].traits);
                     let victim = occupants.iter()
                         .copied()
-                        .find(|&i| i != attacker && self.cause_of_death[i].is_none());
+                        .find(|&i| {
+                            if i == attacker || self.cause_of_death[i].is_some() { return false; }
+                            if a_species == crate::species::UNASSIGNED { return true; }
+                            let same = self.species_ids.get(i).copied()
+                                .unwrap_or(crate::species::UNASSIGNED) == a_species;
+                            !same || cannibal
+                        });
                     let Some(victim) = victim else { continue };
 
                     let atk = self.genome[attacker].traits.attack;
@@ -4064,6 +4113,101 @@ mod tests {
         assert_eq!(w.ids.len(), before + 1);
         assert_eq!(*w.species_ids.last().unwrap(), species,
             "a newborn was filed as unassigned until the next cluster tick");
+    }
+
+    // ── Cannibalism ───────────────────────────────────────────────────────────
+
+    /// Two agents of one species on one tile, both starving, attacker maxed for
+    /// aggression. Returns whether the attacker ate its relative.
+    fn cannibalism_between_kin(intelligence: f64) -> bool {
+        let mut w = World::new(8, 6, 17);
+        w.set_automatic_predators(false);
+        let (a, b) = (0, 1);
+        for &i in &[a, b] {
+            w.pos_x[i] = 2.5;
+            w.pos_y[i] = 2.5;
+            w.species_ids[i] = 3;                 // same lineage
+            w.energy[i] = 5.0;                    // hungry enough to hunt
+            w.genome[i].traits.aggression = 1.05;
+            w.genome[i].traits.intelligence = intelligence;
+        }
+        // The attacker must be able to win the roll for the test to be about
+        // the kin rule rather than about combat odds.
+        w.genome[a].traits.attack = 1.25;
+        w.genome[b].traits.defense = 0.5;
+        w.parent_defense_bonus[b] = 0.0;
+        w.spatial.rebuild(&w.pos_x, &w.pos_y);
+
+        for _ in 0..40 {
+            w.resolve_combat_spatial();
+            if w.cause_of_death[b] == Some(CauseOfDeath::KilledInCombat) { return true; }
+        }
+        false
+    }
+
+    #[test]
+    fn before_speciation_anything_is_food() {
+        // The pond starts as a free-for-all. An unassigned agent has no
+        // relatives, so nothing is protected from it however bright it is —
+        // kin recognition is something a lineage gets on promotion.
+        let mut w = World::new(8, 6, 17);
+        w.set_automatic_predators(false);
+        let (a, b) = (0, 1);
+        for &i in &[a, b] {
+            w.pos_x[i] = 2.5;
+            w.pos_y[i] = 2.5;
+            w.energy[i] = 5.0;
+            w.species_ids[i] = crate::species::UNASSIGNED;
+            w.genome[i].traits.aggression = 1.05;
+            w.genome[i].traits.intelligence = crate::genome::Traits::BOUNDS[9].1;
+        }
+        w.genome[a].traits.attack = 1.25;
+        w.genome[b].traits.defense = 0.5;
+        w.parent_defense_bonus[b] = 0.0;
+        w.spatial.rebuild(&w.pos_x, &w.pos_y);
+
+        let mut ate = false;
+        for _ in 0..40 {
+            w.resolve_combat_spatial();
+            if w.cause_of_death[b] == Some(CauseOfDeath::KilledInCombat) { ate = true; break; }
+        }
+        assert!(ate, "kin protection reached agents that have no kin yet");
+    }
+
+    #[test]
+    fn the_dull_and_furious_eat_their_own_and_the_bright_do_not() {
+        let (lo, hi) = crate::genome::Traits::BOUNDS[9];
+        assert!(cannibalism_between_kin(lo), "a dull, maximally aggressive agent spared its kin");
+        assert!(!cannibalism_between_kin(hi), "a bright agent ate a member of its own species");
+    }
+
+    #[test]
+    fn kin_protection_does_not_extend_to_other_lineages() {
+        // The rule is about your own kind. A bright agent still hunts everything
+        // else — otherwise intelligence would be a pacifism trait.
+        let mut w = World::new(8, 6, 17);
+        w.set_automatic_predators(false);
+        let (a, b) = (0, 1);
+        for &i in &[a, b] {
+            w.pos_x[i] = 2.5;
+            w.pos_y[i] = 2.5;
+            w.energy[i] = 5.0;
+            w.genome[i].traits.aggression = 1.05;
+            w.genome[i].traits.intelligence = crate::genome::Traits::BOUNDS[9].1;
+        }
+        w.species_ids[a] = 3;
+        w.species_ids[b] = 4;                     // a different lineage
+        w.genome[a].traits.attack = 1.25;
+        w.genome[b].traits.defense = 0.5;
+        w.parent_defense_bonus[b] = 0.0;
+        w.spatial.rebuild(&w.pos_x, &w.pos_y);
+
+        let mut ate = false;
+        for _ in 0..40 {
+            w.resolve_combat_spatial();
+            if w.cause_of_death[b] == Some(CauseOfDeath::KilledInCombat) { ate = true; break; }
+        }
+        assert!(ate, "a bright agent refused to hunt another species");
     }
 
     #[test]

@@ -306,6 +306,15 @@ reach behaviour through perception inputs and the separation force instead.
 
 ## Combat
 
+**Cannibalism.** Before speciation the pond is a free-for-all: an agent with no
+lineage has no relatives, so nothing is protected from it. Once a lineage is
+promoted, a member will only attack its *own species* if its aggression is at
+least `CANNIBAL_AGGRESSION_MIN` (0.95) **and** its intelligence sits below 55% of
+its range — bright species recognise their kin, dull furious ones do not. Other
+species are always fair game; this is kin recognition, not pacifism. It is a rule
+over existing traits rather than a twelfth gene, so the behaviour falls out of a
+combination the pond already selects on.
+
 Two combat paths exist:
 
 ### Passive combat phase (`_resolve_combat`, runs every tick after actions)
