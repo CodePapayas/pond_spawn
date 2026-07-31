@@ -409,19 +409,30 @@ pub const PREDATOR_AMBIENT_MIN_PREY: usize = 30;
 
 /// Floor under an ambient hunter's speed, as a speed *trait* equivalent.
 ///
-/// Without one, tracking the prey's mean makes the pressure purely relative:
-/// you only ever need to be a little faster than your neighbours, so the whole
-/// distribution can slide downward together and nothing ever punishes it.
-/// Movement, meanwhile, costs energy in absolute terms — so the equilibrium
-/// walks down until the pond is a bowl of slow round things.
+/// This is an apex predator in open water: it is fast, full stop. Tracking the
+/// prey's mean alone made the pressure purely relative — you only ever needed
+/// to be a little quicker than your neighbours, so the whole distribution slid
+/// downward together while movement kept costing energy in absolute terms, and
+/// the pond turned into a bowl of slow round things. The floor is what makes
+/// slowness cost something no matter what the neighbours are doing.
+const PREDATOR_SPEED_FLOOR_TRAIT: f32 = 0.95;
+/// Ceiling, as a speed trait equivalent. Just under 1.0 — the fastest animal
+/// the genome can produce is still, barely, the fastest thing in the pond.
+/// Escape stays possible for something that has spent everything on speed, and
+/// impossible for anything that has not.
+const PREDATOR_SPEED_CEILING_TRAIT: f32 = 0.99;
+
+/// Per-tick chance a hunter goes into a burst.
 ///
-/// Measured over three seeds: no predators at all gave mean speed 0.70, the
-/// tracking hunter with no floor gave 0.85, and a flat fast hunter pinned it to
-/// 1.00 — and killed the pond down to three agents. The floor keeps the
-/// adaptive behaviour where it matters (a fast pond gets a fast hunter) while
-/// restoring an absolute cost to being slow: a lineage that slides under this
-/// meets something it cannot outrun, whatever its neighbours are doing.
-const PREDATOR_SPEED_FLOOR_TRAIT: f32 = 0.62;
+/// Roughly one burst per hunter per 2,500 ticks. The point is variance: a
+/// steady threat is one a lineage can evolve a fixed answer to, and then the
+/// pond settles. A hunter that is occasionally faster than it has any right to
+/// be means the safe margin is never quite knowable, which is the same reason
+/// the search image moves.
+const PREDATOR_BURST_CHANCE: f64 = 0.0004;
+/// How long a burst lasts, in ticks. Long enough to change the outcome of a
+/// chase and of several others behind it.
+const PREDATOR_BURST_TICKS: (u32, u32) = (150, 400);
 
 /// Fraction of its prey's mean speed an ambient hunter moves at.
 ///
@@ -586,6 +597,9 @@ pub struct Predator {
     /// pick out the better-armoured members while hunting — a hunter goes for
     /// the prize animal, not the runt.
     pub image_armour: f64,
+    /// Ticks left of a speed burst. While it runs the hunter moves at the
+    /// ceiling instead of tracking its prey.
+    pub burst_ticks: u32,
 }
 
 // ── Death ─────────────────────────────────────────────────────────────────────
@@ -1305,6 +1319,7 @@ impl World {
             // fields a predator for the pond it is entering.
             attack: self.starting_bite(tier),
             image_armour: 0.0,
+            burst_ticks: 0,
         });
         self.resync_predator_ids();
         self.predator_high_water = self.predator_high_water.max(self.predators.len());
@@ -1443,9 +1458,12 @@ impl World {
         #[cfg(test)]
         if self.pin_predator_speed_for_test { return base; }
 
-        // Never slower than a middling animal, whatever the pond has done to
-        // itself — see PREDATOR_SPEED_FLOOR_TRAIT.
+        // Fast, always — see PREDATOR_SPEED_FLOOR_TRAIT — and never quite as
+        // fast as the fastest animal the genome can build.
         let floor = PREDATOR_SPEED_FLOOR_TRAIT * MAX_SPEED * DT;
+        let ceiling = PREDATOR_SPEED_CEILING_TRAIT * MAX_SPEED * DT;
+        // Mid-burst it simply runs at the ceiling.
+        if self.predators[pi].burst_ticks > 0 { return ceiling; }
         // No image yet — first ticks of a run, before the first clustering pass.
         // The floor, not the tier constant: a hunter that has not yet worked out
         // what it is hunting should not be at full unavoidable speed.
@@ -1463,7 +1481,7 @@ impl World {
         // cap goes through: `speed_trait × MAX_SPEED` is tiles per second, and a
         // tick is DT of one.
         let tracked = (sum / count as f32) * MAX_SPEED * DT * PREDATOR_SPEED_FRAC;
-        tracked.max(floor)
+        tracked.clamp(floor, ceiling)
     }
 
     /// Re-form every hunter's search image, and train its bite on that family's
@@ -1554,6 +1572,18 @@ impl World {
             self.resync_predator_ids();
             return;
         };
+        // Bursts: a small per-tick chance of running at the ceiling for a few
+        // hundred ticks. Variance in the threat, so a lineage cannot settle on a
+        // fixed safe margin — the same reason the search image moves.
+        if self.predators[pi].burst_ticks > 0 {
+            self.predators[pi].burst_ticks -= 1;
+        } else if tier_resident(self.predators[pi].tier)
+            && self.rng.gen_bool(PREDATOR_BURST_CHANCE)
+        {
+            self.predators[pi].burst_ticks =
+                self.rng.gen_range(PREDATOR_BURST_TICKS.0..=PREDATOR_BURST_TICKS.1);
+        }
+
         let target = self.predators[pi].target_pop;
         let tier = self.predators[pi].tier;
         let attack = self.predators[pi].attack;
@@ -4496,6 +4526,31 @@ mod tests {
     // ── Predator adaptation ───────────────────────────────────────────────────
 
     #[test]
+    fn hunters_burst_and_the_burst_ends() {
+        // Variance in the threat: a steady hunter is one a lineage can evolve a
+        // fixed answer to. Over enough ticks a burst must happen, must run at
+        // the ceiling, and must stop.
+        let mut w = World::new(12, 200, 4);
+        let ceiling = PREDATOR_SPEED_CEILING_TRAIT * MAX_SPEED * DT;
+        let mut saw_burst = false;
+        let mut saw_ceiling = false;
+        let mut saw_end = false;
+        for _ in 0..6000 {
+            w.step();
+            let Some(pi) = w.predators.iter().position(|p| p.tier == 0) else { continue };
+            if w.predators[pi].burst_ticks > 0 {
+                saw_burst = true;
+                if (w.predator_chase_speed(pi) - ceiling).abs() < 1e-6 { saw_ceiling = true; }
+            } else if saw_burst {
+                saw_end = true;
+            }
+        }
+        assert!(saw_burst, "no hunter ever burst in 6000 ticks");
+        assert!(saw_ceiling, "a bursting hunter did not run at the ceiling");
+        assert!(saw_end, "a burst never ended");
+    }
+
+    #[test]
     fn an_ambient_hunter_is_always_in_the_water() {
         let mut w = World::new(12, 120, 77);
         w.step();
@@ -4510,9 +4565,12 @@ mod tests {
     }
 
     #[test]
-    fn a_hunter_is_slower_than_the_prey_it_hunts() {
-        // The property flee depends on. A hunter faster than everything makes
-        // evasion pointless, which is why the mechanic sat dormant for so long.
+    fn a_hunter_is_fast_but_never_faster_than_the_genome_allows() {
+        // An apex predator in open water is fast — it is floored well above the
+        // pond's average. What it must never be is *unbeatable*: the ceiling
+        // sits just under the quickest animal the genome can build, so a
+        // lineage that spends everything on speed can still escape and one that
+        // has not, cannot.
         let mut w = World::new(12, 200, 5);
         for _ in 0..120 { w.step(); }
         let pi = w.predators.iter().position(|p| p.tier == 0)
@@ -4526,18 +4584,11 @@ mod tests {
         if members.is_empty() { return; }
 
         let speed = w.predator_chase_speed(pi);
-        let mean_prey = members.iter()
-            .map(|&i| w.genome[i].traits.speed as f32 * MAX_SPEED * DT)
-            .sum::<f32>() / members.len() as f32;
-        assert!(speed < mean_prey,
-            "hunter at {} is not slower than its prey's mean {}", speed, mean_prey);
-
-        // Some individual in the family must be able to outrun it, or "harder to
-        // catch than your neighbour" is not a strategy that exists.
-        let fastest = members.iter()
-            .map(|&i| w.genome[i].traits.speed as f32 * MAX_SPEED * DT)
-            .fold(0.0f32, f32::max);
-        assert!(fastest > speed, "nothing in the family can outrun the hunter");
+        let floor = PREDATOR_SPEED_FLOOR_TRAIT * MAX_SPEED * DT;
+        let genetic_max = crate::genome::Traits::BOUNDS[1].1 as f32 * MAX_SPEED * DT;
+        assert!(speed >= floor, "hunter at {} fell under the floor {}", speed, floor);
+        assert!(speed < genetic_max,
+            "hunter at {} is at or past the fastest possible animal {}", speed, genetic_max);
     }
 
     #[test]
@@ -5224,9 +5275,12 @@ mod tests {
 
     #[test]
     fn generation_telemetry_tracks_reproductive_depth() {
+        // Predators off: this is about reproduction bookkeeping, and an ambient
+        // hunter in a small test pond eats the population before it breeds.
         // Founders are generation 0, so the first samples must read 0 and the
         // series must climb only as reproduction happens — never as age alone.
         let mut w = World::new(12, 100, 42);
+        w.set_automatic_predators(false);
         for _ in 0..crate::stats::SAMPLE_INTERVAL {
             w.step();
         }

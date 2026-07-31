@@ -567,15 +567,23 @@ slower than the average animal in the family it hunts cannot catch the
 above-average ones, so escape is positional. The goal is not to outrun the
 predator, it is to be harder to catch than a neighbour.
 
-**With a floor.** A hunter never drops below `PREDATOR_SPEED_FLOOR_TRAIT` (0.62)
-of `MAX_SPEED`, whatever its prey has done. Tracking the mean alone makes the
-pressure purely *relative* — you only ever need to be a little faster than your
-neighbours — so the whole distribution can slide downward together and nothing
-punishes it, while movement keeps costing energy in absolute terms. Measured
-over three seeds: no predators at all gave mean speed 0.70, a tracking hunter
-with no floor gave 0.85 but drifted as low as 0.68 on one seed, and a flat fast
-hunter pinned speed to 1.00 and cut the pond to three agents. With the floor,
-five seeds sit at 0.91.
+**Floor and ceiling.** A hunter's speed is clamped to
+`[PREDATOR_SPEED_FLOOR_TRAIT (0.95), PREDATOR_SPEED_CEILING_TRAIT (0.99)]` of
+`MAX_SPEED`. It is an apex predator in open water: fast, always. The ceiling
+sits just under the quickest animal the genome can build (trait max 1.0), so a
+lineage that spends everything on speed can still escape and one that has not,
+cannot.
+
+Tracking the prey's mean *alone* made the pressure purely relative — you only
+needed to be a little quicker than your neighbours, so the distribution slid
+downward together while movement kept costing energy in absolute terms.
+
+**Bursts.** Each resident hunter has a small per-tick chance
+(`PREDATOR_BURST_CHANCE`, about one per 2,500 ticks) of running at the ceiling
+for 150–400 ticks. Variance in the threat: a steady predator is one a lineage
+can evolve a fixed answer to, after which the pond settles. An occasional
+faster-than-it-should-be hunter means the safe margin is never quite knowable —
+the same reason the search image moves.
 
 Tiers 1 and 2 keep their flat constants. They are god-mode powers and are meant
 to be unfair.
