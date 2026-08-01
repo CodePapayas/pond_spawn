@@ -13,7 +13,7 @@
 // seed reproduce it exactly, which is the property the seed exists for.
 
 const LIMITS = {
-    grid: { min: 6, max: 512, default: 24 },
+    grid: { min: 6, max: 64, default: 24 },
     population: { min: 1, max: 5000, default: 150 },
 };
 
@@ -26,15 +26,17 @@ const LIMITS = {
 // rather than clamps.
 const FRAGILE_GRID = 14;
 
-// Above this, expect the frame rate to drop — every agent is drawn as a full
-// kinematic body, with no culling or instancing (see draw_agents).
+// Above this, expect the frame rate to drop. Every on-screen agent is drawn as
+// a full kinematic body and costs ~8 µs of draw calls — measured flat from 1,000
+// to 5,700 agents — which puts ~1,600 at 60 fps and ~3,400 at around 36. The
+// engine is nowhere near being the limit; the drawing is.
 const HEAVY_POPULATION = 1200;
 
-// Above this many tiles a side the terrain passes start to cost real frame
-// time: the water layer rebuilds a GRID×GRID image every frame, and food nodes
-// are drawn per unit (culled to the viewport, so zooming in stays cheap while
-// the whole-pond view is the expensive one). The engine itself is unbothered —
-// 512×512 with 5,000 agents steps in ~6ms — so this warns rather than clamps.
+// Above this many tiles a side the terrain passes start to cost real frame time:
+// the water layer rebuilds a GRID×GRID image every frame. The grid ceiling
+// (LIMITS.grid.max) now sits below this, so it does not fire — kept because the
+// ceiling is a rendering budget and not a rule, and whoever raises it will want
+// the warning back.
 const HEAVY_GRID = 160;
 
 // The rule dials. Defaults and bounds come from the engine (tunable_ranges), so

@@ -204,13 +204,29 @@ let archetypes_visible = false;
 // call next forces a flush. Treat the split as apportionment, not as isolation:
 // the totals are honest, and a pass that dominates really is where the work is.
 let perf_visible = false;
-// Sprite LOD, on by default and toggleable with L. The toggle is not a comfort
-// feature — it is the acceptance test. Every previous attempt at this problem
-// was measured by rebuilding and comparing across sessions, which is how two
-// interventions got credited with a 3% swing that was probably population drift.
-// A key that flips one variable inside one run, with the M readout open, is the
-// only way to say what the atlas actually bought.
-let sprites_enabled = true;
+// Sprite LOD, **off by default**, toggleable with L.
+//
+// Off because the atlas does not scale to a diverse pond and shipping it armed
+// would hand the bug to anyone on a short window. Its key multiplies colour by
+// silhouette, and silhouette varies per *agent* — pointiness, armour, fins and
+// spikes are continuous mutable traits — so a mature pond has hundreds of live
+// silhouettes against ~100 colours, thousands of keys, against a cache that
+// holds 448. It overflows, wipes, and refills forever: 282 wipes in a few
+// minutes on a *paused* grid-128 pond, which is the clean proof, since a frozen
+// population cannot have a changing working set.
+//
+// Eviction does not save it either: when every key is drawn every frame every
+// key is hot, and an LRU thrashes identically. The only real fix is to stop
+// keying on colour — bake shape-only sprites and tint at blit time — and
+// Canvas2D can only tint through per-agent composite switches, which is the
+// exact cost the atlas exists to avoid.
+//
+// The grid ceiling is 64 (setup.js), where on most windows the LOD threshold is
+// never reached anyway. Kept behind the key, not deleted, because the pipeline
+// is sound and the measurements around it are worth not re-deriving; if the
+// renderer ever moves to WebGL2 the tinting problem disappears and this becomes
+// straightforwardly correct.
+let sprites_enabled = false;
 // Last frame's zoom, for the HUD only. Not smoothed — it is a setting, not a
 // measurement, and an averaged one would lag the key you just pressed.
 let perf_scale_px = 0;

@@ -225,7 +225,40 @@ marker, so this is visible rather than inferred.
 Growing the grid with population was considered and rejected: `pop_cap` is
 `density × area`, so it would be a positive feedback loop with no stop.
 
-## Built, unmeasured: the sprite atlas (`pond_web/atlas.js`)
+## Outcome: the atlas is off, and the grid ceiling is back to 64
+
+**The sprite atlas does not scale to a diverse pond.** It is kept behind `L`,
+disabled by default, and the grid ceiling is 64 where the LOD threshold is
+largely unreachable anyway.
+
+The failure is structural, not a tuning problem. The key multiplies **colour ×
+silhouette**. Colour is ~(live species × energy steps). Silhouette varies per
+*agent*, not per species — pointiness, armour, fins and spikes are continuous
+mutable traits — so a mature pond carries hundreds of live silhouettes. Hundreds
+× ~100 is thousands of keys against a 448-entry cache.
+
+The proof is a **paused** pond: 282 wipes in a few minutes at grid 128. A frozen
+population cannot have a changing working set, so the set was simply wider than
+the cache. That also rules out eviction — when every key is drawn every frame,
+every key is hot, and an LRU thrashes identically.
+
+Two rounds of narrowing helped and were not enough:
+
+- Body colour was computed from *continuous* energy and the key quantised the
+  resulting rgb, smearing one species across ~16 colour keys with no way to
+  rejoin them. Quantising the dim first pins a species to 4 colours.
+- Strategy buckets 16 → 4. The halo is a low-alpha wash along one ramp.
+
+**The only real fix is to stop keying on colour** — bake shape-only sprites and
+tint at blit time. Canvas2D can only tint through per-agent composite switches,
+which is precisely the cost the atlas exists to avoid. In WebGL2 the tint is a
+uniform and the problem evaporates, so this becomes straightforwardly correct the
+day the renderer moves. Until then it is off.
+
+What stands without it: ~8 µs/agent, flat, ~1,600 agents at 60 fps and ~3,400 at
+36 on a 64×64 pond. Viewport culling (below) is the change that paid.
+
+## The atlas as built (`pond_web/atlas.js`)
 
 Written 2026-07-31 against the profile above, on the strength of one number:
 **~12 µs of fixed overhead per `fill()` call, largely independent of area.**

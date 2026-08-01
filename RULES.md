@@ -15,10 +15,17 @@
 
 - Grid: Square grid. The headless runner (`bin/run`) still defaults to 12×12/100;
   the **browser opens at 24×24 with 150 agents**, which is the calibrated
-  default — see [Opening run](#opening-run). The setup panel accepts **6–512
+  default — see [Opening run](#opening-run). The setup panel accepts **6–64
   tiles a side**; the engine has no grid bound of its own, so the ceiling is a
   rendering budget, not a rule. Carrying capacity scales with area for the whole
   range — a big grid buys proportionally more life, not just more space.
+
+  The ceiling was briefly 512, and the engine still handles it — 512×512 with
+  5,000 agents steps in ~6 ms. What does not handle it is drawing: every visible
+  agent costs ~8 µs of Canvas2D draw calls, so a pond large enough to hold tens
+  of thousands cannot be shown, and the sprite-atlas LOD built to fix that does
+  not survive a diverse pond (see PERF_PROBLEM.md). 64 is where the renderer and
+  the ecology agree.
 - Toroidal map (edges wrap)
 - Each tile is a biome with properties:
   - `movement_speed`: 0.8–1.05
