@@ -1103,10 +1103,12 @@ function frame_body(ts) {
     if (warm_remaining > 0) {
         run_warm_start_chunk();
     } else if (!paused && sim_running) {
-        // Cap delta to 200ms to avoid spiral of death after tab-switch
-        const delta = frame_delta * speed_mult;
+        // `frame_delta` is already capped at 200 ms to avoid a spiral of death
+        // after a tab-switch. The speed multiply moved engine-side: the substep
+        // cap scales with the dial, so the engine has to see the dial rather
+        // than a pre-multiplied number it cannot take apart.
         const t_sim = performance.now();
-        world.update(delta);
+        world.update(frame_delta, speed_mult);
         if (perf_visible) perf_mark('sim', t_sim);
     }
 

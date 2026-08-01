@@ -129,13 +129,29 @@ const T_MOVE_SPEED: usize = 2;
 // ── WasmWorld ─────────────────────────────────────────────────────────────────
 
 const TICK_MS: f32 = 1000.0 * DT; // 50 ms per physics tick (20 Hz)
-/// Most sim steps one `update` call may run. At 60 fps a frame asks for 0 or 1,
-/// so this only ever engages when the frame rate has already collapsed — which
-/// is exactly when running four steps in one frame is the worst possible
-/// response. `speed_mult` multiplies the delta before it arrives here, so the
-/// speed dial reaches its ceiling sooner on a struggling pond; that is the
-/// intended trade, and the alternative is a spiral.
+/// Substep budget at ×1 speed. At 60 fps a frame asks for 0 or 1, so this only
+/// engages when the frame rate has already collapsed — which is exactly when
+/// running four steps in one frame is the worst possible response.
+///
+/// This is the *base*; `max_substeps` scales it with the speed dial. It used to
+/// be the whole story, and that silently overrode the dial: see the note in
+/// `update`.
 const MAX_SUBSTEPS: u32 = 2;
+/// Hard stop on the scaled cap. The speed dial tops out at ×16, so this is well
+/// clear of it — it exists so a nonsense multiplier cannot ask the engine to
+/// step forever inside one frame.
+const MAX_SUBSTEPS_CEILING: u32 = 64;
+
+/// Substep budget for a given speed multiplier.
+///
+/// `MAX_SUBSTEPS` at ×1 and below — slowing down must not buy extra steps, and
+/// ×1 is the case the spiral guard was tuned against. Above ×1 it scales, so the
+/// dial means what it says on a machine fast enough to honour it and degrades
+/// gracefully on one that is not.
+fn max_substeps(speed_mult: f32) -> u32 {
+    let scaled = (MAX_SUBSTEPS as f32 * speed_mult.max(1.0)).ceil();
+    (scaled as u32).min(MAX_SUBSTEPS_CEILING)
+}
 
 #[wasm_bindgen]
 pub struct WasmWorld {
@@ -157,11 +173,16 @@ impl WasmWorld {
         }
     }
 
-    /// Fixed-timestep update. Call from requestAnimationFrame with elapsed ms.
-    /// Drains the accumulator in 50 ms ticks; may advance 0 or more sim steps per call.
-    /// Use `get_alpha()` to interpolate renderer positions between ticks.
-    pub fn update(&mut self, delta_ms: f32) {
-        self.accumulator += delta_ms;
+    /// Fixed-timestep update. Call from requestAnimationFrame with the raw
+    /// frame delta in ms and the speed dial; the multiply happens here so the
+    /// substep cap can see what was actually asked for.
+    ///
+    /// Drains the accumulator in 50 ms ticks; may advance 0 or more sim steps
+    /// per call. Use `get_alpha()` to interpolate renderer positions between
+    /// ticks.
+    pub fn update(&mut self, delta_ms: f32, speed_mult: f32) {
+        let mult = if speed_mult.is_finite() && speed_mult > 0.0 { speed_mult } else { 1.0 };
+        self.accumulator += delta_ms * mult;
         // Substeps are capped, so a frame that ran long cannot earn itself more
         // work than a frame that ran short. Uncapped, this was a death spiral:
         // a 200 ms frame asked for four steps, those four steps made the next
@@ -169,11 +190,20 @@ impl WasmWorld {
         // the cap the sim runs in slow motion rather than trying to keep wall
         // clock — which for a pond you are watching is the right surrender.
         //
+        // The cap scales with the speed dial, because a flat one silently
+        // overrode it. Effective tick rate is `cap × fps`, so at a flat 2 a
+        // browser running 39 fps could reach 78 ticks/s — about ×3.9 — however
+        // far the dial was turned, while one running 351 fps had all the room it
+        // needed. Same pond, same dial, different speeds, with nothing on screen
+        // to explain it. Scaling by the multiplier keeps ×1 exactly as
+        // spiral-safe as before and lets a deliberate ×16 actually mean it.
+        //
         // It also makes the engine measurable: with a variable number of steps
         // folded into one span, per-step cost cannot be read off the HUD.
+        let cap = max_substeps(mult);
         let mut steps = 0;
         while self.accumulator >= TICK_MS
-            && steps < MAX_SUBSTEPS
+            && steps < cap
             && self.inner.agent_count() > 0
         {
             self.inner.step();
@@ -801,4 +831,35 @@ fn console_error_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         js_console_error(info.to_string());
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slow_speeds_never_buy_extra_substeps() {
+        // The spiral guard was tuned at ×1, and slowing down must not loosen it.
+        for mult in [0.25, 0.5, 1.0] {
+            assert_eq!(max_substeps(mult), MAX_SUBSTEPS, "mult {mult}");
+        }
+    }
+
+    #[test]
+    fn the_substep_cap_follows_the_speed_dial() {
+        // Effective tick rate is `cap × fps`. A flat cap of 2 meant a browser at
+        // 39 fps topped out near ×3.9 whatever the dial said, while one at 351
+        // fps honoured ×16 — same pond, same dial, different speeds.
+        assert_eq!(max_substeps(2.0), 4);
+        assert_eq!(max_substeps(16.0), 32);
+        assert!(max_substeps(16.0) >= 16, "×16 must be reachable at 20 Hz on a 60 fps frame");
+    }
+
+    #[test]
+    fn the_substep_cap_is_bounded() {
+        // A nonsense multiplier must not ask the engine to step forever inside
+        // one frame.
+        assert_eq!(max_substeps(1_000.0), MAX_SUBSTEPS_CEILING);
+        assert_eq!(max_substeps(f32::INFINITY), MAX_SUBSTEPS_CEILING);
+    }
 }
