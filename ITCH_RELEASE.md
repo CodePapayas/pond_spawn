@@ -62,6 +62,8 @@ welcome card over the top. Check the browser console is clean.
 - Click any animal to open the inspector: genome, live neuron activations, its
   lineage. `g` graphs, `p` the phylogeny tree, `b` behavioural archetypes,
   `c` clears the whole interface for a clean look at the pond.
+- If it runs badly, press `m` — it overlays per-pass render timings, frame rate,
+  zoom and grid size. Those numbers plus the seed say more than "it was slow".
 - God mode is in the top-right panel and includes the hunters.
 - The seed reproduces a run exactly. If something interesting or broken
   happens, the seed and the run parameters from the `new run` panel are enough

@@ -83,7 +83,8 @@ Click on any agent and view their genome and neural network to see how an agent 
   immortality, and **ultra predators**: unkillable apex hunters that cull the
   pond back inside its capacity band and then swim off. Three shapes — the grey
   triangles are the ecology's own and summon themselves in packs when the
-  population outgrows what the renderer can draw; the red octagon and the
+  population outgrows the pond's carrying capacity (`1.75 × tiles`, with no
+  absolute ceiling on top of it); the red octagon and the
   rainbow rectangle are player powers, and the rectangle kills everything its
   edges touch however armoured. Any summoned hunt can be called off with
   `dismiss hunters`, and the triangle ecology has its own on/off toggle.
@@ -129,9 +130,20 @@ Controls in the browser:
 | Click agent | Open inspector panel (genome, energy, live neuron activations) |
 | Click + drag | Stir the pond at that point |
 | Double-click | Pour in a batch of new agents |
+| Wheel | Zoom |
+| Right-drag | Pan |
 | `Space` | Pause / resume |
 | `+` / `-` | Speed up / slow down |
-| `l` | Toggle legend |
+| `g` | Stat graphs |
+| `p` | Phylogeny tree |
+| `b` | Behavioural archetypes |
+| `d` | Cluster debug overlay |
+| `m` | Render timings (per-pass milliseconds, frame rate, zoom) |
+| `c` | Clear the interface for an unobstructed pond |
+| `n` | New run panel (grid, population, seed, rule dials) |
+| `f` | Fit the whole pond |
+| `[` / `]` | Zoom out / in |
+| `0` | Reset the camera |
 | `Esc` | Deselect agent |
 
 To package the browser build for itch.io:
