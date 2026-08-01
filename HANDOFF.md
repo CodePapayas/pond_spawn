@@ -1,3 +1,201 @@
+# HANDOFF — 2026-08-01 → for next time
+
+Written against commit `992c8ee`, which is `main`, `origin/main` and the tag
+`v1.0.1`. Everything below is committed and pushed; `dist/pond_spawn_itch.zip`
+is built from that commit.
+
+The renderer got faster, the sprite atlas turned out to work after all, and the
+Firefox-vs-Chromium gap turned out to be a different thing than anyone thought.
+**There is one decision already made and deliberately not implemented — see
+"Do this first".**
+
+---
+
+## Do this first: default the sprite atlas on
+
+**Decided, not done.** `sprites_enabled` in `renderer.js` is `false`; it should
+be `true`. Measured on the itch build in Edge, grid 64, 2,964 agents, fit zoom:
+
+```
+agents  9.7 ms / 2,963 = 3.27 µs/agent      (vector path: ~9.4 µs)
+sprite  on  drawn 2963/2963  atlas 68/351  wipes 0
+frame   14.3   70 fps
+```
+
+**2.9× on the dominant cost, zero wipes, whole population on the sprite path.**
+
+Two things to handle while doing it:
+
+1. **Nudge `SPRITE_LOD_MAX_SCALE_PX` from 20 to ~22.** At fit zoom `scale_px` is
+   `min(canvasW, canvasH) / GRID` and nothing else, so on a 1072×1788 itch embed
+   grid 64 gives 16.8 (sprites on) while a 2552×1308 desktop gives 20.4 (sprites
+   off). Same build, same grid, different machine, different renderer. That is
+   fragile and it will produce bug reports nobody can reproduce.
+   **Look at it before keeping it** — raising this threshold is what made the
+   pond read as stiff on 2026-07-31, though that was at 39.9 px/tile with bodies
+   twice this size. At 16.8 px/tile bodies are ~11 px long and the frozen pose
+   was not noticeable.
+2. **Headroom is 22%** — peak 351 against a 448 cap. A more speciated pond, or
+   the archetype overlay's second palette, could cross it. That is no longer a
+   visual defect (wipes are deferred to a frame boundary and overflow falls back
+   to the vector path) but it would show as a periodic frame-time step. If it
+   does, the next cardinality cut is the silhouette buckets — `headPointiness`
+   and `armorBumps` are 4 steps each in `spriteKey` and are the widest remaining
+   fields.
+
+### And correct the record while you are in there
+
+`atlas.js` and `PERF_PROBLEM.md` both say the atlas **"does not scale to a
+diverse pond"** and explain at length why it can never work under Canvas2D.
+That was written from a grid-128 test showing 282 wipes on a paused pond. **It
+is true at 128 and wrong at 64**, which is the shipped ceiling. The commit
+`28585cc` message says the same thing and cannot be edited, so the code comment
+and the doc are the only places to fix it.
+
+What actually happened: the fix in `cf98188` (quantise the energy dim *before*
+computing body colour, pinning a species to 4 colours instead of ~16) worked —
+it just could not close a 4× larger pond's key space. Capping the grid at 64 did
+not sidestep the atlas problem, it put the atlas inside its budget.
+
+---
+
+## Firefox and Chromium have different cost models
+
+This is the most useful thing learned today and it invalidates two earlier
+conclusions, including one written into `PERF_PROBLEM.md`.
+
+### The measurements
+
+Same pond, same seed, same zoom, matched population, `M` open.
+
+**Before the terrain caching — grid 32, 39.7 px/tile, ~250 agents:**
+
+| | Edge | Firefox |
+|---|---|---|
+| sim | 0.5 | 0.6 |
+| water | 0.1 | **4.6** |
+| shimmer | 0.5 | **3.6** |
+| agents | 2.0 | 12.0 |
+| frame | 2.9 (351 fps) | 20.6 (39 fps) |
+| **µs/agent** | **8.1** | **46.3** |
+
+**After it — grid 64, 19.8 px/tile, ~2,200 agents:**
+
+| | Edge | Firefox |
+|---|---|---|
+| sim | 2.3 | 5.7 |
+| water | 0.1 | 0.1 |
+| shimmer | 0.4 | 0.6 |
+| agents | 20.7 | 22.3 |
+| frame | ~24.5 (40 fps) | 29.9 (33 fps) |
+| **µs/agent** | **9.4** | **10.1** |
+
+### What that says
+
+Between those two runs body area fell ~4× (39.7 → 19.8 px/tile). Firefox's
+per-agent cost fell **4.6×**, tracking area almost exactly. Chromium's did not
+move.
+
+- **Chromium is per-call bound.** Cost is issuing `fill()`; area barely matters.
+  This is why the grid-24-vs-64 comparison earlier in `PERF_PROBLEM.md` found
+  7× the pixel coverage for 11% more cost.
+- **Firefox is per-pixel bound.** Cost tracks the area actually rasterised.
+
+**Two conclusions to throw out.** First, "Firefox is ~5.7× slower on this
+renderer, permanently, and there is nothing to do about it" — wrong; at small
+body sizes the two are 7% apart. Second, and more importantly:
+
+### The superlinearity may be real after all, in Firefox only
+
+`PERF_PROBLEM.md` records per-agent cost climbing 8.2 → 47.3 µs between 1,100
+and 5,000 agents, and then records it being written off twice — first as the
+removed 900-agent population cap, then as a Firefox reading sitting beside
+Chromium ones. **Both of those were mine and both were probably wrong.**
+
+If Firefox pays per rasterised pixel, then the additive glow matters: `lighter`
+cannot early-out on overlap, so in a crowd each agent's glow hull is rasterised
+over its neighbours'. Per-agent cost then *rises with density*, which is exactly
+superlinear in population at fixed pond size. That fits every Firefox number on
+record and contradicts none of them.
+
+**Do not accept this without testing it.** The test is cheap and specific: fix
+the agent count and the zoom, then compare a crowd packed into one corner
+against the same agents spread out. If Firefox's per-agent cost moves and
+Chromium's does not, it is overdraw. Anything less than that and it stays a
+hypothesis — this particular question has now been answered wrongly three times.
+
+---
+
+## Next lever: collapse the glow into one layer
+
+Every agent costs **two** hull fills, glow and core. Since the two-pass batching
+landed, the glow is already drawn as one shared haze behind all bodies — so it
+does not need to be per-agent geometry at all. Accumulate all glows into one
+low-resolution offscreen canvas, blur it once, composite it once: **N fills → 1**.
+
+Worth doing for two independent reasons:
+
+- **Chromium:** ~50% fewer draw calls, which is the cost that binds there.
+- **Firefox:** it collapses N overlapping additive fills into one composite,
+  which attacks the density term directly — if the overdraw hypothesis holds,
+  this is the fix for it.
+
+No visual quantisation, no cardinality, no keying. Roughly a tenth the
+complexity of the sprite atlas. This is the one to build next.
+
+---
+
+## Also open
+
+- **`other` is 2.4 ms**, 17% of the frame, and unattributed — `get_state`, the
+  dying layer, god effects, and whatever rasterisation the browser defers past
+  the last measured span. Nobody has looked at it. It is now bigger than water,
+  shimmer and food combined.
+- **`sim` is 2.5× slower in Firefox** (5.7 ms vs 2.3 at 2,200 agents), which is
+  SpiderMonkey vs V8 on wasm rather than anything in the engine. It was
+  negligible when drawing dominated; at 19% of a Firefox frame it no longer is.
+- **The atlas cannot serve grid 128+** without a different approach to colour.
+  Keying on colour is what blows the working set up; the fix is shape-only
+  sprites tinted at blit time, which Canvas2D can only do through per-agent
+  composite switches — the exact cost the atlas exists to avoid. In WebGL2 the
+  tint is a uniform and the problem disappears. That is the real argument for
+  WebGL2, not raw throughput.
+- **No population cap, deliberately.** `PREDATOR_POP_CEILING` is gone and is not
+  coming back; carrying capacity is `1.75 × tiles` with nothing on top. A boomed
+  pond zoomed out is allowed to crawl. Do not propose a cap; the owner's position
+  is that letting the user melt their machine is what this genre does.
+
+## What landed today
+
+All on `main`, tagged `v1.0.1`, 197 tests green, no new clippy warnings.
+
+| commit | what |
+|---|---|
+| `a5e53e3` | timing HUD (`M`), ornament gating, two-pass batching, substep cap, grid ceiling to 512, `PREDATOR_POP_CEILING` removed |
+| `f6246f1` | atlas no longer wiped mid-frame — agents were phasing in and out, *including while paused*, which is what identified it |
+| `112fb0c` | viewport culling |
+| `cf98188` | atlas cardinality: species pinned to 4 colours, strategy 16 → 4 buckets |
+| `28585cc` | grid ceiling back to 64, atlas disabled by default |
+| `68e8cdd` | opens on seed 21 |
+| `5ad6ddc` | docs describe the keys that exist |
+| `2cff1e0` | water rebuilt on sim step, shimmer at 30 Hz |
+| `992c8ee` | substep cap scales with the speed dial |
+
+Two of those undo parts of `a5e53e3` — the 512 ceiling in particular. Left
+unsquashed on purpose.
+
+### Method note, worth keeping
+
+Three separate things today were diagnosed from the *paused* pond: the mid-frame
+atlas wipe (a frozen population still phased, so it had to be draw-loop driven),
+the atlas cardinality overflow (a frozen population cannot have a changing
+working set, so the set was simply too wide — which also ruled out LRU eviction,
+since every key is hot every frame), and the confirmation that neither was a sim
+problem. **Pause it first.** It removes every moving variable at once and it
+found more today than any profiler did.
+
+---
+
 # HANDOFF — 2026-07-30 → for 2026-07-31
 
 Written against commit `f2a37f0` plus the uncommitted changes below. Two things
