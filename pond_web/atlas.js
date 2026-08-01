@@ -91,6 +91,13 @@ let atlas = null, actx = null;
 let shelf_x = 0, shelf_y = 0, shelf_h = 0;
 let entries = new Map();
 let builds_this_frame = 0;
+// A wipe is always deferred to a frame boundary. Never wipe mid-frame: agents
+// already queued this frame hold rects pointing into the atlas, and clearing it
+// under them makes them blit blank — they vanish for that frame, a different set
+// vanishes the next, and the pond phases in and out. It does it while paused
+// too, because it is driven by the draw loop and not by the sim, which is what
+// gives the bug away.
+let reset_pending = false;
 
 function ensure_atlas() {
     if (atlas) return;
@@ -110,9 +117,12 @@ export function resetAtlas() {
     entries = new Map();
 }
 
-/** Call once per frame before queueing agents. Resets the build budget. */
+/** Call once per frame before queueing agents. Resets the build budget, and is
+ *  the only place a deferred wipe is allowed to happen — nothing holds a rect
+ *  across this boundary. */
 export function beginAtlasFrame() {
     builds_this_frame = 0;
+    if (reset_pending) { resetAtlas(); reset_pending = false; }
 }
 
 export function atlasStats() {
@@ -276,7 +286,11 @@ export function spriteFor(key, spec, palette, glow, outline, energyNorm) {
     if (builds_this_frame >= BUILDS_PER_FRAME) return null;
 
     ensure_atlas();
-    if (entries.size >= MAX_ENTRIES) resetAtlas();
+    // Full: stop building and ask for a wipe at the next frame boundary. The
+    // agents that miss out take the vector path, which draws them correctly —
+    // the point is that everything on screen is drawn by *something* every
+    // frame.
+    if (entries.size >= MAX_ENTRIES) { reset_pending = true; return null; }
 
     // Build from the bucket centres, not from the requesting agent's exact
     // values — otherwise the sprite every one of a thousand agents shares would
@@ -295,10 +309,11 @@ export function spriteFor(key, spec, palette, glow, outline, energyNorm) {
     const g = bake(spec, qp, glow, outline, eN, baseR, box, PASS_GLOW);
     const c = g && bake(spec, qp, glow, outline, eN, baseR, box, PASS_CORE);
     if (!c) {
-        // Atlas full mid-pair. Wipe and let the next frame refill; returning
-        // null keeps this agent on the vector path rather than drawing half of
-        // it.
-        resetAtlas();
+        // Out of shelf space, possibly mid-pair. Same deal: flag the wipe for
+        // the frame boundary and send this agent down the vector path rather
+        // than drawing half of it. The orphaned glow cell, if one was packed, is
+        // reclaimed by the wipe.
+        reset_pending = true;
         return null;
     }
 
