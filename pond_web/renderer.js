@@ -419,6 +419,7 @@ function restart({ grid, population, seed, dials: chosen }) {
     // carried over from the last run would describe the wrong pond.
     resetAtlas();
     resetAtlasStats();
+    water_step = -1;   // new fertility field, and the step counter restarts at 0
     death_cause.clear();
     dying = [];
     last_agents = [];
@@ -691,6 +692,11 @@ function on_mousemove(e) {
     // the impulse round to the far side of the torus.
     if (stir_active && in_pond(e.clientX, e.clientY)) {
         world.stir(mouse_world.x, mouse_world.y, 1.8, 0.45);
+        // Stirring permanently lowers tile fertility, and it is the one thing
+        // that changes the water without the engine stepping — so on a paused
+        // pond the cached water layer would not show the damage until the sim
+        // was resumed. Invalidate it directly.
+        water_step = -1;
     }
 }
 
@@ -1511,10 +1517,19 @@ let water_mid = null, water_mid_ctx = null;
 // default wrote GRID² tiles into a 12×12 ImageData and the water came out
 // truncated. Rebuilt whenever the run's grid size changes.
 let terrain_grid = 0;
+// Sim step the blurred mid-canvas was built from. The fertility field only
+// changes when the engine steps, so rebuilding it per *frame* redid the same
+// work up to 350 times a second — measured at 4.6 ms a frame in Firefox against
+// 0.1 ms in Edge, because the blur filter is far more expensive on Firefox's
+// Canvas2D backend. Rebuilding on step instead ties the cost to 20 Hz.
+//
+// -1 forces a rebuild: set on a new run, and used by the initial build below.
+let water_step = -1;
 
 function draw_water(buf, n, { tile_w, tile_h, off_x, off_y }) {
     if (!terrain_canvas || terrain_grid !== GRID) {
         terrain_grid = GRID;
+        water_step = -1;
 
         terrain_canvas = document.createElement('canvas');
         terrain_canvas.width = GRID;
@@ -1528,6 +1543,28 @@ function draw_water(buf, n, { tile_w, tile_h, off_x, off_y }) {
         water_mid_ctx = water_mid.getContext('2d');
     }
 
+    const mid_scale = water_mid_scale();
+    const m = GRID * mid_scale;
+
+    // Everything from here to the final upscale is fertility-only, so it is
+    // redone on a step change and skipped otherwise. Stir damage and god-mode
+    // salt both land through the engine, so both arrive with a step and are
+    // picked up — the old comment claiming a per-frame rebuild was needed to
+    // catch stir was wrong about the mechanism, and was written when the grid
+    // was 12×12 and the whole pass was 144 pixels.
+    if (water_step !== current_step) {
+        water_step = current_step;
+        rebuild_water_mid(buf, n, m, mid_scale);
+    }
+
+    // Pass 2: mid → pond. One drawImage, and the only part that depends on the
+    // camera, so it stays per-frame.
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(water_mid, 0, 0, m, m, off_x, off_y, GRID * tile_w, GRID * tile_h);
+}
+
+/** Rasterise the fertility field and blur it into the mid canvas. */
+function rebuild_water_mid(buf, n, m, mid_scale) {
     const tile_base = HEADER_LEN + n * AGENT_STRIDE;
     const px = terrain_img.data;
 
@@ -1545,10 +1582,9 @@ function draw_water(buf, n, { tile_w, tile_h, off_x, off_y }) {
 
     terrain_ctx.putImageData(terrain_img, 0, 0);
 
-    // Pass 1: 12×12 → 96×96, blurred. The blur runs at this small size, so it
-    // costs almost nothing and still smooths a full tile's worth of lattice.
-    const mid_scale = water_mid_scale();
-    const m = GRID * mid_scale;
+    // Pass 1: GRID² → mid, blurred. This is the expensive half — the blur is
+    // what costs 4.6 ms a frame in Firefox — and it is what the step check
+    // above exists to skip.
     water_mid_ctx.clearRect(0, 0, m, m);
     water_mid_ctx.imageSmoothingEnabled = true;
     // Blur is specified in mid-canvas pixels, so it tracks the scale — a large
@@ -1556,10 +1592,6 @@ function draw_water(buf, n, { tile_w, tile_h, off_x, off_y }) {
     water_mid_ctx.filter = `blur(${WATER_BLUR_PX * mid_scale / WATER_MID_SCALE}px)`;
     water_mid_ctx.drawImage(terrain_canvas, 0, 0, GRID, GRID, 0, 0, m, m);
     water_mid_ctx.filter = 'none';
-
-    // Pass 2: 96×96 → pond.
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(water_mid, 0, 0, m, m, off_x, off_y, GRID * tile_w, GRID * tile_h);
 }
 
 // ── Shimmer (6b) ──────────────────────────────────────────────────────────────
@@ -1573,6 +1605,11 @@ function draw_water(buf, n, { tile_w, tile_h, off_x, off_y }) {
 // cost stays trivial and the upscale blur is what makes it look liquid rather
 // than like a sine grid.
 const CAUSTIC_PX = 96;
+// Rebuild rate for the caustic mask. Well under the frame rate on any machine
+// that is running well, and the drift is slow enough that 30 Hz is
+// indistinguishable from per-frame.
+const SHIMMER_HZ = 30;
+let shimmer_built_at = -1;
 const SHIMMER_ALPHA = 0.5;
 
 let caustic_canvas = null, caustic_ctx = null, caustic_img = null;
@@ -1585,6 +1622,28 @@ function draw_shimmer(buf, n, { tile_w, tile_h, off_x, off_y }, time_sec) {
         caustic_img = caustic_ctx.createImageData(CAUSTIC_PX, CAUSTIC_PX);
     }
 
+    // Caustics drift; they cannot key off the sim step like the water does. But
+    // they drift *slowly*, and regenerating 9,216 pixels of summed sine at 350
+    // fps is work nobody can see. Capped at SHIMMER_HZ — the canvas is retained
+    // between rebuilds and still composited every frame, so the layer is always
+    // present and only its animation is quantised.
+    //
+    // Measured at 3.6 ms a frame in Firefox against 0.5 in Edge before this.
+    if (time_sec - shimmer_built_at >= 1 / SHIMMER_HZ) {
+        shimmer_built_at = time_sec;
+        rebuild_caustics(buf, n, time_sec);
+    }
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(caustic_canvas, 0, 0, CAUSTIC_PX, CAUSTIC_PX,
+                  off_x, off_y, GRID * tile_w, GRID * tile_h);
+    ctx.restore();
+}
+
+/** Redraw the caustic mask at `time_sec`. */
+function rebuild_caustics(buf, n, time_sec) {
     const tile_base = HEADER_LEN + n * AGENT_STRIDE;
     const px = caustic_img.data;
     const t = time_sec;
@@ -1619,12 +1678,6 @@ function draw_shimmer(buf, n, { tile_w, tile_h, off_x, off_y }, time_sec) {
     }
 
     caustic_ctx.putImageData(caustic_img, 0, 0);
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(caustic_canvas, 0, 0, CAUSTIC_PX, CAUSTIC_PX,
-                  off_x, off_y, GRID * tile_w, GRID * tile_h);
-    ctx.restore();
 }
 
 // Each food *unit* is its own drifting node rather than a per-tile glow. The old
