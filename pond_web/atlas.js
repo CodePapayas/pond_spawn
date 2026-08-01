@@ -122,12 +122,22 @@ export function resetAtlas() {
  *  across this boundary. */
 export function beginAtlasFrame() {
     builds_this_frame = 0;
-    if (reset_pending) { resetAtlas(); reset_pending = false; }
+    if (reset_pending) { resetAtlas(); reset_pending = false; wipes++; }
 }
 
+// High-water mark and wipe count, so "does the working set fit" is a number on
+// screen rather than something you watch a counter oscillate to infer. Reset by
+// `resetAtlasStats` when a run starts.
+let peak_entries = 0, wipes = 0;
+
 export function atlasStats() {
-    return { entries: entries.size, shelf_y, built: builds_this_frame };
+    return {
+        entries: entries.size, shelf_y, built: builds_this_frame,
+        peak: peak_entries, wipes, full: reset_pending,
+    };
 }
+
+export function resetAtlasStats() { peak_entries = 0; wipes = 0; }
 
 // ── Keying ───────────────────────────────────────────────────────────────────
 //
@@ -166,7 +176,27 @@ function bucket(v, n) {
 function unbucket(b, n) { return (b + 0.5) / n; }
 
 const ENERGY_BUCKETS = 4;
-const COMBAT_BUCKETS = 16;
+// Was 16. The halo is a low-alpha wash along a single teal→orange ramp, and 16
+// steps of it was cardinality spent on a distinction nobody makes. Every bucket
+// here multiplies the atlas's working set, and the working set is the thing that
+// has to fit.
+const COMBAT_BUCKETS = 4;
+
+/** The energy value a sprite is actually baked at, for a given agent's energy.
+ *
+ *  Exported because the *caller* must dim its colour by this rather than by the
+ *  agent's true energy. Body colour is `speciesLightness × (0.72 + energy×0.28)`,
+ *  so feeding it continuous energy smears one species across ~16 distinct colour
+ *  keys as its members' energy varies — and the key quantises rgb, so it cannot
+ *  put them back together. Dimming by the bucket instead pins a species to
+ *  exactly ENERGY_BUCKETS colours. Measured effect at grid 128: the atlas stopped
+ *  cycling.
+ *
+ *  This is why the atlas ramped 0→448 and wiped, forever, even paused: a frozen
+ *  population still asked for more distinct sprites than the atlas could hold. */
+export function energyRep(energyNorm) {
+    return unbucket(bucket(energyNorm, ENERGY_BUCKETS), ENERGY_BUCKETS);
+}
 
 /** @returns {number} 29-bit sprite key, or -1 if this body has no sprite form. */
 export function spriteKey(spec, palette, combat, energyNorm, outlined) {
@@ -302,7 +332,7 @@ export function spriteFor(key, spec, palette, glow, outline, energyNorm) {
         (palette[1] >> 4) * 16 + 8,
         (palette[2] >> 4) * 16 + 8,
     ];
-    const eN = unbucket(bucket(energyNorm, ENERGY_BUCKETS), ENERGY_BUCKETS);
+    const eN = energyRep(energyNorm);
     const baseR = ATLAS_PPT * (0.105 + eN * 0.07 + spec.headPointiness * 0.05);
     const box = spriteBox(spec, baseR);
 
@@ -320,6 +350,7 @@ export function spriteFor(key, spec, palette, glow, outline, energyNorm) {
     builds_this_frame++;
     e = { glow: g, core: c };
     entries.set(key, e);
+    if (entries.size > peak_entries) peak_entries = entries.size;
     return e;
 }
 

@@ -20,8 +20,8 @@ import { createChain, updateChain } from './chain.js';
 import { deriveMorphology } from './morphology.js';
 import { drawBody, PASS_GLOW, PASS_CORE } from './body.js';
 import {
-    ATLAS_PPT, SPRITE_LOD_MAX_SCALE_PX, spriteKey, spriteFor,
-    beginAtlasFrame, resetAtlas, atlasCanvas, atlasStats,
+    ATLAS_PPT, SPRITE_LOD_MAX_SCALE_PX, spriteKey, spriteFor, energyRep,
+    beginAtlasFrame, resetAtlas, resetAtlasStats, atlasCanvas, atlasStats,
 } from './atlas.js';
 import { oklchToRgb, speciesColor, unassignedColor, strategyGlow } from './color.js';
 import { initLegend, initGenomePanel } from './panels.js';
@@ -392,6 +392,11 @@ function restart({ grid, population, seed, dials: chosen }) {
     predator_chains.clear();
     morph_cache.clear();
     color_state.clear();
+    // A new pond has new lineages and new colours, so every cached sprite is
+    // about to be an unreachable key. The stats go with it — a high-water mark
+    // carried over from the last run would describe the wrong pond.
+    resetAtlas();
+    resetAtlasStats();
     death_cause.clear();
     dying = [];
     last_agents = [];
@@ -1401,6 +1406,7 @@ function render(buf, time_sec) {
         // layers, and whatever rasterisation the browser deferred past the last
         // measured pass. A large gap is a finding, not an error.
         const rest = Math.max(0, perf.frame - perf.water - perf.shimmer - perf.food - perf.agents - perf.sim);
+        const atlas_stat = atlasStats();
         const ms = v => v.toFixed(1).padStart(6);
         document.getElementById('h-perf').textContent =
             `sim     ${ms(perf.sim)}\n` +
@@ -1415,7 +1421,11 @@ function render(buf, time_sec) {
             // where sprites are on but `drawn` is near zero is a threshold
             // problem, not an atlas problem.
             `sprite  ${sprites_enabled ? 'on ' : 'off'} drawn ${sprite_queue_len}/${sprite_queue_len + body_queue_len} ` +
-            `atlas ${atlasStats().entries}\n` +
+            // `peak` against the cap is the whole question: if the working set
+            // fits, `wipes` stops climbing and the atlas stops cycling. A rising
+            // wipe count on a paused pond means the key space is still too wide,
+            // not that the cache is too small.
+            `atlas ${atlas_stat.entries}/${atlas_stat.peak} wipes ${atlas_stat.wipes}\n` +
             // `zoom` against the LOD threshold, because "sprites on, nothing
             // drawn" has two very different causes and no way to tell them
             // apart from the outside: over the threshold means zoom out, under
@@ -2006,8 +2016,15 @@ function draw_agents(buf, n, alpha, L, time_sec) {
         // Energy dims the body, but only down to 72% lightness — at the old 55%
         // floor a starving neon body desaturated into brown, which read as a
         // rendering fault rather than as a hungry creature.
+        //
+        // On the sprite path the dim is quantised to the same four steps the
+        // atlas bakes at. Dimming continuously would smear one species across
+        // ~16 colour keys, which is what made the atlas overflow and cycle even
+        // on a paused pond. Four steps of lightness on a body a few pixels wide
+        // is not a distinction anyone was reading anyway.
+        const dim_e = use_sprites ? energyRep(a.energyNorm) : a.energyNorm;
         let palette = oklchToRgb([
-            lch[0] * (0.72 + a.energyNorm * 0.28),
+            lch[0] * (0.72 + dim_e * 0.28),
             lch[1],
             lch[2],
         ]);
@@ -2016,7 +2033,7 @@ function draw_agents(buf, n, alpha, L, time_sec) {
         if (archetypes_visible) {
             const arch = arch_color.get(a.brainCluster);
             if (arch) {
-                const dim = 0.72 + a.energyNorm * 0.28;
+                const dim = 0.72 + dim_e * 0.28;
                 palette = [arch[0] * dim | 0, arch[1] * dim | 0, arch[2] * dim | 0];
             }
         }
