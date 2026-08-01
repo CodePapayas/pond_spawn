@@ -18,7 +18,11 @@ import init, {
 import { decodeAgent } from './decode.js';
 import { createChain, updateChain } from './chain.js';
 import { deriveMorphology } from './morphology.js';
-import { drawBody } from './body.js';
+import { drawBody, PASS_GLOW, PASS_CORE } from './body.js';
+import {
+    ATLAS_PPT, SPRITE_LOD_MAX_SCALE_PX, spriteKey, spriteFor,
+    beginAtlasFrame, resetAtlas, atlasCanvas, atlasStats,
+} from './atlas.js';
 import { oklchToRgb, speciesColor, unassignedColor, strategyGlow } from './color.js';
 import { initLegend, initGenomePanel } from './panels.js';
 import { initArchetypes, archetypeColor, summarize } from './archetypes.js';
@@ -185,6 +189,36 @@ let dials = null;
 let graphs_visible = false;
 let debug_visible = false;
 let archetypes_visible = false;
+
+// ── Render timing (M) ────────────────────────────────────────────────────────
+//
+// Every optimisation below this line is measured against these five numbers, so
+// they exist before any of it: op-count arithmetic said the agent layer was the
+// whole bill, and an estimate is not an acceptance test. Exponential moving
+// average rather than a per-frame readout, because a number that changes 60
+// times a second cannot be read, and the thing being chased is the *typical*
+// frame, not the worst one.
+//
+// The spans are wall-clock around each pass, so they include rasterisation the
+// browser may defer — Canvas2D is pipelined and a `fill` can bill to whichever
+// call next forces a flush. Treat the split as apportionment, not as isolation:
+// the totals are honest, and a pass that dominates really is where the work is.
+let perf_visible = false;
+// Sprite LOD, on by default and toggleable with L. The toggle is not a comfort
+// feature — it is the acceptance test. Every previous attempt at this problem
+// was measured by rebuilding and comparing across sessions, which is how two
+// interventions got credited with a 3% swing that was probably population drift.
+// A key that flips one variable inside one run, with the M readout open, is the
+// only way to say what the atlas actually bought.
+let sprites_enabled = true;
+// Last frame's zoom, for the HUD only. Not smoothed — it is a setting, not a
+// measurement, and an averaged one would lag the key you just pressed.
+let perf_scale_px = 0;
+const PERF_EMA = 0.1;
+const perf = { water: 0, shimmer: 0, food: 0, agents: 0, frame: 0, sim: 0 };
+function perf_mark(key, t0) {
+    perf[key] += (performance.now() - t0 - perf[key]) * PERF_EMA;
+}
 // Overlay colour per agent id while the archetype view is open. Cleared on
 // toggle-off so bodies revert to their genome palette (color.js) — this is an
 // overlay, not a replacement for the trait-derived colour.
@@ -750,6 +784,8 @@ function on_key(e) {
     if (e.key === 'g' || e.key === 'G') toggle_graphs();
     if (e.key === 'b' || e.key === 'B') toggle_archetypes();
     if (e.key === 'd' || e.key === 'D') toggle_debug();
+    if (e.key === 'm' || e.key === 'M') toggle_perf();
+    if (e.key === 'l' || e.key === 'L') toggle_sprites();
     // Zen while the setup panel is up would hide the only way to start a run.
     if ((e.key === 'c' || e.key === 'C') && !setup.isOpen()) toggle_zen();
     if (e.key === 'p' || e.key === 'P') toggle_phylogeny();
@@ -827,6 +863,10 @@ function toggle_archetypes() {
     document.getElementById('archetypes').style.display =
         archetypes_visible ? 'block' : 'none';
     world.set_brain_clustering(archetypes_visible);
+    // Every body is about to change colour, so every cached sprite is about to
+    // become an unreachable key holding atlas space. Wipe rather than let the
+    // overlay's palette and the genome palette share a 512-entry budget.
+    resetAtlas();
     if (archetypes_visible) {
         refresh_archetypes();
         arch_timer = setInterval(refresh_archetypes, GRAPH_REFRESH_MS);
@@ -859,6 +899,24 @@ function toggle_debug() {
     if (debug_visible) {
         document.getElementById('side-right').style.display = 'block';
     }
+}
+
+/** Render timings, behind M. Off by default and gated at every call site, so an
+ *  unopened HUD costs nothing — `performance.now()` twelve times a frame is not
+ *  free, and a profiler that shows up in its own numbers is worse than none.
+ *  The averages reset on open so a reading always describes the run you are
+ *  looking at, not the frame the panel happened to be opened on. */
+function toggle_perf() {
+    perf_visible = !perf_visible;
+    if (perf_visible) for (const k in perf) perf[k] = 0;
+    document.getElementById('h-perf').style.display = perf_visible ? 'block' : 'none';
+}
+
+/** Sprite LOD on/off, behind L. Resets the perf averages on the way through:
+ *  an EMA that straddles the switch is a reading of neither build. */
+function toggle_sprites() {
+    sprites_enabled = !sprites_enabled;
+    for (const k in perf) perf[k] = 0;
 }
 
 function toggle_graphs() {
@@ -1008,16 +1066,20 @@ function frame_body(ts) {
 
     god.update(ts / 1000);
 
+    const t_frame = performance.now();
     if (warm_remaining > 0) {
         run_warm_start_chunk();
     } else if (!paused && sim_running) {
         // Cap delta to 200ms to avoid spiral of death after tab-switch
         const delta = frame_delta * speed_mult;
+        const t_sim = performance.now();
         world.update(delta);
+        if (perf_visible) perf_mark('sim', t_sim);
     }
 
     const buf = world.get_state();
     render(buf, ts / 1000);
+    if (perf_visible) perf_mark('frame', t_frame);
 
     // Panels are observation. A panel that throws must not take the pond down
     // with it, so they are isolated from the render path.
@@ -1309,10 +1371,16 @@ function render(buf, time_sec) {
     ctx.rect(L.off_x, L.off_y, GRID * L.tile_w, GRID * L.tile_h);
     ctx.clip();
 
+    let t0 = performance.now();
     draw_water(buf, n, L);
+    if (perf_visible) { perf_mark('water', t0); t0 = performance.now(); }
     draw_shimmer(buf, n, L, time_sec);
+    if (perf_visible) { perf_mark('shimmer', t0); t0 = performance.now(); }
     draw_food(buf, n, L, time_sec);
+    if (perf_visible) { perf_mark('food', t0); t0 = performance.now(); }
     draw_agents(buf, n, alpha, L, time_sec);
+    if (perf_visible) perf_mark('agents', t0);
+
     draw_dying(L, time_sec);
     draw_god_effects(L, time_sec);
 
@@ -1326,6 +1394,45 @@ function render(buf, time_sec) {
     document.getElementById('h-agents').textContent = `agents ${n}`;
     document.getElementById('h-energy').textContent = `energy ${avgE}`;
     document.getElementById('h-food').textContent   = `food   ${food}`;
+
+    if (perf_visible) {
+        // `frame` is the whole callback, so the gap between it and the four
+        // spans is everything unattributed: get_state, the dying/god/stir
+        // layers, and whatever rasterisation the browser deferred past the last
+        // measured pass. A large gap is a finding, not an error.
+        const rest = Math.max(0, perf.frame - perf.water - perf.shimmer - perf.food - perf.agents - perf.sim);
+        const ms = v => v.toFixed(1).padStart(6);
+        document.getElementById('h-perf').textContent =
+            `sim     ${ms(perf.sim)}\n` +
+            `water   ${ms(perf.water)}\n` +
+            `shimmer ${ms(perf.shimmer)}\n` +
+            `food    ${ms(perf.food)}\n` +
+            `agents  ${ms(perf.agents)}\n` +
+            `other   ${ms(rest)}\n` +
+            `frame   ${ms(perf.frame)}  ${(1000 / Math.max(perf.frame, 0.01)).toFixed(0)} fps\n` +
+            // The sprite line is what makes the L toggle readable: `drawn`
+            // splits the population between the two pipelines, so a reading
+            // where sprites are on but `drawn` is near zero is a threshold
+            // problem, not an atlas problem.
+            `sprite  ${sprites_enabled ? 'on ' : 'off'} drawn ${sprite_queue_len}/${sprite_queue_len + body_queue_len} ` +
+            `atlas ${atlasStats().entries}\n` +
+            // `zoom` against the LOD threshold, because "sprites on, nothing
+            // drawn" has two very different causes and no way to tell them
+            // apart from the outside: over the threshold means zoom out, under
+            // it means the atlas is broken.
+            `zoom    ${perf_scale_px.toFixed(1)} px/tile  lod ≤${SPRITE_LOD_MAX_SCALE_PX}  ` +
+            `×${cam.zoom.toFixed(2)}${cam.zoom <= MIN_ZOOM ? ' (fit)' : ''}\n` +
+            // The grid line exists because px/tile at full zoom-out is
+            // `min(W,H) / GRID` and nothing else — so a small pond can be as far
+            // out as the camera goes and still be nowhere near the LOD
+            // threshold. `fit` is the floor this run can reach: if that number
+            // is above `lod`, no amount of zooming will engage sprites and the
+            // run needs a bigger grid, not a different camera. That is exactly
+            // the guess this line is here to stop.
+            `grid    ${GRID}  canvas ${canvas.width}×${canvas.height}  ` +
+            `fit ${fit_scale().toFixed(1)} px/tile` +
+            (fit_scale() > SPRITE_LOD_MAX_SCALE_PX ? '  ← never reaches lod' : '');
+    }
 }
 
 // ── Tile layer ────────────────────────────────────────────────────────────────
@@ -1352,6 +1459,17 @@ const MAX_FERTILITY = 1.6;
 // small blur first makes the final upscale a fine-grained ~13× step instead, so
 // the tile lattice disappears entirely.
 const WATER_MID_SCALE = 8;
+// Ceiling on the mid canvas's side length. At 8× per tile a 512×512 pond would
+// ask for a 4096² canvas and blur it every frame, which is minutes-per-frame
+// territory; the upscale to screen looks the same from a smaller one, since the
+// pond is only ever a window's worth of pixels wide anyway.
+const WATER_MID_MAX_PX = 1024;
+
+/** Mid-canvas pixels per tile for the current grid — WATER_MID_SCALE until the
+ *  grid is large enough that it would blow WATER_MID_MAX_PX. */
+function water_mid_scale() {
+    return Math.max(1, Math.min(WATER_MID_SCALE, Math.floor(WATER_MID_MAX_PX / GRID)));
+}
 const WATER_BLUR_PX = 2.2;
 
 let terrain_canvas = null, terrain_ctx = null, terrain_img = null;
@@ -1373,8 +1491,8 @@ function draw_water(buf, n, { tile_w, tile_h, off_x, off_y }) {
         terrain_img = terrain_ctx.createImageData(GRID, GRID);
 
         water_mid = document.createElement('canvas');
-        water_mid.width = GRID * WATER_MID_SCALE;
-        water_mid.height = GRID * WATER_MID_SCALE;
+        water_mid.width = GRID * water_mid_scale();
+        water_mid.height = GRID * water_mid_scale();
         water_mid_ctx = water_mid.getContext('2d');
     }
 
@@ -1397,10 +1515,13 @@ function draw_water(buf, n, { tile_w, tile_h, off_x, off_y }) {
 
     // Pass 1: 12×12 → 96×96, blurred. The blur runs at this small size, so it
     // costs almost nothing and still smooths a full tile's worth of lattice.
-    const m = GRID * WATER_MID_SCALE;
+    const mid_scale = water_mid_scale();
+    const m = GRID * mid_scale;
     water_mid_ctx.clearRect(0, 0, m, m);
     water_mid_ctx.imageSmoothingEnabled = true;
-    water_mid_ctx.filter = `blur(${WATER_BLUR_PX}px)`;
+    // Blur is specified in mid-canvas pixels, so it tracks the scale — a large
+    // grid softens by the same fraction of a tile as a small one.
+    water_mid_ctx.filter = `blur(${WATER_BLUR_PX * mid_scale / WATER_MID_SCALE}px)`;
     water_mid_ctx.drawImage(terrain_canvas, 0, 0, GRID, GRID, 0, 0, m, m);
     water_mid_ctx.filter = 'none';
 
@@ -1511,15 +1632,25 @@ function hash01(a, b) {
     return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-function draw_food(buf, n, { tile_w, tile_h, off_x, off_y }, time_sec) {
+function draw_food(buf, n, { W, H, tile_w, tile_h, off_x, off_y }, time_sec) {
     if (!orb_tex) build_orb();
     const tile_base = HEADER_LEN + n * AGENT_STRIDE;
 
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
 
-    for (let ty = 0; ty < GRID; ty++) {
-        for (let tx = 0; tx < GRID; tx++) {
+    // Only the tiles on screen. Whole-pond views of a small grid are unaffected
+    // (the bounds land on the whole grid), but a 512×512 pond has 262,144 tiles
+    // and up to three nodes each, and drawing the ones behind the viewport is
+    // the difference between a frame and a stall. One tile of margin covers the
+    // drift and radius of a node anchored just outside.
+    const tx0 = Math.max(0, Math.floor((0 - off_x) / tile_w) - 1);
+    const tx1 = Math.min(GRID, Math.ceil((W - off_x) / tile_w) + 1);
+    const ty0 = Math.max(0, Math.floor((0 - off_y) / tile_h) - 1);
+    const ty1 = Math.min(GRID, Math.ceil((H - off_y) / tile_h) + 1);
+
+    for (let ty = ty0; ty < ty1; ty++) {
+        for (let tx = tx0; tx < tx1; tx++) {
             const ti = ty * GRID + tx;
             const food = buf[tile_base + ti * TILE_STRIDE];   // 0–3
             if (food <= 0) continue;
@@ -1706,6 +1837,102 @@ function draw_dying({ tile_w, tile_h, off_x, off_y }, time_sec) {
     dying = dying.filter(d => time_sec - d.t0 < DEATH_SEC);
 }
 
+// Draw queues for the batched agent passes. Grown once and never shrunk, and
+// the records are mutated in place rather than replaced — a pond that booms to
+// 20,000 would otherwise allocate 20,000 objects a frame purely to describe work
+// it is about to do, and the collector is already the suspected reason a busy
+// pond stutters instead of merely running slow.
+const body_queue = [];
+let body_queue_len = 0;
+const predator_queue = [];
+let predator_queue_len = 0;
+
+function queue_body(chain, spec, palette, base_r, a, glow, outline, time_sec) {
+    let b = body_queue[body_queue_len];
+    if (!b) {
+        b = { chain: null, spec: null, palette: null, glow: null, outline: null,
+              motion: { baseR: 0, energyNorm: 0, velX: 0, velY: 0, timeSec: 0 } };
+        body_queue[body_queue_len] = b;
+    }
+    b.chain = chain; b.spec = spec; b.palette = palette;
+    b.glow = glow; b.outline = outline;
+    b.motion.baseR = base_r;
+    b.motion.energyNorm = a.energyNorm;
+    b.motion.velX = a.velX;
+    b.motion.velY = a.velY;
+    b.motion.timeSec = time_sec;
+    body_queue_len++;
+}
+
+// Sprite draw queue. Same pooling discipline as the body queue, and flatter:
+// a sprite record is five numbers and a reference, so this stays a fixed set of
+// objects however far the pond booms.
+const sprite_queue = [];
+let sprite_queue_len = 0;
+
+function queue_sprite(entry, x, y, cos, sin) {
+    let s = sprite_queue[sprite_queue_len];
+    if (!s) { s = { entry: null, x: 0, y: 0, cos: 1, sin: 0 }; sprite_queue[sprite_queue_len] = s; }
+    s.entry = entry; s.x = x; s.y = y; s.cos = cos; s.sin = sin;
+    sprite_queue_len++;
+}
+
+/** Shortest signed distance across the toroidal seam. */
+function wrap_delta(d) {
+    if (d >  GRID * 0.5) return d - GRID;
+    if (d < -GRID * 0.5) return d + GRID;
+    return d;
+}
+
+/** One sprite, rotated about the agent's head and scaled from atlas resolution
+ *  to the current zoom.
+ *
+ *  `setTransform` rather than translate/rotate/scale inside a save/restore: it
+ *  is one call instead of four and, unlike a composite change, it does not flush
+ *  the canvas batch. The clip set by draw_agents is in device space and survives
+ *  it. */
+function blit_sprite(img, r, a, b, x, y) {
+    ctx.setTransform(a, b, -b, a, x, y);
+    ctx.drawImage(img, r.sx, r.sy, r.sw, r.sh, -r.px, -r.py, r.sw, r.sh);
+}
+
+/** One batched pass over the sprite queue. `which` is 'glow' or 'core'; the
+ *  caller owns the composite mode, exactly as with the vector passes. */
+function draw_sprites(which, { tile_w, tile_h, scale_px, off_x, off_y }) {
+    if (sprite_queue_len === 0) return;
+    const img = atlasCanvas();
+    if (!img) return;
+
+    const k = scale_px / ATLAS_PPT;
+    const pond_w = GRID * tile_w, pond_h = GRID * tile_h;
+
+    ctx.save();
+    for (let q = 0; q < sprite_queue_len; q++) {
+        const s = sprite_queue[q];
+        const r = s.entry[which];
+        const a = s.cos * k, b = s.sin * k;
+        blit_sprite(img, r, a, b, s.x, s.y);
+
+        // Seam copies, same job as body.js's wrap loop: a body near an edge has
+        // to appear on the far side too. The margin is the sprite's own extent
+        // at this zoom, so a sprite that cannot possibly cross pays one compare.
+        const m = (r.sw > r.sh ? r.sw : r.sh) * k;
+        const wx = (s.x - off_x < m) ? pond_w : (off_x + pond_w - s.x < m) ? -pond_w : 0;
+        const wy = (s.y - off_y < m) ? pond_h : (off_y + pond_h - s.y < m) ? -pond_h : 0;
+        if (wx) blit_sprite(img, r, a, b, s.x + wx, s.y);
+        if (wy) blit_sprite(img, r, a, b, s.x, s.y + wy);
+        if (wx && wy) blit_sprite(img, r, a, b, s.x + wx, s.y + wy);
+    }
+    ctx.restore();
+}
+
+function queue_predator(id, x, y, state) {
+    let p = predator_queue[predator_queue_len];
+    if (!p) { p = { id: 0, x: 0, y: 0, state: null }; predator_queue[predator_queue_len] = p; }
+    p.id = id; p.x = x; p.y = y; p.state = state;
+    predator_queue_len++;
+}
+
 function draw_agents(buf, n, alpha, L, time_sec) {
     const { tile_w, tile_h, scale_px, off_x, off_y } = L;
     const live_ids = new Set();
@@ -1730,6 +1957,16 @@ function draw_agents(buf, n, alpha, L, time_sec) {
 
     last_agents = [];
     selected_pos = null;
+    body_queue_len = 0;
+    predator_queue_len = 0;
+    sprite_queue_len = 0;
+
+    // One decision for the whole frame. Per-agent LOD would put articulated and
+    // frozen bodies side by side at the same size, which reads as some of the
+    // animals having stopped moving.
+    const use_sprites = sprites_enabled && scale_px <= SPRITE_LOD_MAX_SCALE_PX;
+    perf_scale_px = scale_px;
+    beginAtlasFrame();
 
     for (let i = 0; i < n; i++) {
         const a = decodeAgent(buf, i, HEADER_LEN, AGENT_STRIDE);
@@ -1800,18 +2037,72 @@ function draw_agents(buf, n, alpha, L, time_sec) {
 
         // Apex predators do not use the body pipeline at all — they are hard
         // geometric shapes, so they can never be mistaken for one of their prey.
+        // Deferred to after the crowd so they stay on top of it: a hunter drawn
+        // under its prey reads as background.
         if (predators.has(a.id)) {
-            draw_predator(a.id, hx_w, hy_w, L, time_sec, predators.get(a.id));
+            queue_predator(a.id, hx_w, hy_w, predators.get(a.id));
             continue;
         }
 
-        drawBody(
-            ctx, chain, spec, palette,
-            { tile_w, tile_h, scale_px, off_x, off_y, gridSize: GRID },
-            { baseR: base_r, energyNorm: a.energyNorm, velX: a.velX, velY: a.velY, timeSec: time_sec },
-            glow,
-            outline,
-        );
+        // Sprite path. `combat` is recovered from the halo weight rather than
+        // recomputed — strategyGlow derives both colour and weight from that one
+        // scalar, so inverting the weight gets it back exactly and colour.js
+        // keeps a single definition of what "combat" means.
+        if (use_sprites) {
+            const combat = (glow.weight - 0.35) / 0.65;
+            const key = spriteKey(spec, palette, combat, a.energyNorm, outline !== null);
+            const entry = key < 0 ? null
+                : spriteFor(key, spec, palette, glow, outline, a.energyNorm);
+            // A null entry means the frame's build budget is spent. That agent
+            // takes the vector path this frame and gets its sprite on the next
+            // one — a few slow bodies beat a stall or a hole in the pond.
+            if (entry) {
+                // Heading: velocity when there is any, else the chain's own
+                // spine. A stationary agent still has an orientation, and
+                // snapping it to +x would make every idle animal face east.
+                let dx = a.velX, dy = a.velY;
+                if (dx * dx + dy * dy < 1e-8 && chain.segs.length > 1) {
+                    dx = wrap_delta(chain.segs[0].x - chain.segs[1].x);
+                    dy = wrap_delta(chain.segs[0].y - chain.segs[1].y);
+                }
+                const len = Math.sqrt(dx * dx + dy * dy);
+                const c = len > 1e-6 ? dx / len : 1;
+                const s = len > 1e-6 ? dy / len : 0;
+                queue_sprite(entry, off_x + hx_w * tile_w, off_y + hy_w * tile_h, c, s);
+                continue;
+            }
+        }
+
+        queue_body(chain, spec, palette, base_r, a, glow, outline, time_sec);
+    }
+
+    // Two batched passes instead of two per agent. Every body used to flip
+    // `globalCompositeOperation` twice and save/restore once, and a composite
+    // change flushes the canvas batch — at 5,600 agents that is ~11,300 flushes
+    // a frame, which measured at ~24 µs per fill against a 3–10 µs cost for the
+    // path itself. Now the mode is set twice, total.
+    //
+    // It does change the layering: every glow now sits behind every body,
+    // where a glow used to sit behind its own body but in front of any body
+    // drawn earlier. In a crowd that reads as one shared haze under the pond
+    // rather than per-animal halos jostling for depth.
+    const xform = { tile_w, tile_h, scale_px, off_x, off_y, gridSize: GRID };
+    ctx.globalCompositeOperation = 'lighter';
+    draw_sprites('glow', L);
+    for (let q = 0; q < body_queue_len; q++) {
+        const b = body_queue[q];
+        drawBody(ctx, b.chain, b.spec, b.palette, xform, b.motion, b.glow, b.outline, PASS_GLOW);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    draw_sprites('core', L);
+    for (let q = 0; q < body_queue_len; q++) {
+        const b = body_queue[q];
+        drawBody(ctx, b.chain, b.spec, b.palette, xform, b.motion, b.glow, b.outline, PASS_CORE);
+    }
+
+    for (let q = 0; q < predator_queue_len; q++) {
+        const p = predator_queue[q];
+        draw_predator(p.id, p.x, p.y, L, time_sec, p.state);
     }
 
     if (selected_pos) draw_selection_ring(L, time_sec);

@@ -15,7 +15,10 @@
 
 - Grid: Square grid. The headless runner (`bin/run`) still defaults to 12×12/100;
   the **browser opens at 24×24 with 150 agents**, which is the calibrated
-  default — see [Opening run](#opening-run).
+  default — see [Opening run](#opening-run). The setup panel accepts **6–512
+  tiles a side**; the engine has no grid bound of its own, so the ceiling is a
+  rendering budget, not a rule. Carrying capacity scales with area for the whole
+  range — a big grid buys proportionally more life, not just more space.
 - Toroidal map (edges wrap)
 - Each tile is a biome with properties:
   - `movement_speed`: 0.8–1.05
@@ -292,13 +295,20 @@ reach behaviour through perception inputs and the separation force instead.
     press.
 
   - **Automatic**: the pond has a capacity of `1.75 × tiles`
-    (`PREDATOR_POP_PER_TILE`), capped absolutely at 900 agents
-    (`PREDATOR_POP_CEILING`) however large the pond is — so a 12×12 pond caps at
-    252 and anything from 23×23 up holds the 900 line. Food supply scales with
-    area, so a fixed number would either strangle the big pond or never fire on
-    the small one; the ceiling exists because past roughly 900 individually drawn
-    bodies the frame rate goes regardless of how much food there is. A wave
-    arrives — the triangle pack — when the prey count passes `cap × 1.10`.
+    (`PREDATOR_POP_PER_TILE`) with no absolute ceiling on top of it — a 12×12
+    pond caps at 252, a 64×64 at 7,168, a 512×512 at 458,752. Food supply scales
+    with area, so a fixed number would either strangle the big pond or never fire
+    on the small one. A wave arrives — the triangle pack — when the prey count
+    passes `cap × 1.10`.
+
+    There was an absolute ceiling of 900 here (`PREDATOR_POP_CEILING`), removed
+    2026-07-31. It was a frame-rate governor, not an ecological one: past roughly
+    900 individually drawn bodies the renderer struggled, so the cap held that
+    line however large the pond was, and every grid above ~23×23 had identical
+    carrying capacity. That made the pond's central limit a property of the
+    drawing code rather than of food and predation, which is the opposite of a
+    self-balancing ecosystem. What the browser can draw is the renderer's problem
+    to solve.
 
   - **Culls cut deep.** The target is `cap × 0.90 × 0.72` (`CULL_DEPTH`), well
     below the hysteresis floor. Landing on the floor exactly made no sense

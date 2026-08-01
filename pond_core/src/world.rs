@@ -309,10 +309,6 @@ fn clamp_range(v: f64, (lo, hi): (f64, f64)) -> f64 {
 /// far more life than the browser can draw; this is deliberately below the
 /// food-limited carrying capacity.
 pub const PREDATOR_POP_PER_TILE: f64 = 1.75;
-/// Absolute ceiling on the cull target, whatever the pond's area. Past roughly
-/// this many bodies the frame rate goes regardless of how much food there is,
-/// so a big pond stops scaling its cap linearly and just holds this line.
-pub const PREDATOR_POP_CEILING: usize = 900;
 /// Prey each predator in a summoned pack is expected to account for. A cull of
 /// thousands is not one hunter's work.
 const PREY_PER_PREDATOR: usize = 250;
@@ -1235,9 +1231,15 @@ impl World {
 
     /// Sustainable population for this pond: agents per tile × tiles. The
     /// automatic cull is measured against this rather than a fixed number.
+    ///
+    /// Density only — there is deliberately no absolute ceiling on top of this.
+    /// One used to sit here at 900 agents, and it was a frame-rate governor
+    /// wearing an ecology costume: past ~23×23 every pond had the same carrying
+    /// capacity however much water and food it had, so a big grid bought space
+    /// and no more life. Whatever the renderer can afford is the renderer's
+    /// problem to solve; the pond's limits are food and predation.
     pub fn pop_cap(&self) -> usize {
-        let by_area = ((self.grid_size * self.grid_size) as f64 * PREDATOR_POP_PER_TILE) as usize;
-        by_area.min(PREDATOR_POP_CEILING)
+        ((self.grid_size * self.grid_size) as f64 * PREDATOR_POP_PER_TILE) as usize
     }
 
     /// Population above which predators arrive: the cap plus its breathing room.
@@ -5227,8 +5229,17 @@ mod tests {
         let small = World::new(12, 1, 1);
         let big = World::new(32, 1, 1);
         assert!(big.pop_cap() > small.pop_cap(), "cap must scale with pond area");
+
+        // Scaling has no upper stop. A 900-agent ceiling used to flatten this
+        // curve above ~23×23, so two ponds of very different size held the same
+        // number of animals; these two are both past that line and must not.
+        let huge = World::new(64, 1, 1);
+        let huger = World::new(128, 1, 1);
+        assert!(huge.pop_cap() > 900, "density alone must carry a large pond past the old ceiling");
+        assert_eq!(huger.pop_cap(), huge.pop_cap() * 4, "cap tracks area, with nothing clamping it");
+
         // The band brackets the cap symmetrically, and leaves real breathing room.
-        for w in [&small, &big] {
+        for w in [&small, &big, &huge] {
             assert!(w.cull_target_pop() < w.pop_cap());
             assert!(w.cull_trigger_pop() > w.pop_cap());
             assert!(w.cull_trigger_pop() - w.cull_target_pop() > 0);

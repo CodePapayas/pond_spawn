@@ -13,7 +13,7 @@
 // seed reproduce it exactly, which is the property the seed exists for.
 
 const LIMITS = {
-    grid: { min: 6, max: 64, default: 24 },
+    grid: { min: 6, max: 512, default: 24 },
     population: { min: 1, max: 5000, default: 150 },
 };
 
@@ -29,6 +29,13 @@ const FRAGILE_GRID = 14;
 // Above this, expect the frame rate to drop — every agent is drawn as a full
 // kinematic body, with no culling or instancing (see draw_agents).
 const HEAVY_POPULATION = 1200;
+
+// Above this many tiles a side the terrain passes start to cost real frame
+// time: the water layer rebuilds a GRID×GRID image every frame, and food nodes
+// are drawn per unit (culled to the viewport, so zooming in stays cheap while
+// the whole-pond view is the expensive one). The engine itself is unbothered —
+// 512×512 with 5,000 agents steps in ~6ms — so this warns rather than clamps.
+const HEAVY_GRID = 160;
 
 // The rule dials. Defaults and bounds come from the engine (tunable_ranges), so
 // no number here is written down twice.
@@ -145,6 +152,9 @@ export function initSetup(root, onStart, defaults, ranges, onCancel) {
         warn.textContent =
             p.population >= HEAVY_POPULATION
                 ? `${p.population} agents will run slowly — every agent is drawn individually`
+            : p.grid >= HEAVY_GRID
+                ? `a ${p.grid}×${p.grid} pond draws slowly zoomed all the way out — ` +
+                  `the sim keeps up, the terrain passes are what cost frames`
             : p.grid < FRAGILE_GRID
                 ? `a ${p.grid}×${p.grid} pond usually goes extinct — too small to survive ` +
                   `the first crash`

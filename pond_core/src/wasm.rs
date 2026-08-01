@@ -129,6 +129,13 @@ const T_MOVE_SPEED: usize = 2;
 // ── WasmWorld ─────────────────────────────────────────────────────────────────
 
 const TICK_MS: f32 = 1000.0 * DT; // 50 ms per physics tick (20 Hz)
+/// Most sim steps one `update` call may run. At 60 fps a frame asks for 0 or 1,
+/// so this only ever engages when the frame rate has already collapsed — which
+/// is exactly when running four steps in one frame is the worst possible
+/// response. `speed_mult` multiplies the delta before it arrives here, so the
+/// speed dial reaches its ceiling sooner on a struggling pond; that is the
+/// intended trade, and the alternative is a spiral.
+const MAX_SUBSTEPS: u32 = 2;
 
 #[wasm_bindgen]
 pub struct WasmWorld {
@@ -155,8 +162,22 @@ impl WasmWorld {
     /// Use `get_alpha()` to interpolate renderer positions between ticks.
     pub fn update(&mut self, delta_ms: f32) {
         self.accumulator += delta_ms;
-        while self.accumulator >= TICK_MS && self.inner.agent_count() > 0 {
+        // Substeps are capped, so a frame that ran long cannot earn itself more
+        // work than a frame that ran short. Uncapped, this was a death spiral:
+        // a 200 ms frame asked for four steps, those four steps made the next
+        // frame longer still, and a pond that dipped never came back up. Past
+        // the cap the sim runs in slow motion rather than trying to keep wall
+        // clock — which for a pond you are watching is the right surrender.
+        //
+        // It also makes the engine measurable: with a variable number of steps
+        // folded into one span, per-step cost cannot be read off the HUD.
+        let mut steps = 0;
+        while self.accumulator >= TICK_MS
+            && steps < MAX_SUBSTEPS
+            && self.inner.agent_count() > 0
+        {
             self.inner.step();
+            steps += 1;
             self.accumulator -= TICK_MS;
             self.last_cluster_step = self.inner.step_count
                 - (self.inner.step_count % 50);

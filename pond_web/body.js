@@ -12,6 +12,27 @@
 
 const GLOW_SCALE = 1.9;
 
+// ── Ornament budget ──────────────────────────────────────────────────────────
+//
+// Below these on-screen sizes an ornament is not a shape, it is a smudge one to
+// two pixels across, and drawing it costs a path, a fill or stroke, and a colour
+// parse to produce noise. Zoomed out to a whole 64×64 pond `baseR` is ~2.5 px,
+// which puts eyes at ~0.4 px and fins at ~1 px — so this skips most of the
+// per-agent ornament work in exactly the view that cannot afford it, and skips
+// none of it at any zoom where the detail is legible.
+//
+// Thresholds are in device pixels, deliberately conservative: the cutoff is the
+// point where a feature stops being resolvable at all, not the point where it
+// stops being pretty. Raise them and creatures visibly lose their eyes.
+const ORNAMENT_MIN_PX = 1.5;
+const EYE_MIN_PX = 0.6;
+// Armour rings hug the hull, so their size is the body's. A ring inside a body
+// this small is a stroke drawn on top of a fill the same width.
+const ARMOR_MIN_BODY_PX = 3.0;
+// The unassigned-lineage edge. Same threshold as armour — both are hull-sized
+// marks that stop being marks once the hull is a few pixels across.
+const OUTLINE_MIN_BODY_PX = 3.0;
+
 function perp(dir) { return { x: -dir.y, y: dir.x }; }
 
 function wrapDelta(d, gridSize) {
@@ -79,7 +100,21 @@ function buildHullPath(ctx, left, right, headCenter, headDir, headWidth, headPoi
  *   edge is the title screen's acid lime, so an unassigned animal reads as
  *   *pre-species* rather than as a rendering fault.
  */
-export function drawBody(ctx, chain, spec, palette, xform, motion, glow, outline) {
+/** @param {number} [pass]  `PASS_GLOW` or `PASS_CORE` to draw only that half.
+ *
+ *  Omitted, a body paints both halves and manages its own canvas state, which is
+ *  what a one-off (title scene, preview) wants. A caller drawing a crowd passes
+ *  the halves separately and sets the composite mode once for each — measured at
+ *  ~24 µs per fill with the mode flipping per agent, against a 3–10 µs cost for
+ *  a small path, because every `globalCompositeOperation` change flushes the
+ *  batch. In that mode this function touches neither the composite mode nor
+ *  save/restore: the caller owns both. Every style it does set (`fillStyle`,
+ *  `strokeStyle`, `lineWidth`) is assigned before each use, so nothing leaks
+ *  between bodies. */
+export const PASS_GLOW = 0;
+export const PASS_CORE = 1;
+
+export function drawBody(ctx, chain, spec, palette, xform, motion, glow, outline, pass) {
     const { segCount, envelope, headPointiness, fins, ornamentLen, ornamentPairs, armorBumps, eyeSize, eyeSpread, pulseRate } = spec;
     const { tile_w, tile_h, scale_px, off_x, off_y, gridSize } = xform;
     const { baseR, energyNorm, velX, velY, timeSec } = motion;
@@ -114,9 +149,15 @@ export function drawBody(ctx, chain, spec, palette, xform, motion, glow, outline
     const pulse = 0.5 + 0.5 * Math.sin(timeSec * pulseRate * Math.PI * 2);
     const headWidth = envelope[0] * baseR;
 
+    const batched = pass !== undefined;
+    const want_glow = !batched || pass === PASS_GLOW;
+    const want_core = !batched || pass === PASS_CORE;
+
     const paint = () => {
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
+    if (!batched) ctx.save();
+
+    if (want_glow) {
+    if (!batched) ctx.globalCompositeOperation = 'lighter';
 
     // Glow pass: same hull, scaled outward, low alpha.
     //
@@ -131,11 +172,14 @@ export function drawBody(ctx, chain, spec, palette, xform, motion, glow, outline
     const glowA = (0.10 + energyNorm * 0.08 + pulse * 0.06) * (glow?.weight ?? 1);
     ctx.fillStyle = `rgba(${gr},${gg},${gb},${glowA})`;
     ctx.fill();
+    }
+
+    if (!want_core) { if (!batched) ctx.restore(); return; }
 
     // Core pass. Additive compositing saturates a bright fill straight to white
     // over lit water, which erased the genome colour entirely — so only the glow
     // above is additive and the body itself paints normally.
-    ctx.globalCompositeOperation = 'source-over';
+    if (!batched) ctx.globalCompositeOperation = 'source-over';
     buildHullPath(ctx, left, right, centers[0], dirs[0], headWidth, headPointiness, 1.0);
     const coreA = 0.72 + energyNorm * 0.28;
     ctx.fillStyle = `rgba(${cr},${cg},${cb},${coreA})`;
@@ -143,7 +187,13 @@ export function drawBody(ctx, chain, spec, palette, xform, motion, glow, outline
 
     // Outline for the lineage-less. The path from the fill above is still
     // current, so this is a stroke and not a second hull.
-    if (outline) {
+    //
+    // Size-gated like the ornaments, and for a sharper reason: a profile put
+    // `stroke` at 20% of all render time, and with armour and spikes already
+    // gated off at this zoom, this was the only stroke left — one per agent, on
+    // a pond where nearly everything is unassigned. A 1.1 px edge on a body 5 px
+    // wide is not a readable outline anyway; it just lightens the animal.
+    if (outline && baseR >= OUTLINE_MIN_BODY_PX) {
         const [orr, og, ob] = outline;
         ctx.strokeStyle = `rgba(${orr},${og},${ob},${(0.55 + energyNorm * 0.35).toFixed(3)})`;
         ctx.lineWidth = 1.1;
@@ -151,7 +201,7 @@ export function drawBody(ctx, chain, spec, palette, xform, motion, glow, outline
     }
 
     // Armor scalloping (defense): rings around the mid-body hull points.
-    if (armorBumps > 0) {
+    if (armorBumps > 0 && baseR >= ARMOR_MIN_BODY_PX) {
         ctx.strokeStyle = 'rgba(255,255,255,0.16)';
         ctx.lineWidth = 0.8;
         for (let b = 0; b < armorBumps; b++) {
@@ -173,7 +223,7 @@ export function drawBody(ctx, chain, spec, palette, xform, motion, glow, outline
     // pair per segment walking back. `ornamentPairs` is 0-3 and **0 means no
     // spikes at all** — presence or absence is the categorical read, where
     // "slightly longer spikes" is not something anyone can see.
-    if (ornamentPairs > 0) {
+    if (ornamentPairs > 0 && ornamentLen * scale_px >= ORNAMENT_MIN_PX) {
         const spikeLen = ornamentLen * scale_px;
         ctx.strokeStyle = `rgba(${cr},${cg},${cb},0.9)`;
         ctx.lineWidth = 1.2;
@@ -198,7 +248,7 @@ export function drawBody(ctx, chain, spec, palette, xform, motion, glow, outline
     // very differently from a 2-fin eel at the same proportions.
     // Finless is a real body plan now, so this is gated on the count rather than
     // on a length that was never zero.
-    if (fins.count > 0 && fins.len > 0.01) {
+    if (fins.count > 0 && fins.len * scale_px >= ORNAMENT_MIN_PX) {
         const pairs = Math.round(fins.count / 2);
         const finLen = fins.len * scale_px;
         const sweep = fins.rake;
@@ -224,19 +274,23 @@ export function drawBody(ctx, chain, spec, palette, xform, motion, glow, outline
 
     // Eyes (vision): two dots offset perpendicular to heading at the head.
     const eyeR = headWidth * eyeSize;
-    const eyeFwd = headWidth * 0.55;
-    const eyeLat = headWidth * eyeSpread;
-    const p0 = perp(dirs[0]);
-    for (const side of [-1, 1]) {
-        const ex = centers[0].x + dirs[0].x * eyeFwd + p0.x * eyeLat * side;
-        const ey = centers[0].y + dirs[0].y * eyeFwd + p0.y * eyeLat * side;
+    if (eyeR >= EYE_MIN_PX) {
+        const eyeFwd = headWidth * 0.55;
+        const eyeLat = headWidth * eyeSpread;
+        const p0 = perp(dirs[0]);
+        // One style assignment for the pair — the colour is constant, and it
+        // used to be re-parsed per eye.
         ctx.fillStyle = 'rgba(255,255,255,0.90)';
-        ctx.beginPath();
-        ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
-        ctx.fill();
+        for (const side of [-1, 1]) {
+            const ex = centers[0].x + dirs[0].x * eyeFwd + p0.x * eyeLat * side;
+            const ey = centers[0].y + dirs[0].y * eyeFwd + p0.y * eyeLat * side;
+            ctx.beginPath();
+            ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
 
-    ctx.restore();
+    if (!batched) ctx.restore();
     };
 
     // Paint once, plus shifted copies when the unwrapped body extends past a
