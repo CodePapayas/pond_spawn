@@ -64,10 +64,16 @@ const EXPECTED_SCHEMA = 7;
 // time at 20 Hz — averaging 60–320 animals and turning over dozens of species.
 const GRID_DEFAULT = 24;
 const POPULATION_DEFAULT = 150;
-// Seed 10 of that table, kept because of where it is at the warm-start mark:
-// three live species with a large one, a small one and a remnant, and a pond of
-// ~125 at healthy energy. Any seed survives; this one arrives interesting.
-const SEED_DEFAULT = 10n;
+// Chosen for where it is at the warm-start mark: ~100 animals at avg energy 58,
+// two live species — one of 60 and one of 12 — a third already extinct, and a
+// disease circulating with 48 carriers. So the pond opens mid-story rather than
+// mid-bloom: something has already won, something is already losing, and
+// something is already dead.
+//
+// Verified to 60,000 ticks (50 minutes at 20 Hz): never dips below 58 animals,
+// finishes at 63 on 75 average energy, and turns over 7 species along the way.
+// Any seed survives; this one arrives interesting.
+const SEED_DEFAULT = 21n;
 // Ticks the opening pond is wound forward before it is shown. Speciation needs
 // generations — the first promotion lands around tick 1,700–3,200 — so a pond
 // shown from tick 0 is unnamed grey soup for several minutes, which is longer

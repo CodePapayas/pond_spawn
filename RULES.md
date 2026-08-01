@@ -35,7 +35,7 @@
 
 ### Opening run
 
-The browser starts a run on load — **24×24, 150 agents, seed 10** — wound
+The browser starts a run on load — **24×24, 150 agents, seed 21** — wound
 forward 4,200 ticks before it is shown, and covered by the opening card until
 dismissed. A run started from the setup panel is not wound forward: it begins at
 tick 0.
@@ -60,7 +60,8 @@ Why these numbers, and why not the old 12×12/100:
 - **The warm start is about speciation, not survival.** First promotion lands
   around tick 1,700–3,200 (see [Speciation](#speciation) — promotion needs four
   generations of advance), so a pond shown from tick 0 is unnamed for several
-  minutes. At tick 4,200 seed 10 has three live species and ~125 animals.
+  minutes. At tick 4,200 seed 21 has two live species — one of 60, one of 12 — a third
+  already extinct, and ~100 animals at avg energy 58.
 
 Small ponds are still worth running and are not clamped out; the setup panel
 warns below 14 tiles a side.
