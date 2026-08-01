@@ -2035,6 +2035,31 @@ function draw_agents(buf, n, alpha, L, time_sec) {
         // pond read as a field of green dots with specks swimming in it.
         const base_r = scale_px * (0.105 + a.energyNorm * 0.07 + a.morph.pointiness * 0.05);
 
+        // Viewport cull. Off-screen agents still decode, still update their
+        // chain, and still land in `last_agents` — the panels count the whole
+        // population and the chain must not be stale when the camera comes back
+        // — but they issue no draw calls, which is the only part that costs
+        // ~8 µs each.
+        //
+        // This does nothing at fit zoom, where every agent is on screen by
+        // definition. It is the zoomed-in case it pays for, and it explains a
+        // measurement that looked backwards: zoomed 5× the pond cost 6.3 µs per
+        // agent against 8.0 at fit, because the rasteriser was already rejecting
+        // off-screen paths against the clip — cheaply, but not for free. This
+        // stops them at the source.
+        //
+        // The margin covers the glow hull and a body length, so nothing pops in
+        // at the edge. Seam copies are safe: `clamp_camera` keeps the view inside
+        // the pond, so a body close enough to an edge to need its far-side copy
+        // is on screen itself whenever both edges are.
+        const sx_px = off_x + hx_w * tile_w;
+        const sy_px = off_y + hy_w * tile_h;
+        const cull_m = tile_w * 2 + base_r * 4;
+        if (sx_px < -cull_m || sx_px > L.W + cull_m ||
+            sy_px < -cull_m || sy_px > L.H + cull_m) {
+            continue;
+        }
+
         // Apex predators do not use the body pipeline at all — they are hard
         // geometric shapes, so they can never be mistaken for one of their prey.
         // Deferred to after the crowd so they stay on top of it: a hunter drawn
