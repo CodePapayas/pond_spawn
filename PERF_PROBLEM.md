@@ -190,10 +190,12 @@ should be re-measured at a fixed zoom before anyone theorises on it.
 2026-07-31, via the `M` HUD on the dev machine (2552×1308 canvas), both readings
 at fit zoom with sprites not yet engaging, so both are pure vector baseline:
 
-| grid | px/tile | agents | `agents` ms | **µs/agent** |
-|---|---|---|---|---|
-| 64 | 20.4 | 5,666 | 55.6 | **9.8** |
-| 24 | 54.5 | 5,217 | 46.0 | **8.8** |
+| browser | grid | px/tile | agents | `agents` ms | **µs/agent** |
+|---|---|---|---|---|---|
+| Firefox | 64 | 20.4 | 5,666 | 55.6 | **9.8** |
+| Firefox | 24 | 54.5 | 5,217 | 46.0 | **8.8** |
+| Edge (Chromium) | 64 | 20.4 | 4,123 | 30.5 | **7.40** |
+| Edge (Chromium) | 64 | 20.4 | 4,215 | 31.5 | **7.47** |
 
 Bodies at grid 24 are **2.7× longer**, roughly **7× the pixel coverage**, with
 identical path complexity — and per-agent cost differs by **11%**. Whatever the
@@ -445,10 +447,24 @@ In the browser: press `N`, set grid 64 and a population in the thousands, start.
 Press `M` for the timing HUD. Let the pond boom past ~5,000 agents, zoom out to
 fit (`F`), and read the `agents` line.
 
-A Firefox capture has been taken (see "Profiler capture"). **A Chrome capture
-has not**, and is worth doing: Chrome and Firefox have different Canvas2D
-backends, and if the ~12 µs per-`fill()` overhead is Firefox-specific the whole
-diagnosis changes. The primary dev container has no browser (`libnspr4.so`
+A Firefox capture has been taken (see "Profiler capture"). **A Chromium reading
+now exists too** — the two Edge rows in the table above, same machine, same
+2552x1308 canvas, same zoom. Chromium is ~25% cheaper per agent and otherwise
+identical in shape: flat at 7.4 us across two populations, in the ~9 us regime
+and nowhere near the unreproduced 47.3 us reading. So the per-`fill()` overhead
+is **not a Firefox artefact**, and the diagnosis stands on both engines. A
+Chromium *profiler* capture would still be worth having if anyone wants the
+self-time split; the HUD numbers were enough to close the question that mattered.
+
+**This is where optimization stopped.** Cross-engine per-call overhead means no
+amount of Canvas2D tuning reaches the populations this pond reaches, and the only
+remaining move is the one below: stop issuing a call per agent. That is WebGL2
+instanced rendering, which is a rewrite of the body pipeline rather than a
+change to it — the hull would have to become shader math or a tinted-at-blit
+texture, and `chain.js`'s per-agent spine has no obvious home in either. The
+project ships as it stands, with the setup panel warning above
+`HEAVY_POPULATION` (setup.js) telling anyone who asks for thousands of agents
+what it will cost them. The primary dev container has no browser (`libnspr4.so`
 missing, no sudo), so everything not backed by the `M` HUD or the profile is
 inference.
 
