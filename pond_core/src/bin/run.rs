@@ -1,7 +1,7 @@
 /// Headless native runner — benchmarks and observes the sim without a renderer.
 ///
 /// Usage:
-///   cargo run -p pond_core --bin run --features native -- [grid] [pop] [steps] [seed] [--dump-stats PATH]
+///   cargo run -p pond_core --bin run --features native -- [grid] [pop] [steps] [seed] [--dump-stats PATH] [--brains]
 ///
 /// Defaults: 12×12 grid, 100 agents, 500 steps, seed 42.
 ///
@@ -34,6 +34,12 @@ fn main() {
     // was — so the runner exposes them even though the browser fixes them at
     // construction.
     let no_predators = args.iter().any(|a| a == "--no-predators");
+    // Behavioural clustering is off unless something asks for it — it is the
+    // most expensive work in the sim and only the archetype panel consumes it.
+    // The runner used to print its label histogram unconditionally, which on a
+    // run that never enabled it is 24 zeroes: not an empty result, a disabled
+    // subsystem printed as one.
+    let brains = args.iter().any(|a| a == "--brains");
     let regen: Option<f64> = args.iter().position(|a| a == "--regen")
         .and_then(|i| args.get(i + 1)).and_then(|s| s.parse().ok());
 
@@ -44,6 +50,7 @@ fn main() {
 
     let mut world = World::new(grid_size, population, seed);
     if no_predators { world.set_automatic_predators(false); }
+    if brains { world.brain_clusters.set_enabled(true); }
     if let Some(r) = regen { world.set_food_regen_scale(r); }
     let print_every = (steps / 20).max(1);
     let total_start = Instant::now();
@@ -172,7 +179,11 @@ fn main() {
         for &id in gc { gcounts[id as usize] += 1; }
         for &id in &world.brain_clusters.labels { bcounts[id as usize] += 1; }
         println!("\ngenome clusters (k={}): {:?}", k, gcounts);
-        println!("brain clusters  (k=24): {:?}", &bcounts[..24]);
+        if world.brain_clusters.enabled() {
+            println!("brain clusters  (k=24): {:?}", &bcounts[..24]);
+        } else {
+            println!("brain clusters  : off — pass --brains to run them");
+        }
     }
 }
 
