@@ -779,8 +779,15 @@ fn unassigned_groups(
                 let from = natal.get(i).copied().unwrap_or(UNASSIGNED);
                 if from != UNASSIGNED { *tally.entry(from).or_insert(0) += 1; }
             }
+            // Ties break on the lower id, and that tie-break is load-bearing.
+            // `max_by_key` on the count alone returns whichever equal-count
+            // entry the iterator reached last, and a `HashMap`'s order comes
+            // from a per-process random seed — so two runs of the same seed
+            // could hand a cluster different parents, and with the parent goes
+            // the genus, the name and the shape of the tree. Ties are not rare:
+            // a small cluster with one child of each of two lineages is one.
             let natal_plurality = tally.into_iter()
-                .max_by_key(|&(_, n)| n)
+                .max_by_key(|&(id, n)| (n, std::cmp::Reverse(id)))
                 .map(|(id, _)| id)
                 .unwrap_or(UNASSIGNED);
             let mut centroid = [0f64; SIG_LEN];
@@ -888,6 +895,24 @@ mod tests {
     use super::*;
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
+
+    /// Two lineages, one child each, in one cluster. Which one the cluster is
+    /// recorded as descending from decides its genus, its name and where it
+    /// hangs on the tree — so a tie must resolve the same way every time, and
+    /// `HashMap` order is a per-process random seed.
+    #[test]
+    fn a_tied_parentage_always_picks_the_lower_id() {
+        let points = vec![[0.5f64; SIG_LEN]; 4];
+        let assignment = vec![UNASSIGNED; 4];
+        let natal = vec![9u32, 4, 9, 4];   // two apiece: a dead heat
+        let cluster = ClusterState {
+            genome_cluster_ids: vec![0, 0, 0, 0],
+            ..Default::default()
+        };
+        let groups = unassigned_groups(&points, &assignment, &natal, &cluster);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].natal_plurality, 4, "tie did not break on the lower id");
+    }
 
     /// Three well-separated trait blobs, the fixture shape from cluster.rs.
     /// `generation` is set explicitly so tests control the generation criterion.
