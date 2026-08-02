@@ -140,6 +140,10 @@ export function initGraphs(root) {
                 key: `graph:${p.key}`,
                 title: p.title,
                 className: 'graph-window',
+                // Roughly the width the window used to take from its content
+                // before floating.js sized windows itself: a 560px chart plus
+                // the body padding. Height follows the chart.
+                size: { w: 600 },
                 render: body => renderExpanded(body, p, expanded),
             });
         });
@@ -179,6 +183,12 @@ export function initGraphs(root) {
     // build time; sizing is retried on every update, and re-run on resize.
     let sized = size_canvases();
     window.addEventListener('resize', () => { sized = size_canvases(); redraw(); });
+    // The panel is resizable by its grip too, which the window's resize event
+    // does not see. Observing the root covers both, and the browser coalesces
+    // observer callbacks to one a frame.
+    if (typeof ResizeObserver === 'function') {
+        new ResizeObserver(() => { sized = size_canvases(); redraw(); }).observe(root);
+    }
 
     let last = null;
 

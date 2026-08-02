@@ -34,11 +34,11 @@ const S_CENTROID = 14;
 const SIG_LEN = 9;   // species signature dims; mirrors species::SIG_LEN
 const S_FOUNDING_CENTROID = S_CENTROID + SIG_LEN;
 const S_POPULATION_CENTROID = S_FOUNDING_CENTROID + SIG_LEN;
-const SIGNATURE_NAMES = [
+export const SIGNATURE_NAMES = [
     'vision', 'speed', 'metabolism', 'reproduction cost',
     'attack', 'defense', 'aggression', 'intelligence', 'immunity',
 ];
-const SIGNATURE_DIMS = [0, 1, 2, 5, 6, 7, 8, 9, 10];
+export const SIGNATURE_DIMS = [0, 1, 2, 5, 6, 7, 8, 9, 10];
 
 /** How long an extinction stays in the live list, struck through, before it
  *  drops into the collapsed fossil record. Long enough to notice, short enough
@@ -186,6 +186,7 @@ function openSpecies(species, step, bounds) {
         key: `species:${species.id}`,
         title: species.name,
         className: 'species-window',
+        size: { w: 430 },
         render: body => renderSpecies(body, species, step, bounds),
     });
 }

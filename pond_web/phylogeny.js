@@ -16,7 +16,10 @@
 // the same list. Nothing about the drawing is written twice, so the export can
 // never drift from what is on screen.
 
-import { openFloating, updateFloating } from './floating.js';
+import { openFloating, updateFloating, closeFloating, topZ } from './floating.js';
+// The hover card is the species window's trait table, cut to four rows, so it
+// reads the same signature dims in the same order.
+import { SIGNATURE_NAMES, SIGNATURE_DIMS } from './species.js';
 
 // ── Geometry ──────────────────────────────────────────────────────────────────
 
@@ -140,17 +143,27 @@ export function layoutTree(rows, step, colorFor = () => [120, 200, 140]) {
         };
         anchor.set(s.id, seat);
 
+        // `live` is the colour the lineage wore while it was alive, kept on the
+        // prim even for the dead: extinct boughs are bare brown, which is the
+        // point of the picture, but hovering one should still be able to say
+        // which lineage it was without changing what the tree looks like at rest.
+        const lrgb = dead ? colorFor(s) : rgb;
+        const live = `rgb(${lrgb[0]},${lrgb[1]},${lrgb[2]})`;
         prims.push({
             kind: 'bough',
             ...seat,
+            id: s.id,
             width: 2 + 5 * Math.min(1, s.peak / 40),
             color: dead ? DEAD : `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`,
+            live,
             dead,
         });
         if (!dead) {
             prims.push({
                 kind: 'needles', ...seat,
+                id: s.id,
                 color: `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`,
+                live,
             });
         }
         // Labels live in a fixed column outside the canopy rather than floating
@@ -159,6 +172,8 @@ export function layoutTree(rows, step, colorFor = () => [120, 200, 140]) {
         // own tip.
         prims.push({
             kind: 'label',
+            id: s.id,
+            live,
             x: side > 0 ? w - PAD_X + 12 : PAD_X - 12,
             y: y1 + 3,
             align: side > 0 ? 'left' : 'right',
@@ -216,13 +231,18 @@ function pointOnBough(seat, founded, cx) {
 // ── Canvas ────────────────────────────────────────────────────────────────────
 
 /** Paint a layout. Coordinates are CSS pixels; the caller owns DPR scaling,
- *  following the convention in graphs.js. */
-export function drawTree(ctx, layout) {
+ *  following the convention in graphs.js.
+ *
+ *  `hoverId` is the species under the cursor, or null. It only ever brightens:
+ *  the tree at rest is the honest picture (extinct = bare brown), and hover is
+ *  a question asked of one bough, not a second colour scheme. */
+export function drawTree(ctx, layout, hoverId = null) {
     const { w, h, prims } = layout;
     ctx.clearRect(0, 0, w, h);
     ctx.lineCap = 'round';
 
     for (const p of prims) {
+        const hot = hoverId !== null && p.id === hoverId;
         switch (p.kind) {
             case 'trunk': {
                 ctx.fillStyle = p.fill;
@@ -250,14 +270,22 @@ export function drawTree(ctx, layout) {
                 ctx.fillText(p.label, p.x, p.y - 3);
                 break;
             case 'bough':
-                ctx.strokeStyle = p.color;
-                ctx.lineWidth = p.width;
+                // Hovered: the lineage's living colour, whether or not it is
+                // still living. A dead bough keeps its dashes and its snapped
+                // tip — it is being named, not resurrected.
+                ctx.strokeStyle = hot ? p.live : p.color;
+                ctx.lineWidth = hot ? p.width + 1.5 : p.width;
+                if (hot) {
+                    ctx.shadowColor = p.live;
+                    ctx.shadowBlur = 10;
+                }
                 if (p.dead) ctx.setLineDash([5, 4]);
                 ctx.beginPath();
                 ctx.moveTo(p.x0, p.y0);
                 ctx.quadraticCurveTo(p.cx, p.cy, p.x1, p.y1);
                 ctx.stroke();
                 ctx.setLineDash([]);
+                ctx.shadowBlur = 0;
                 // A snapped-off tip: the lineage ends here and nothing grows on.
                 if (p.dead) {
                     ctx.lineWidth = 1;
@@ -267,8 +295,8 @@ export function drawTree(ctx, layout) {
                 }
                 break;
             case 'needles':
-                ctx.strokeStyle = p.color;
-                ctx.lineWidth = 1;
+                ctx.strokeStyle = hot ? p.live : p.color;
+                ctx.lineWidth = hot ? 1.4 : 1;
                 for (const n of needles(p)) line(ctx, n.x0, n.y0, n.x1, n.y1);
                 break;
             case 'label':
@@ -278,7 +306,7 @@ export function drawTree(ctx, layout) {
                     line(ctx, p.leader.x, p.leader.y, p.x - (p.align === 'left' ? 5 : -5), p.y - 3);
                 }
                 ctx.textAlign = p.align;
-                ctx.fillStyle = p.strike ? DIM : INK;
+                ctx.fillStyle = hot ? p.live : (p.strike ? DIM : INK);
                 ctx.font = '11px "Courier New", monospace';
                 ctx.fillText(p.text, p.x, p.y);
                 if (p.strike) {
@@ -301,6 +329,39 @@ export function drawTree(ctx, layout) {
         }
     }
     ctx.textAlign = 'left';
+}
+
+/** Which species is under (x, y), in layout coordinates — or null.
+ *
+ *  Boughs are quadratics, so this samples each curve rather than solving it:
+ *  16 points is finer than the widest bough is thick, and the whole tree is a
+ *  few dozen curves, so a mousemove costs nothing worth measuring. Labels are
+ *  hit as boxes, since the name is the part of a dead lineage most likely to be
+ *  aimed at — its bough is a dashed line. */
+function hitTree(layout, x, y) {
+    if (!layout) return null;
+    let best = null, bestD = Infinity;
+    for (const p of layout.prims) {
+        if (p.id === undefined) continue;
+        if (p.kind === 'bough') {
+            const reach = Math.max(7, p.width * 0.5 + 4);
+            for (let i = 0; i <= 16; i++) {
+                const q = onCurve(p, i / 16);
+                const d = Math.hypot(q.x - x, q.y - y);
+                if (d < reach && d < bestD) { bestD = d; best = p.id; }
+            }
+        } else if (p.kind === 'label') {
+            // Text is drawn from p.x toward `align`, with the sub line below.
+            const wl = 150;
+            const x0 = p.align === 'left' ? p.x - 6 : p.x - wl;
+            if (x >= x0 && x <= x0 + wl + 6 && y >= p.y - 12 && y <= p.y + 14) {
+                // Labels win ties against a bough passing behind them.
+                bestD = 0;
+                best = p.id;
+            }
+        }
+    }
+    return best;
 }
 
 function line(ctx, x0, y0, x1, y1) {
@@ -468,12 +529,27 @@ const KEY = 'tree:phylogeny';
  * tree tracks the run rather than freezing at the moment it was opened.
  */
 export function openPhylogeny(source, colorFor) {
-    openFloating({
+    const win = openFloating({
         key: KEY,
         title: 'phylogeny',
         className: 'float-tree',
+        // The tree lays out at a fixed 780px wide and grows downward with the
+        // roster; the window asks for a comfortable size and takes whatever the
+        // viewport allows, and renderInto scales the drawing to match.
+        size: { w: 820, h: 620, minW: 360 },
         render: body => renderInto(body, source, colorFor),
     });
+    // The hover card lives on <body>, not inside the window, so closing the
+    // window from its own × would otherwise leave the card stranded on screen.
+    win.querySelector('.float-close').addEventListener('click', hideCard);
+}
+
+/** Open if closed, close if open. The window key is private to this module, so
+ *  the keybinding asks here rather than holding the string itself. */
+export function togglePhylogeny(source, colorFor) {
+    if (closeFloating(KEY)) { hideCard(); return false; }
+    openPhylogeny(source, colorFor);
+    return true;
 }
 
 /** Refresh an already-open window; no-op when it is closed. */
@@ -482,9 +558,12 @@ export function refreshPhylogeny(source, colorFor) {
 }
 
 function renderInto(body, source, colorFor) {
-    const { rows, step, seed } = source();
+    const { rows, step, seed, bounds } = source();
     const layout = layoutTree(rows, step, colorFor);
     const meta = { seed, step };
+    currentRows = rows;
+    currentBounds = bounds ?? null;
+    currentStep = step;
 
     // Rebuild the shell only once; redrawing into the existing canvas keeps the
     // export buttons from being torn out from under a click.
@@ -510,22 +589,150 @@ function renderInto(body, source, colorFor) {
             () => exportPng(currentLayout, currentMeta));
         body.querySelector('[data-svg]').addEventListener('click',
             () => exportSvg(currentLayout, currentMeta));
+        bindHover(canvas);
     }
     currentLayout = layout;
     currentMeta = meta;
 
     // DPR handling as in graphs.js: draw in CSS pixels, scale the backing store.
+    // On top of that, fit the fixed-width layout to whatever width the window
+    // has — the tree is 780px wide regardless of the screen, and a laptop
+    // window would otherwise get a scrollbar instead of a tree. Only shrinks:
+    // scaling a 12-species tree up to fill a wide window would just make it
+    // blurry. The exports below still use `currentLayout` at full size, so a
+    // small screen does not produce a small file.
+    const avail = body.clientWidth - 20;   // the .float-body padding
+    const scale = avail > 0 ? Math.min(1, avail / layout.w) : 1;
     const dpr = window.devicePixelRatio || 1;
-    canvas.style.width = `${layout.w}px`;
-    canvas.style.height = `${layout.h}px`;
-    canvas.width = Math.round(layout.w * dpr);
-    canvas.height = Math.round(layout.h * dpr);
+    canvas.style.width = `${layout.w * scale}px`;
+    canvas.style.height = `${layout.h * scale}px`;
+    canvas.width = Math.round(layout.w * scale * dpr);
+    canvas.height = Math.round(layout.h * scale * dpr);
     const ctx = canvas.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawTree(ctx, layout);
+    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
+    currentScale = scale;
+    currentCanvas = canvas;
+    // A refresh can drop the species the cursor was over.
+    if (hoverId !== null && !rows.some(r => r.id === hoverId)) hoverId = null;
+    drawTree(ctx, layout, hoverId);
 }
 
 // The layout the buttons export — always what was last drawn, so the file
 // matches the picture rather than re-deriving it from a newer roster.
 let currentLayout = null;
 let currentMeta = null;
+// What hover reads: the roster behind the last layout, the trait bounds that
+// turn a normalized centroid back into trait values, and the scale the canvas
+// was drawn at (mouse coordinates are in CSS pixels, the layout is not).
+let currentRows = [];
+let currentBounds = null;
+let currentStep = 0;
+let currentScale = 1;
+let currentCanvas = null;
+let hoverId = null;
+
+// ── Hover ─────────────────────────────────────────────────────────────────────
+
+/** Redraw the tree with the current hover, without rebuilding the layout —
+ *  hovering must not cost a re-layout of the whole roster. */
+function redrawHover() {
+    if (!currentCanvas || !currentLayout) return;
+    const dpr = window.devicePixelRatio || 1;
+    const ctx = currentCanvas.getContext('2d');
+    ctx.setTransform(dpr * currentScale, 0, 0, dpr * currentScale, 0, 0);
+    drawTree(ctx, currentLayout, hoverId);
+}
+
+function bindHover(canvas) {
+    canvas.addEventListener('mousemove', e => {
+        const rect = canvas.getBoundingClientRect();
+        // Into layout units: the canvas may be drawn shrunk to fit the window.
+        const x = (e.clientX - rect.left) / currentScale;
+        const y = (e.clientY - rect.top) / currentScale;
+        const hit = hitTree(currentLayout, x, y);
+        if (hit !== hoverId) {
+            hoverId = hit;
+            redrawHover();
+        }
+        canvas.style.cursor = hit === null ? '' : 'pointer';
+        if (hit === null) hideCard();
+        else showCard(hit, e.clientX, e.clientY);
+    });
+    canvas.addEventListener('mouseleave', () => {
+        if (hoverId !== null) { hoverId = null; redrawHover(); }
+        hideCard();
+    });
+}
+
+let card = null;
+
+function hideCard() {
+    if (card) card.style.display = 'none';
+}
+
+/** The truncated gene view: what the legend's composite panel shows, cut down
+ *  to the four traits that actually separate this lineage from the pond it left.
+ *
+ *  Which is the same question the tree is drawing. A bough says *that* a species
+ *  split; the founding-vs-current bars say *what* split it, and the delta column
+ *  says whether it has kept drifting since. Four rows because this is a tooltip
+ *  hanging off a cursor — the full nine are one click away in the species
+ *  window, and the roster panel is where you go to compare lineages. */
+function showCard(id, clientX, clientY) {
+    const s = currentRows.find(r => r.id === id);
+    if (!s) { hideCard(); return; }
+
+    if (!card) {
+        card = document.createElement('div');
+        card.id = 'tree-hover';
+        document.body.appendChild(card);
+    }
+
+    // Rank by how far the founding centroid sat from the pond it split out of.
+    // That ordering is the epithet's own rule (species.js), so the top row is
+    // the trait the species is named for.
+    const ranked = SIGNATURE_NAMES
+        .map((name, i) => ({
+            name, i,
+            dev: s.foundingCentroid[i] - s.populationCentroid[i],
+            now: s.centroid[i],
+        }))
+        .sort((a, b) => Math.abs(b.dev) - Math.abs(a.dev))
+        .slice(0, 4);
+
+    const rows = ranked.map(r => {
+        const dim = SIGNATURE_DIMS[r.i];
+        const lo = currentBounds?.[dim * 2] ?? 0;
+        const hi = currentBounds?.[dim * 2 + 1] ?? 1;
+        const raw = lo + r.now * (hi - lo);
+        const pct = Math.max(0, Math.min(1, r.now)) * 100;
+        return `<div class="th-row"><span class="th-k">${r.name}</span>` +
+            `<div class="th-track"><div class="th-fill" style="width:${pct.toFixed(1)}%"></div></div>` +
+            `<span class="th-v">${raw.toFixed(2)}</span>` +
+            `<em class="th-d ${r.dev >= 0 ? 'up' : 'down'}">` +
+            `${r.dev >= 0 ? '+' : ''}${r.dev.toFixed(2)}</em></div>`;
+    }).join('');
+
+    const age = (s.extinctAt ?? currentStep) - s.founded;
+    card.innerHTML =
+        `<div class="th-head">${s.name}</div>` +
+        `<div class="th-sub">${s.extinctAt === null
+            ? `living · ${s.members} members · ${age} steps`
+            : `extinct at ${s.extinctAt} · lived ${age} steps · peak ${s.peak}`}</div>` +
+        rows +
+        `<div class="th-note">bar = trait now, in its range &middot; number = value &middot; ` +
+        `± = how far the founders sat from the pond they left, which is what ` +
+        `promoted them. Click the roster for the full nine.</div>`;
+
+    card.style.display = 'block';
+    // Over the window it belongs to, whatever that window has been raised to.
+    card.style.zIndex = String(topZ() + 1);
+    // Flip to the other side of the cursor rather than run off the screen,
+    // as the graph hover does.
+    const gap = 14;
+    const w = card.offsetWidth, h = card.offsetHeight;
+    const x = clientX + gap + w > window.innerWidth ? clientX - gap - w : clientX + gap;
+    const y = Math.max(8, Math.min(clientY + gap, window.innerHeight - h - 8));
+    card.style.left = `${Math.max(8, x)}px`;
+    card.style.top = `${y}px`;
+}

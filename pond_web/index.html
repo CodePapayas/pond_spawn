@@ -216,7 +216,13 @@ canvas { display: block; }
 #side-right {
   top: 16px; right: 16px;
   width: 230px;
-  display: block;   /* legend on by default; C clears the whole UI */
+  display: block;   /* legend on by default; L hides it, C clears the whole UI */
+}
+/* A 230px column is a quarter of a narrow window. The rows are name + value,
+   so they take the squeeze without reflowing into nonsense. #god shares the
+   column and layout_right_column measures it, so the two stay aligned. */
+@media (max-width: 900px) {
+  #side-right, #god { width: 190px; }
 }
 .legend-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
 .legend-swatch {
@@ -544,8 +550,10 @@ canvas { display: block; }
   top: 16px;
   left: 16px;
   width: 272px;
-  /* Leaves the bottom-left corner to the keybind column. */
-  max-height: calc(100vh - 360px);
+  /* Used to reserve 360px for the keybind column below it, which on a short
+     window left a panel a couple of rows tall. The key has its own toggle (K)
+     now, so the panel takes the height it needs and the key can be dismissed. */
+  max-height: calc(100vh - 32px);
   overflow-y: auto;
   display: none;
   padding: 8px 10px;
@@ -672,15 +680,20 @@ canvas { display: block; }
 
 .float-window {
   position: fixed;
-  width: min-content;
-  min-width: 340px;
-  min-height: 160px;
+  /* Size comes from floating.js, which fits it to the viewport. `min-content`
+     let a window be as big as its content wanted — a 780px tree on a 1000px
+     screen — and max-width only turned the overflow into scrollbars. */
+  min-width: 300px;
+  min-height: 140px;
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
-  overflow: auto;
-  /* Drag the bottom-right corner. Charts re-render to whatever size they are
-     given, so a graph window is worth making bigger. */
-  resize: both;
+  /* Column layout so the body scrolls inside the frame instead of the frame
+     growing past the screen; the head stays put. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* Resizing is the grip in resizable.js, not `resize: both` — the browser's
+     own grip sits under the scrolling body and never receives the mouse. */
   background: rgba(4, 10, 18, 0.96);
   border: 1px solid rgba(120, 255, 245, 0.38);
   border-radius: 6px;
@@ -688,7 +701,7 @@ canvas { display: block; }
   box-shadow: 0 12px 42px rgba(0, 0, 0, 0.55);
 }
 .float-head {
-  position: sticky; top: 0; z-index: 1;
+  flex: 0 0 auto;
   display: flex; align-items: center; justify-content: space-between;
   padding: 7px 8px 7px 11px;
   background: rgba(8, 20, 30, 0.98);
@@ -705,7 +718,13 @@ canvas { display: block; }
   font: 16px monospace; cursor: pointer;
 }
 .float-close:hover { color: white; background: rgba(255,60,120,.2); }
-.float-body { padding: 10px; font-size: 10px; }
+.float-body {
+  flex: 1 1 auto;
+  min-height: 0;      /* so the body, not the window, is what scrolls */
+  overflow: auto;
+  scrollbar-width: thin;
+  padding: 10px; font-size: 10px;
+}
 
 /* ── Phylogeny window ─────────────────────────────────────────────────── */
 .float-tree .float-body { padding: 8px 10px 10px; }
@@ -726,6 +745,78 @@ canvas { display: block; }
   color: rgba(110, 140, 155, 0.8); font-size: 9px; line-height: 1.55;
 }
 
+/* ── Resize grip ──────────────────────────────────────────────────────── */
+/* Sits above the panel body, which is what the browser's own resize corner
+   could not do. Two diagonal strokes, the convention everywhere else. */
+.resize-grip {
+  width: 16px; height: 16px;
+  z-index: 3;
+  opacity: 0.45;
+  background-repeat: no-repeat;
+}
+.resize-grip:hover { opacity: 0.95; }
+.grip-abs { position: absolute; bottom: 0; }
+/* Sticky keeps the grip on the bottom edge of a panel that scrolls its own
+   content, where an absolute one would scroll out of reach. */
+.grip-sticky { position: sticky; bottom: 0; }
+.grip-sticky.grip-se { margin-left: auto; }
+.grip-sticky.grip-sw { margin-right: auto; }
+.grip-se {
+  right: 0;
+  cursor: nwse-resize;
+  background-image: linear-gradient(135deg, transparent 45%, rgba(120,255,245,.85) 45%, rgba(120,255,245,.85) 55%, transparent 55%),
+                    linear-gradient(135deg, transparent 70%, rgba(120,255,245,.85) 70%, rgba(120,255,245,.85) 80%, transparent 80%);
+}
+.grip-sw {
+  left: 0;
+  cursor: nesw-resize;
+  background-image: linear-gradient(45deg, transparent 45%, rgba(120,255,245,.85) 45%, rgba(120,255,245,.85) 55%, transparent 55%),
+                    linear-gradient(45deg, transparent 70%, rgba(120,255,245,.85) 70%, rgba(120,255,245,.85) 80%, transparent 80%);
+}
+/* Horizontal offsets are for the absolute grips; on a sticky one they would
+   shift it sideways out of the panel. */
+.grip-sticky { left: auto; right: auto; }
+/* A resizable panel needs to be a positioning context for its grip, and needs
+   its own scrollbar once it has been dragged shorter than its content. */
+.panel.resizable { position: fixed; overflow: auto; }
+
+/* ── Phylogeny hover card ─────────────────────────────────────────────── */
+/* The legend's composite bars, cut to four rows and hung off the cursor. Same
+   chrome as the graph hover preview, which is the other thing of this kind. */
+#tree-hover {
+  display: none;
+  position: fixed;
+  /* Overridden per-show from floating.js's z counter — the tree window is
+     raised every time it is clicked, so a fixed number here loses to it. */
+  z-index: 95;
+  pointer-events: none;
+  width: 268px;
+  padding: 9px 10px;
+  background: rgba(4, 10, 18, 0.97);
+  border: 1px solid rgba(120, 255, 245, 0.32);
+  border-radius: 5px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  color: rgba(190, 245, 255, 0.9);
+  font-size: 10px;
+}
+.th-head { font-style: italic; color: rgba(120, 255, 245, 0.95); font-size: 11px; }
+.th-sub { color: rgba(120, 160, 175, 0.8); font-size: 9px; margin-bottom: 6px; }
+.th-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+.th-k { width: 72px; flex-shrink: 0; color: rgba(150, 220, 240, 0.8); }
+.th-track {
+  position: relative; flex: 1; height: 6px;
+  background: rgba(120, 255, 245, 0.10); border-radius: 3px; overflow: hidden;
+}
+.th-fill { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(120, 255, 245, 0.55); }
+.th-v { width: 30px; text-align: right; color: rgba(236, 248, 255, 0.9); flex-shrink: 0; }
+.th-d { width: 34px; text-align: right; font-style: normal; flex-shrink: 0; }
+.th-d.up { color: rgba(255, 90, 210, 0.85); }
+.th-d.down { color: rgba(90, 190, 255, 0.85); }
+.th-note {
+  margin-top: 6px; color: rgba(110, 140, 155, 0.65);
+  font-size: 9px; line-height: 1.5;
+}
+
 /* ── Zen mode ─────────────────────────────────────────────────────────── */
 /* C clears the UI. One class, and every panel's own state is left untouched,
    so leaving zen restores exactly what was open. */
@@ -736,6 +827,7 @@ body.zen #hint-show,
 body.zen #species-toast,
 body.zen #paused-banner,
 body.zen .float-window,
+body.zen #tree-hover,
 body.zen #graph-hover-preview { display: none !important; }
 .graph-expanded { display: block; background: rgba(0,0,0,.28); border-radius: 3px; }
 .graph-expanded-key { margin-top: 6px; word-spacing: 5px; }
@@ -745,7 +837,8 @@ body.zen #graph-hover-preview { display: none !important; }
   border: 1px solid rgba(120,255,245,.32); border-radius: 5px;
   box-shadow: 0 10px 30px rgba(0,0,0,.5);
 }
-.species-window { width: 430px; }
+/* Width is a size hint passed to openFloating now, so it can be capped by the
+   viewport; a fixed CSS width would fight the inline one. */
 .species-window h3 {
   margin: 10px 0 5px; color: rgba(120,255,245,.82);
   text-transform: uppercase; letter-spacing: .08em; font-size: 10px;
@@ -797,8 +890,12 @@ body.zen #graph-hover-preview { display: none !important; }
   <div class="hk"><b>g</b><span>graphs</span></div>
   <div class="hk"><b>b</b><span>archetypes</span></div>
   <div class="hk"><b>p</b><span>phylogeny</span></div>
+  <div class="hk"><b>l</b><span>legend</span></div>
+  <div class="hk"><b>k</b><span>this key</span></div>
   <div class="hk"><b>d</b><span>debug clusters</span></div>
   <div class="hk"><b>m</b><span>render timings</span></div>
+  <div class="hk"><b>;</b><span>sprites auto/on/off</span></div>
+  <div class="hk"><b>x</b><span>death icons</span></div>
   <div class="hk"><b>n</b><span>new run panel</span></div>
   <div class="hk"><b>esc</b><span>deselect</span></div>
   <div class="hk"><b>c</b><span>clear ui</span></div>

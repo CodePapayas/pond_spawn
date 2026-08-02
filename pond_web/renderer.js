@@ -34,9 +34,10 @@ import { initSetup } from './setup.js';
 import { initSplash } from './splash.js';
 import { initGod } from './god.js';
 import { initInspector } from './inspector.js';
-import { openPhylogeny, refreshPhylogeny } from './phylogeny.js';
+import { togglePhylogeny, refreshPhylogeny } from './phylogeny.js';
 import { initDiseasePanel, parseDiseases } from './disease.js';
 import { closeFloatingPrefix } from './floating.js';
+import { makeResizable } from './resizable.js';
 
 // Wire format this page was written against. The engine reports its own; a
 // mismatch means pond_core/pkg and pond_web were built from different commits,
@@ -232,9 +233,45 @@ let perf_visible = false;
 // is sound and the measurements around it are worth not re-deriving; if the
 // renderer ever moves to WebGL2 the tinting problem disappears and this becomes
 // straightforwardly correct.
-let sprites_enabled = false;
-// Last frame's zoom, for the HUD only. Not smoothed — it is a setting, not a
-// measurement, and an averaged one would lag the key you just pressed.
+//
+// So the default is `auto`, and auto's job is not "switch sprites on when the
+// pond is big" — it is to switch them on only where they can pay, then measure
+// whether they did and back out if not. On every default-size pond the first
+// condition alone (px/tile under the LOD threshold) is never met, so auto
+// behaves exactly as off, which is the behaviour this comment argues for.
+// `;` cycles auto → on → off by hand.
+let sprite_mode = 'auto';       // 'auto' | 'on' | 'off'
+let sprites_enabled = false;    // what the frame actually draws; auto writes it
+
+const SPRITE_AUTO_EVAL_MS = 1000;      // how often the policy looks
+const SPRITE_AUTO_MIN_AGENTS = 400;    // below this the body path is fast enough
+const SPRITE_AUTO_SLOW_MS = 20;        // ≈ under 50 fps: a problem worth fixing
+const SPRITE_AUTO_MAX_WIPES = 1;       // per eval window before calling it thrash
+const SPRITE_AUTO_TRIAL_MS = 3000;     // how long to wait for the promised gain
+const SPRITE_AUTO_MIN_GAIN = 0.10;     // fraction of frame time it must save
+const SPRITE_AUTO_HOLD = 2;            // consecutive evals before switching on
+
+let auto_last_eval = 0;
+let auto_last_wipes = 0;
+let auto_hold = 0;
+let auto_trial_until = 0;
+let auto_trial_baseline = 0;
+// Latched off after a failed attempt, so a pond that cannot use the atlas does
+// not spend the rest of the run switching it on and off. Cleared when the
+// population halves — that is a different working set, so the measurement that
+// failed no longer describes the pond.
+let auto_locked = false;
+let auto_lock_pop = 0;
+// Smoothed frame interval, for the auto policy. Deliberately not `perf.frame`:
+// that only accumulates while the M panel is open, and this has to be readable
+// with no panels up. One subtraction per frame.
+let frame_ema = 16.7;
+const FRAME_EMA = 0.05;
+// Agent count from the last rendered frame, for the auto policy.
+let last_agent_count = 0;
+// Last frame's zoom, for the HUD and the sprite auto policy. Written every
+// frame in draw_agents, not just while the HUD is up. Not smoothed — it is a
+// setting, not a measurement, and an averaged one would lag the key you pressed.
 let perf_scale_px = 0;
 const PERF_EMA = 0.1;
 const perf = { water: 0, shimmer: 0, food: 0, agents: 0, frame: 0, sim: 0 };
@@ -260,7 +297,8 @@ let species_seeded = false;
 let current_step = 0;
 let last_species_tick = -1;
 let TRAIT_BOUNDS = null;
-let hint_visible = true;   // the bottom-left controls key; click it or the ? chip
+let hint_visible = true;   // the bottom-left controls key; K, a click, or the ? chip
+let legend_visible = true; // the right column; L. Matches #side-right's CSS default
 let zen = false;           // C hides the whole UI (see toggle_zen)
 let graphs_timer = null;
 const GRAPH_REFRESH_MS = 1000;   // series only gain a sample every 10 sim steps
@@ -329,6 +367,7 @@ async function boot() {
     });
     inspector = initInspector(Array.from(brain_layer_sizes()));
 
+    init_resizable_panels();
     resize();
     layout_right_column();
     window.addEventListener('resize', () => { resize(); layout_right_column(); });
@@ -419,6 +458,13 @@ function restart({ grid, population, seed, dials: chosen }) {
     // carried over from the last run would describe the wrong pond.
     resetAtlas();
     resetAtlasStats();
+    // The auto policy's verdict was about the last pond's key space. A new run
+    // gets to earn sprites again, and a latch from the old one must not carry.
+    auto_last_wipes = 0;
+    auto_locked = false;
+    auto_hold = 0;
+    auto_trial_until = 0;
+    if (sprite_mode === 'auto') sprites_enabled = false;
     water_step = -1;   // new fertility field, and the step counter restarts at 0
     death_cause.clear();
     dying = [];
@@ -541,7 +587,37 @@ function layout_right_column() {
     const side = document.getElementById('side-right');
     const top = god_el.getBoundingClientRect().height + 26;
     side.style.top = top + 'px';
-    side.style.maxHeight = `calc(100vh - ${top + 24}px)`;
+    // Once the legend has been dragged to a height, that height is the answer.
+    // Re-imposing the computed cap here is what would make a resize spring back
+    // the next time the god panel opened.
+    if (!side_sized_by_hand) side.style.maxHeight = `calc(100vh - ${top + 24}px)`;
+}
+
+let side_sized_by_hand = false;
+
+/** Give the fixed panels a resize grip. Corners follow the anchor: a panel
+ *  pinned to the right edge grows leftward, so its grip is bottom-left.
+ *
+ *  The grid stays put underneath — these are overlays, and a panel that
+ *  reflowed the pond would move the thing you are trying to look at. */
+function init_resizable_panels() {
+    const panels = [
+        ['side-right', 'sw', 170, 120, () => { side_sized_by_hand = true; }],
+        // The legend is stacked under the god panel by measurement, so a taller
+        // god panel has to push it down as it is dragged, not a frame later.
+        ['god', 'sw', 170, 90, layout_right_column],
+        ['inspector', 'se', 240, 160, null],
+        ['archetypes', 'se', 220, 120, null],
+        // The graph strip re-sizes its own canvases from an observer on the
+        // panel (graphs.js), so nothing to call back here.
+        ['graphs', 'se', 420, 130, null],
+    ];
+    for (const [id, corner, minW, minH, onResize] of panels) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        el.classList.add('resizable');
+        makeResizable(el, { corner, minW, minH, onResize: onResize ?? undefined });
+    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -818,7 +894,10 @@ function on_key(e) {
     if (e.key === 'b' || e.key === 'B') toggle_archetypes();
     if (e.key === 'd' || e.key === 'D') toggle_debug();
     if (e.key === 'm' || e.key === 'M') toggle_perf();
-    if (e.key === 'l' || e.key === 'L') toggle_sprites();
+    if (e.key === 'l' || e.key === 'L') toggle_legend();
+    if (e.key === 'k' || e.key === 'K') toggle_hint_click();
+    if (e.key === ';') cycle_sprite_mode();
+    if (e.key === 'x' || e.key === 'X') toggle_death_icons();
     // Zen while the setup panel is up would hide the only way to start a run.
     if ((e.key === 'c' || e.key === 'C') && !setup.isOpen()) toggle_zen();
     if (e.key === 'p' || e.key === 'P') toggle_phylogeny();
@@ -874,16 +953,40 @@ function toggle_zen() {
     document.body.classList.toggle('zen', zen);
 }
 
+/** Death epitaphs on/off, behind X. Off means off at every zoom — the zoom gate
+ *  (DEATH_GLYPH_MIN_ZOOM) only decides whether an enabled glyph is close enough
+ *  to be worth drawing. The dissolve puff stays either way; this is the text. */
+function toggle_death_icons() {
+    death_icons_enabled = !death_icons_enabled;
+}
+
+/** The right-hand column — species, legend, average genome. Behind L, which
+ *  used to be the sprite toggle; sprites moved to `;` because the legend is a
+ *  thing you hide constantly and sprite LOD is a thing you touch once a run.
+ *  C still clears everything at once; this is the individual switch. */
+function toggle_legend() {
+    legend_visible = !legend_visible;
+    document.getElementById('side-right').style.display =
+        legend_visible ? 'block' : 'none';
+}
+
 /** The phylogeny window. Built from the roster on open, refreshed on the same
- *  cadence as the species panel. Closing it is the window's own × button. */
+ *  cadence as the species panel. P closes it as well as opens it; the window's
+ *  own × button still works and leaves nothing behind, since the open set in
+ *  floating.js is the only state either path touches. */
 function toggle_phylogeny() {
-    openPhylogeny(phylogeny_source, species_swatch);
+    togglePhylogeny(phylogeny_source, species_swatch);
 }
 
 /** What the tree reads. A function, not a snapshot, so the window tracks the
  *  run instead of freezing at the moment it was opened. */
 function phylogeny_source() {
-    return { rows: species_rows, step: current_step, seed: String(SEED) };
+    // `bounds` is what turns a normalized centroid back into a trait value for
+    // the hover card; the tree itself does not use it.
+    return {
+        rows: species_rows, step: current_step, seed: String(SEED),
+        bounds: TRAIT_BOUNDS,
+    };
 }
 
 /** Show/hide the stat panel. Redraw only runs while it is visible — reading and
@@ -929,9 +1032,9 @@ function toggle_debug() {
     document.getElementById('legend-debug').style.display =
         debug_visible ? 'block' : 'none';
     // The legend lives in the right panel, so make sure that panel is up too.
-    if (debug_visible) {
-        document.getElementById('side-right').style.display = 'block';
-    }
+    // The flag goes with it: L reads `legend_visible`, and leaving it false
+    // while the panel is on screen makes the first L press appear to do nothing.
+    if (debug_visible && !legend_visible) toggle_legend();
 }
 
 /** Render timings, behind M. Off by default and gated at every call site, so an
@@ -945,11 +1048,88 @@ function toggle_perf() {
     document.getElementById('h-perf').style.display = perf_visible ? 'block' : 'none';
 }
 
-/** Sprite LOD on/off, behind L. Resets the perf averages on the way through:
- *  an EMA that straddles the switch is a reading of neither build. */
-function toggle_sprites() {
-    sprites_enabled = !sprites_enabled;
+/** Sprite LOD mode, behind `;` — auto → on → off. Resets the perf averages and
+ *  the atlas counters on the way through: an EMA or a wipe count that straddles
+ *  the switch is a reading of neither mode. */
+function cycle_sprite_mode() {
+    sprite_mode = sprite_mode === 'auto' ? 'on' : sprite_mode === 'on' ? 'off' : 'auto';
+    if (sprite_mode === 'on') sprites_enabled = true;
+    if (sprite_mode === 'off') sprites_enabled = false;
+    // Entering auto starts from off and re-earns its way on, rather than
+    // inheriting whatever the manual mode left behind.
+    if (sprite_mode === 'auto') {
+        sprites_enabled = false;
+        auto_locked = false;
+        auto_hold = 0;
+        auto_trial_until = 0;
+    }
     for (const k in perf) perf[k] = 0;
+    resetAtlasStats();
+    auto_last_wipes = 0;
+    frame_ema = 16.7;
+}
+
+/** The auto policy. Called once a frame; does its work once a second.
+ *
+ *  On: px/tile under the LOD threshold (above it sprites are never drawn, so
+ *  switching on is a no-op that only risks a wipe), a population big enough to
+ *  be worth batching, and a frame time slow enough to be worth fixing — all
+ *  three, held across two evaluations so a hitch does not flip the renderer.
+ *
+ *  Off: the atlas started wiping, or three seconds passed without the frame
+ *  time improving. Both latch, because both mean this pond's key space does not
+ *  fit and no amount of retrying changes that. */
+function evaluate_sprite_auto(now) {
+    if (sprite_mode !== 'auto') return;
+    if (now - auto_last_eval < SPRITE_AUTO_EVAL_MS) return;
+    auto_last_eval = now;
+
+    const wipes = atlasStats().wipes;
+    const wipe_delta = wipes - auto_last_wipes;
+    auto_last_wipes = wipes;
+
+    if (sprites_enabled) {
+        if (wipe_delta > SPRITE_AUTO_MAX_WIPES) { auto_disable(); return; }
+        if (auto_trial_until && now >= auto_trial_until) {
+            const gained = frame_ema <= auto_trial_baseline * (1 - SPRITE_AUTO_MIN_GAIN);
+            auto_trial_until = 0;
+            if (!gained) { auto_disable(); return; }
+        }
+        // Zoomed back in past the threshold: nothing is being drawn from the
+        // atlas any more. Stand down, but do not latch — this is the camera
+        // moving, not the atlas failing.
+        if (perf_scale_px > SPRITE_LOD_MAX_SCALE_PX) {
+            sprites_enabled = false;
+            auto_hold = 0;
+            auto_trial_until = 0;
+        }
+        return;
+    }
+
+    // A pond half the size is a different working set, so the failed
+    // measurement no longer describes it.
+    if (auto_locked && last_agent_count < auto_lock_pop / 2) auto_locked = false;
+    if (auto_locked) return;
+
+    const want = perf_scale_px > 0
+        && perf_scale_px <= SPRITE_LOD_MAX_SCALE_PX
+        && last_agent_count >= SPRITE_AUTO_MIN_AGENTS
+        && frame_ema >= SPRITE_AUTO_SLOW_MS;
+    auto_hold = want ? auto_hold + 1 : 0;
+    if (auto_hold < SPRITE_AUTO_HOLD) return;
+
+    sprites_enabled = true;
+    auto_hold = 0;
+    auto_trial_baseline = frame_ema;
+    auto_trial_until = now + SPRITE_AUTO_TRIAL_MS;
+}
+
+function auto_disable() {
+    sprites_enabled = false;
+    auto_locked = true;
+    auto_lock_pop = last_agent_count;
+    auto_hold = 0;
+    auto_trial_until = 0;
 }
 
 function toggle_graphs() {
@@ -1087,6 +1267,10 @@ function frame_body(ts) {
     const raw_delta = prev_ts ? ts - prev_ts : 16.67;
     prev_ts = ts;
     frame_delta = Math.min(raw_delta, 200);
+    // Free frame-time signal for the sprite auto policy (see
+    // evaluate_sprite_auto). Uses the capped delta so a tab-switch does not
+    // register as a slow pond.
+    frame_ema += (frame_delta - frame_ema) * FRAME_EMA;
 
     // While parameters are being chosen, the pond behind the panel is the
     // title scene — one creature and the wordmark — not the run itself. The run
@@ -1115,6 +1299,8 @@ function frame_body(ts) {
     const buf = world.get_state();
     render(buf, ts / 1000);
     if (perf_visible) perf_mark('frame', t_frame);
+    // After render: the policy reads this frame's zoom and population.
+    evaluate_sprite_auto(ts);
 
     // Panels are observation. A panel that throws must not take the pond down
     // with it, so they are isolated from the render path.
@@ -1384,6 +1570,7 @@ function update_panels(step) {
 function render(buf, time_sec) {
     const L = layout();
     const n     = buf[0] | 0;   // agent count
+    last_agent_count = n;
     const step  = buf[2] | 0;
     current_step = step;
     const food  = buf[3] | 0;
@@ -1446,11 +1633,17 @@ function render(buf, time_sec) {
             `agents  ${ms(perf.agents)}\n` +
             `other   ${ms(rest)}\n` +
             `frame   ${ms(perf.frame)}  ${(1000 / Math.max(perf.frame, 0.01)).toFixed(0)} fps\n` +
-            // The sprite line is what makes the L toggle readable: `drawn`
+            // The sprite line is what makes the `;` cycle readable: `drawn`
             // splits the population between the two pipelines, so a reading
             // where sprites are on but `drawn` is near zero is a threshold
-            // problem, not an atlas problem.
-            `sprite  ${sprites_enabled ? 'on ' : 'off'} drawn ${sprite_queue_len}/${sprite_queue_len + body_queue_len} ` +
+            // problem, not an atlas problem. Auto prints both the mode and what
+            // it currently decided, plus `lock` once it has given up — without
+            // that, a latched-off auto is indistinguishable from one that never
+            // met its conditions.
+            `sprite  ${sprite_mode === 'auto'
+                ? `auto→${sprites_enabled ? 'on ' : 'off'}${auto_locked ? ' lock' : ''}`
+                : sprite_mode === 'on' ? 'on ' : 'off'} ` +
+            `drawn ${sprite_queue_len}/${sprite_queue_len + body_queue_len} ` +
             // `peak` against the cap is the whole question: if the working set
             // fits, `wipes` stops climbing and the atlas stops cycling. A rising
             // wipe count on a paused pond means the key space is still too wide,
@@ -1783,6 +1976,17 @@ function reap_stale(chains_map, morph_map, color_map, predator_map, live_ids) {
     }
 }
 
+// Epitaphs are a close-up detail. Zoomed out they are the only thing on screen
+// with a fixed minimum size (11px), so at ×1 a busy pond is a field of text
+// with the water invisible underneath it. Gated on how much of the pond is in
+// view: at ×3 a third of it is across the window, which is the point where a
+// glyph sits over one animal rather than over a crowd. The dissolve puff is not
+// gated — it is drawn at the body's own scale, so it shrinks with everything
+// else and reads as light rather than as labelling.
+const DEATH_GLYPH_MIN_ZOOM = 3;
+// X toggles the epitaphs off entirely, zoom or no zoom.
+let death_icons_enabled = true;
+
 // Epitaph per cause of death. Codes come from CauseOfDeath::code() in world.rs
 // and must stay in sync with it.
 // Codes mirror CauseOfDeath::code() in world.rs. Both maps were missing 4
@@ -1879,7 +2083,13 @@ function draw_dying({ tile_w, tile_h, off_x, off_y }, time_sec) {
     }
 
     // Epitaphs go in a second pass with normal compositing — additive text over
-    // a bright shell washes out to unreadable white.
+    // a bright shell washes out to unreadable white. Skipped entirely when off
+    // or zoomed out: the shells above are the whole effect at that distance.
+    if (!death_icons_enabled || cam.zoom < DEATH_GLYPH_MIN_ZOOM) {
+        ctx.restore();
+        dying = dying.filter(d => time_sec - d.t0 < DEATH_SEC);
+        return;
+    }
     ctx.globalCompositeOperation = 'source-over';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

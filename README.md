@@ -137,8 +137,12 @@ Controls in the browser:
 | `g` | Stat graphs |
 | `p` | Phylogeny tree |
 | `b` | Behavioural archetypes |
+| `l` | Legend column (species, traits, average genome) |
+| `k` | Controls key, bottom left |
 | `d` | Cluster debug overlay |
 | `m` | Render timings (per-pass milliseconds, frame rate, zoom) |
+| `;` | Sprite drawing: auto / forced on / forced off |
+| `x` | Death epitaphs (also hidden below ×3 zoom, where they cover the pond) |
 | `c` | Clear the interface for an unobstructed pond |
 | `n` | New run panel (grid, population, seed, rule dials) |
 | `f` | Fit the whole pond |

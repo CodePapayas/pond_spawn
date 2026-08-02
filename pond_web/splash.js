@@ -18,6 +18,7 @@ const KEYS = [
     ['space', 'pause'],
     ['+ / -', 'speed'],
     ['g · p · b', 'graphs · phylogeny · archetypes'],
+    ['l · k', 'legend · controls key'],
     ['n', 'new run'],
     ['c', 'clear the interface'],
 ];
