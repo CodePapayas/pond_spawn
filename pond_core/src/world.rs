@@ -295,6 +295,21 @@ fn clamp_range(v: f64, (lo, hi): (f64, f64)) -> f64 {
     v.clamp(lo, hi)
 }
 
+/// Tolerance for "this dial was not moved". Dials arrive from JS as f32, so the
+/// default comes back as 0.012000000104 rather than 0.012.
+pub const TUNABLE_EPS: f64 = 1e-6;
+
+/// Snap a dial back onto its exact default when it is within `TUNABLE_EPS`.
+///
+/// `mark_tuned` already forgave that difference when deciding whether the run
+/// counted as tuned — but the setter stored the changed number regardless, so
+/// the engine could report a run as unmodified while running on a value the
+/// headless build never uses. One of those two had to give, and it is not the
+/// one that says "same seed = same pond".
+fn snap_to_default(v: f64, default: f64) -> f64 {
+    if (v - default).abs() <= TUNABLE_EPS { default } else { v }
+}
+
 // ── Ultra predator ────────────────────────────────────────────────────────────
 // A single apex agent that cannot die and eats until the population is down to a
 // target fraction, then leaves. Summoned by the player, or automatically when the
@@ -943,13 +958,16 @@ impl World {
     }
 
     pub fn set_food_regen_scale(&mut self, v: f64) {
-        self.tunables.food_regen_scale = clamp_range(v, FOOD_REGEN_SCALE_RANGE);
+        self.tunables.food_regen_scale =
+            snap_to_default(clamp_range(v, FOOD_REGEN_SCALE_RANGE), DEFAULT_FOOD_REGEN_SCALE);
         self.mark_tuned();
     }
 
     pub fn set_hunt_aggression_threshold(&mut self, v: f64) {
-        self.tunables.hunt_aggression_threshold =
-            clamp_range(v, HUNT_AGGRESSION_THRESHOLD_RANGE);
+        self.tunables.hunt_aggression_threshold = snap_to_default(
+            clamp_range(v, HUNT_AGGRESSION_THRESHOLD_RANGE),
+            DEFAULT_HUNT_AGGRESSION_THRESHOLD,
+        );
         self.mark_tuned();
     }
 
@@ -973,7 +991,7 @@ impl World {
         // the wasm layer hands the UI `0.012` as an f32 and gets back
         // 0.012000000104…, so an exact test would latch `modified` the first
         // time someone pressed reset without having moved anything.
-        const EPS: f64 = 1e-6;
+        const EPS: f64 = TUNABLE_EPS;
         let d = Tunables::default();
         let t = &self.tunables;
         if (t.food_regen_scale - d.food_regen_scale).abs() > EPS
@@ -3677,6 +3695,48 @@ mod tests {
         assert_eq!(t.food_regen_scale, FOOD_REGEN_SCALE_RANGE.1);
         assert_eq!(t.hunt_aggression_threshold, HUNT_AGGRESSION_THRESHOLD_RANGE.0);
         assert_eq!(t.cluster_k, CLUSTER_K_RANGE.0);
+    }
+
+    /// The browser and the headless runner must produce the same pond from the
+    /// same seed. They did not: the UI hands a dial back as an f32 round trip
+    /// of the default, `mark_tuned` forgave that difference and reported the run
+    /// unmodified — and the setter stored the changed number anyway. Every food
+    /// regen tick then ran on 0.012000000104 instead of 0.012, and fifteen
+    /// thousand steps of that is a different pond wearing the same seed.
+    #[test]
+    fn an_f32_round_trip_of_a_default_is_the_default() {
+        let mut w = small_world();
+        w.set_food_regen_scale(DEFAULT_FOOD_REGEN_SCALE as f32 as f64);
+        w.set_hunt_aggression_threshold(DEFAULT_HUNT_AGGRESSION_THRESHOLD as f32 as f64);
+        assert_eq!(w.tunables().food_regen_scale, DEFAULT_FOOD_REGEN_SCALE);
+        assert_eq!(w.tunables().hunt_aggression_threshold, DEFAULT_HUNT_AGGRESSION_THRESHOLD);
+    }
+
+    /// The property the test above is protecting, end to end: what the panel
+    /// sends for an untouched dial must run the same pond as touching nothing.
+    #[test]
+    fn the_panel_defaults_run_the_same_pond_as_no_panel() {
+        let fingerprint = |w: &World| {
+            let mut acc = w.ids.len() as f64;
+            for i in 0..w.ids.len() {
+                acc = acc * 1.000_001 + w.pos_x[i] as f64 + w.pos_y[i] as f64 * 3.0
+                    + w.energy[i];
+            }
+            acc
+        };
+
+        let mut untouched = World::new(24, 300, 9);
+        let mut from_panel = World::new(24, 300, 9);
+        from_panel.set_food_regen_scale(DEFAULT_FOOD_REGEN_SCALE as f32 as f64);
+        from_panel.set_hunt_aggression_threshold(DEFAULT_HUNT_AGGRESSION_THRESHOLD as f32 as f64);
+        from_panel.set_cluster_k(DEFAULT_CLUSTER_K);
+
+        for _ in 0..2000 {
+            untouched.step();
+            from_panel.step();
+        }
+        assert_eq!(untouched.ids.len(), from_panel.ids.len(), "populations diverged");
+        assert_eq!(fingerprint(&untouched), fingerprint(&from_panel), "ponds diverged");
     }
 
     #[test]

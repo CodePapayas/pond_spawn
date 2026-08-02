@@ -85,7 +85,7 @@ const DISEASE_SPECIES_COLUMNS: usize = 13;   // species ids 1..=MAX_SPECIES, plu
 const DISEASE_STRIDE: usize = 9 + DISEASE_SPECIES_COLUMNS;
 
 /// Predator record: [id, leaving, tier, angle, reach].
-const PREDATOR_STATE_STRIDE: usize = 5;
+const PREDATOR_STATE_STRIDE: usize = 6;
 
 // Header field indices
 const H_AGENT_COUNT: usize = 0;
@@ -691,9 +691,11 @@ impl WasmWorld {
     /// Every predator in the pond, as [id, leaving] pairs — same flat-buffer
     /// convention as `get_state()`. `leaving` is 1 while a predator is swimming
     /// off, so the renderer can fade it.
-    /// Per predator: `[id, leaving, tier, angle, reach]`. The renderer draws a
-    /// different shape per tier, and needs the sweep angle and reach to draw the
-    /// top two at the size they actually kill at.
+    /// Per predator: `[id, leaving, tier, angle, reach, hunting]`. The renderer
+    /// draws a different shape per tier, needs the sweep angle and reach to draw
+    /// the top two at the size they actually kill at, and colours the triangle's
+    /// edges from `hunting`. Read through `predator_state_stride()`, never a
+    /// literal — this row has grown once already.
     pub fn predators_state(&self) -> Vec<f32> {
         let mut out = Vec::with_capacity(self.inner.predators.len() * PREDATOR_STATE_STRIDE);
         for p in &self.inner.predators {
@@ -702,6 +704,10 @@ impl WasmWorld {
             out.push(p.tier as f32);
             out.push(p.angle);
             out.push(crate::world::tier_bite(p.tier));
+            // Hunting, as opposed to present. `sated` means it met its quota
+            // and patrols; `leaving` means it is swimming off. The renderer
+            // colours its edges from this.
+            out.push(if !p.sated && p.leaving.is_none() { 1.0 } else { 0.0 });
         }
         out
     }

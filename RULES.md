@@ -298,7 +298,11 @@ reach behaviour through perception inputs and the separation force instead.
 
   - **Residency.** The triangles never leave. Once their quota is met they go
     quiet and patrol, and wake when the population climbs back over the trigger —
-    they are not aggressive unless the population needs culling. The two player
+    they are not aggressive unless the population needs culling. **A hunting
+    triangle is outlined in red and a quiet one in white**, eased between over
+    ~0.3s, so which of the two states a resident is in is readable without
+    watching whether anything is dying. The flag is `!sated && !leaving`,
+    exported in `predators_state()`. The two player
     shapes are far too lethal to leave in the water: they cull and depart.
 
   - **Summoned**: the octagon (`PREDATOR_MANUAL_TIER`) or the rectangle

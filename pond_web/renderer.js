@@ -451,6 +451,7 @@ function restart({ grid, population, seed, dials: chosen }) {
 
     chains.clear();
     predator_chains.clear();
+    predator_heat.clear();
     morph_cache.clear();
     color_state.clear();
     // A new pond has new lineages and new colours, so every cached sprite is
@@ -1992,7 +1993,10 @@ function reap_stale(chains_map, morph_map, color_map, predator_map, live_ids) {
     // Predators keep their own chains and never appear in chains_map, so they
     // need their own sweep or a departed hunter's body would leak.
     for (const id of predator_map.keys()) {
-        if (!live_ids.has(id)) predator_map.delete(id);
+        if (!live_ids.has(id)) {
+            predator_map.delete(id);
+            predator_heat.delete(id);
+        }
     }
 }
 
@@ -2262,6 +2266,7 @@ function draw_agents(buf, n, alpha, L, time_sec) {
             tier: pstate[i + 2] | 0,
             angle: pstate[i + 3],
             reach: pstate[i + 4],
+            hunting: pstate[i + 5] === 1,
         });
     }
 
@@ -2597,6 +2602,13 @@ function polygon(sides, r, rotation) {
 }
 
 // Tier 0 — the original articulated triangle chain, unchanged.
+/// How long the edge takes to travel between white and red, as an exponential
+/// time constant in ms. Long enough to read as a mood changing, short enough
+/// that it has finished before you look away.
+const PREDATOR_HEAT_MS = 320;
+/// Eased hunt heat per predator id, 0 = passive, 1 = hunting.
+const predator_heat = new Map();
+
 function draw_predator_triangles(id, wx, wy, { tile_w, tile_h, scale_px, off_x, off_y }, time_sec, p) {
     let chain = predator_chains.get(id);
     if (!chain) {
@@ -2615,6 +2627,20 @@ function draw_predator_triangles(id, wx, wy, { tile_w, tile_h, scale_px, off_x, 
     // A sated resident dims down — it is still here, but it is not hunting.
     const alpha = p?.leaving ? 0.55 : 1.0;
     const [r8, g8, b8] = TIER_RGB[0];
+
+    // Edge colour carries the hunt: red while it is working, white once it is
+    // sated or leaving. Eased rather than switched — the state flips the instant
+    // its quota is met, and a hard cut reads as a different animal arriving.
+    // Frame-rate independent, so it takes the same second at 30 fps and 144.
+    const heat_target = p?.hunting ? 1 : 0;
+    let heat = predator_heat.get(id);
+    if (heat === undefined) heat = heat_target;   // no fade in from nothing on spawn
+    heat += (heat_target - heat) * (1 - Math.exp(-frame_delta / PREDATOR_HEAT_MS));
+    predator_heat.set(id, heat);
+    // White → the tier's own red. Only the two lower channels move, so the edge
+    // stays bright at every point on the ramp rather than dimming through pink.
+    const edge_g = Math.round(255 - 190 * heat);
+    const edge_b = Math.round(255 - 195 * heat);
 
     const sx = w => off_x + w * tile_w;
     const sy = w => off_y + w * tile_h;
@@ -2666,8 +2692,10 @@ function draw_predator_triangles(id, wx, wy, { tile_w, tile_h, scale_px, off_x, 
         ctx.closePath();
         ctx.fillStyle = `rgba(${r8},${g8},${b8},${0.92 - i * 0.12})`;
         ctx.fill();
-        ctx.strokeStyle = `rgba(255,255,255,${0.75 * pulse})`;
-        ctx.lineWidth = Math.max(1, scale_px * 0.02);
+        // A hunting edge is brighter and a shade heavier as well as redder: at
+        // this size the hue alone is a couple of pixels of difference.
+        ctx.strokeStyle = `rgba(255,${edge_g},${edge_b},${(0.75 + 0.2 * heat) * pulse})`;
+        ctx.lineWidth = Math.max(1, scale_px * (0.02 + 0.008 * heat));
         ctx.stroke();
         ctx.restore();
     }
