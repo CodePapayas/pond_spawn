@@ -108,7 +108,12 @@ which is what happens when the pond stops paying for plate it does not need.
 1. `energy_norm` — own energy / (100 × energy_capacity trait), 0–1
 2. `food_dist_norm` — distance to nearest food / vision radius (1.0 = none visible)
 3. `food_angle_norm` — angle to food relative to velocity direction, in [−1, 1]
-4. `agent_density_norm` — neighbours within separation radius / 8, 0–1
+4. `agent_density_norm` — living neighbours within **vision radius** / 8, 0–1.
+   Vision scales every sensory channel, this one included: `vision × 3` tiles,
+   so 1.5 for a trait at its 0.5 floor and 3.15 at its 1.05 ceiling. The divisor
+   is a constant, not the swept area — a short-sighted animal reads an emptier
+   pond because it is seeing less of it. Distinct from the separation *force*,
+   which keeps its own fixed 1.2-tile reach: touching is not seeing.
 5. `speed_norm` — current speed / max speed, 0–1
 
 **Legacy Python:**

@@ -35,6 +35,9 @@ pub const MAX_SPEED: f32 = 3.0;         // tiles/sec at speed_trait = 1.0
 const MAX_FORCE: f32 = 8.0;             // steering acceleration magnitude cap
 const WANDER_FORCE: f32 = 2.5;          // wander perturbation strength
 const SEPARATION_RADIUS: f32 = 1.2;     // repulsion radius in tiles
+/// Neighbours in sight at which the density input reads 1.0. Unchanged from the
+/// literal 8.0 it replaces — the count feeding it is what changed.
+const DENSITY_FULL: f32 = 8.0;
 const VISION_SCALE: f32 = 3.0;          // vision_trait × VISION_SCALE = radius in tiles
 const MOVE_COST: f64 = 0.15;            // energy per tile traveled × terrain_speed × metabolism
 
@@ -829,6 +832,15 @@ pub struct World {
     scratch_deciding: Vec<bool>,
     scratch_food_dirs: Vec<(f32, f32)>,  // unit vector to nearest visible food; (0,0) if none
     scratch_outputs: Vec<[f32; 8]>,  // sigmoid-gated brain outputs per acting agent
+    /// Neighbour indices from one spatial query. Taken out of `self` for the
+    /// duration of a query and put back, so a pass that runs per agent per tick
+    /// allocates once rather than once per agent — in a clustered pond the
+    /// buckets it copies are hundreds long.
+    scratch_neighbours: Vec<usize>,
+    /// Occupants of one tile during the combat sweep. Same reasoning as
+    /// `scratch_neighbours`, and a separate buffer because the combat sweep and
+    /// the steering pass are not nested but could easily come to be.
+    scratch_combat: Vec<usize>,
 }
 
 impl World {
@@ -909,6 +921,8 @@ impl World {
             scratch_deciding: Vec::new(),
             scratch_food_dirs: Vec::new(),
             scratch_outputs: Vec::new(),
+            scratch_neighbours: Vec::new(),
+            scratch_combat: Vec::new(),
         };
 
         world.spawn_agents(population);
@@ -1036,7 +1050,11 @@ impl World {
         let idx = self.ids.iter().position(|&i| i == id)?;
         if self.cause_of_death[idx].is_some() { return None; }
 
-        let (input, _) = self.perceive(idx);
+        // The inspector is a read-only observer on `&self` and runs once per
+        // click, so it brings its own buffer rather than borrowing the shared
+        // one — and must not disturb it either way.
+        let mut neighbours = Vec::new();
+        let (input, _) = self.perceive(idx, &mut neighbours);
         let (h0, h1, h2, logits) = forward_traced(self.genome[idx].weights_array(), input);
         let gates = sigmoid_outputs(logits);
 
@@ -2547,12 +2565,15 @@ impl World {
     /// physics integration, so skipping an agent there would freeze it in the
     /// water instead of leaving it swimming on a stale intent.
     fn perceive_all(&mut self) {
+        // Out of `self` for the pass and back at the end: `perceive` borrows
+        // `&self`, so the buffer cannot stay a field while it is being filled.
+        let mut neighbours = std::mem::take(&mut self.scratch_neighbours);
         for slot in 0..self.scratch_acting.len() {
             let idx = self.scratch_acting[slot];
             let thinking = self.decision_cooldown[idx] == 0;
             self.scratch_deciding[slot] = thinking;
             if thinking {
-                let (perception, food_dir) = self.perceive(idx);
+                let (perception, food_dir) = self.perceive(idx, &mut neighbours);
                 self.scratch_perceptions[slot] = perception;
                 self.scratch_food_dirs[slot] = food_dir;
                 self.last_perception[idx] = perception;
@@ -2565,6 +2586,7 @@ impl World {
                 self.decision_cooldown[idx] -= 1;
             }
         }
+        self.scratch_neighbours = neighbours;
     }
 
     /// Forward pass for the agents thinking this tick; the others get their
@@ -2588,7 +2610,7 @@ impl World {
     /// Build 5-input perception vector for one agent, plus the unit direction
     /// to the nearest visible food tile ((0,0) if none) so the steering pass
     /// doesn't have to re-scan the same tiles.
-    fn perceive(&self, idx: usize) -> ([f32; INPUT_COUNT], (f32, f32)) {
+    fn perceive(&self, idx: usize, neighbours: &mut Vec<usize>) -> ([f32; INPUT_COUNT], (f32, f32)) {
         let px = self.pos_x[idx];
         let py = self.pos_y[idx];
         let vx = self.vel_x[idx];
@@ -2606,12 +2628,33 @@ impl World {
         let (food_dist_norm, food_angle_norm, food_dir) =
             self.nearest_food_inputs(idx, px, py, vx, vy, vision_radius, world_size);
 
-        // [3] agent density within separation radius
-        let nearby = self.spatial.agents_near(px, py, SEPARATION_RADIUS + 0.5);
-        let neighbor_count = nearby.iter()
-            .filter(|&&i| i != idx && self.cause_of_death[i].is_none())
-            .count();
-        let agent_density_norm = (neighbor_count as f32 / 8.0).clamp(0.0, 1.0);
+        // [3] agent density — within *this agent's* sight, like every other
+        // sensory channel.
+        //
+        // It used to be a fixed 1.7-tile query shared by every genome, and it
+        // never filtered by distance, so what it actually reported was the
+        // population of a 5x5 tile block: crowding out to 3.5 tiles for a
+        // half-blind animal and a sharp-eyed one alike. Vision scaled food and
+        // threat and left the crowd sense alone, which made vision a trait
+        // about finding things rather than about seeing.
+        //
+        // Now it counts the living inside `vision_radius`, and the divisor is a
+        // constant, not the area — a vision-0.5 animal sweeps 1.5 tiles against
+        // a vision-1.05 animal's 3.15 and reads a correspondingly emptier pond.
+        // That is the point: it sees less, so it knows less.
+        self.spatial.agents_near_into(px, py, vision_radius, neighbours);
+        let half = world_size * 0.5;
+        let vision_sq = vision_radius * vision_radius;
+        let mut neighbor_count = 0usize;
+        for &i in neighbours.iter() {
+            if i == idx || self.cause_of_death[i].is_some() { continue; }
+            let mut dx = px - self.pos_x[i];
+            let mut dy = py - self.pos_y[i];
+            if dx > half { dx -= world_size; } else if dx < -half { dx += world_size; }
+            if dy > half { dy -= world_size; } else if dy < -half { dy += world_size; }
+            if dx * dx + dy * dy <= vision_sq { neighbor_count += 1; }
+        }
+        let agent_density_norm = (neighbor_count as f32 / DENSITY_FULL).clamp(0.0, 1.0);
 
         // [4] current speed normalized to max
         let cur_speed = (vx * vx + vy * vy).sqrt();
@@ -2734,7 +2777,9 @@ impl World {
         fy += wander_angle.sin() * outputs[OUT_WANDER] * WANDER_FORCE;
 
         // Separation from nearby agents
-        let (sx, sy) = self.separation_force(idx, px, py, world_size);
+        let mut neighbours = std::mem::take(&mut self.scratch_neighbours);
+        let (sx, sy) = self.separation_force(idx, px, py, world_size, &mut neighbours);
+        self.scratch_neighbours = neighbours;
         fx += sx * outputs[OUT_SEPARATE] * MAX_FORCE;
         fy += sy * outputs[OUT_SEPARATE] * MAX_FORCE;
 
@@ -2827,12 +2872,18 @@ impl World {
     }
 
     /// Sum of repulsion vectors from all agents within SEPARATION_RADIUS.
-    fn separation_force(&self, idx: usize, px: f32, py: f32, world_size: f32) -> (f32, f32) {
-        let nearby = self.spatial.agents_near(px, py, SEPARATION_RADIUS + 0.5);
+    fn separation_force(
+        &self, idx: usize, px: f32, py: f32, world_size: f32, nearby: &mut Vec<usize>,
+    ) -> (f32, f32) {
+        // Still its own query at its own radius. Steering is a physical force
+        // with a fixed reach — an animal that cannot see far still bumps into
+        // what it is touching — so this must not follow the density input onto
+        // the vision radius, and the two cannot share one query.
+        self.spatial.agents_near_into(px, py, SEPARATION_RADIUS + 0.5, nearby);
         let half = world_size * 0.5;
         let mut fx = 0.0f32;
         let mut fy = 0.0f32;
-        for other in nearby {
+        for &other in nearby.iter() {
             if other == idx || self.cause_of_death[other].is_some() { continue; }
             let mut dx = px - self.pos_x[other];
             let mut dy = py - self.pos_y[other];
@@ -2958,21 +3009,27 @@ impl World {
         // rather than trying to unpick which of its outcomes are fatal.
         if self.immortal { return; }
 
-        let gs = self.grid_size;
-        for ty in 0..gs {
-            for tx in 0..gs {
-                let occupants: Vec<usize> = self.spatial.agents_at_tile(tx, ty)
-                    .iter()
-                    .copied()
-                    // The predator is excluded from ordinary combat entirely: it
-                    // neither rolls to attack nor can be eaten. Its hunting is its
-                    // own phase, and it must not be killable by prey.
-                    .filter(|&i| self.cause_of_death[i].is_none() && !self.is_predator(i))
-                    .collect();
-                if occupants.len() < 2 { continue; }
+        // One buffer for the whole sweep. This used to build a fresh Vec per
+        // tile: at four thousand agents on a grid-64 pond that is thousands of
+        // allocations a tick, all of them the same shape and all of them thrown
+        // away immediately.
+        let mut occupants = std::mem::take(&mut self.scratch_combat);
+        for flat in 0..self.spatial.bucket_count() {
+            {
+                let bucket = self.spatial.bucket(flat);
+                if bucket.len() < 2 { continue; }
+                occupants.clear();
+                occupants.extend_from_slice(bucket);
+            }
+            // The predator is excluded from ordinary combat entirely: it
+            // neither rolls to attack nor can be eaten. Its hunting is its
+            // own phase, and it must not be killable by prey.
+            occupants.retain(|&i| self.cause_of_death[i].is_none() && !self.is_predator(i));
+            if occupants.len() < 2 { continue; }
 
-                for &attacker in &occupants {
-                    if self.cause_of_death[attacker].is_some() { continue; }
+            for ai in 0..occupants.len() {
+                let attacker = occupants[ai];
+                if self.cause_of_death[attacker].is_some() { continue; }
                     if self.genome[attacker].traits.aggression
                         < self.tunables.hunt_aggression_threshold { continue; }
 
@@ -2990,9 +3047,19 @@ impl World {
                     // gate, 43 cleared the hunger gate, and *zero* found a legal
                     // victim, because once a pond speciates everyone left is
                     // family. Combat fell to 1-2% of deaths.
-                    let victim = occupants.iter()
-                        .copied()
-                        .find(|&i| i != attacker && self.cause_of_death[i].is_none());
+                    //
+                    // Searched from the attacker's own place in the tile rather
+                    // than from the start of it. `find` from index 0 always
+                    // reached the same occupant first, so on a crowded tile one
+                    // animal absorbed every attack made that tick while the one
+                    // beside it was never touched — a bias with no rule behind
+                    // it, just the order the bucket happened to be in. The ring
+                    // spreads the attacks, and being deterministic it draws no
+                    // randomness and leaves the seeded stream alone.
+                    let n = occupants.len();
+                    let victim = (1..n)
+                        .map(|o| occupants[(ai + o) % n])
+                        .find(|&i| self.cause_of_death[i].is_none());
                     let Some(victim) = victim else { continue };
 
                     let atk = self.genome[attacker].traits.attack;
@@ -3050,13 +3117,13 @@ impl World {
                             self.age[attacker],
                         );
                         self.energy[attacker] -= v_def * RETALIATION_ENERGY / a_def.max(0.1);
-                        if self.energy[attacker] <= 0.0 {
-                            self.passive_eat(victim, attacker);
-                        }
+                    if self.energy[attacker] <= 0.0 {
+                        self.passive_eat(victim, attacker);
                     }
                 }
             }
         }
+        self.scratch_combat = occupants;
     }
 
     fn passive_eat(&mut self, winner: usize, loser: usize) {
@@ -4691,7 +4758,7 @@ mod tests {
         w.scratch_acting.clear();
         w.scratch_acting.push(prey);
         w.sense_threats();
-        let (perception, food_dir) = w.perceive(prey);
+        let (perception, food_dir) = w.perceive(prey, &mut Vec::new());
         assert!(perception[5] < 1.0, "the prey cannot see the hunter");
 
         // Flee gate open, everything else shut: it must accelerate east, away.
@@ -4713,7 +4780,7 @@ mod tests {
         w2.scratch_acting.clear();
         w2.scratch_acting.push(prey2);
         w2.sense_threats();
-        let (p2, fd2) = w2.perceive(prey2);
+        let (p2, fd2) = w2.perceive(prey2, &mut Vec::new());
         w2.integrate_agent(prey2, p2, fd2, [0f32; 8]);
         assert_eq!(w2.vel_x[prey2], 0.0, "something fled without being asked to");
     }
@@ -5560,6 +5627,58 @@ mod tests {
         assert_eq!(a.get_stats().total_food, b.get_stats().total_food);
         assert_eq!(a.death_counts(), b.death_counts());
     }
+    /// Density is what *this* animal can see. Two agents in the same place with
+    /// the same neighbours must read different crowding if their eyes differ,
+    /// and neither may count a neighbour outside its own radius.
+    #[test]
+    fn density_input_is_scaled_by_vision() {
+        let mut w = World::new(20, 3, 5);
+        let (sharp, blind, other) = (0usize, 1usize, 2usize);
+        w.genome[sharp].traits.vision = 1.05;   // radius 3.15
+        w.genome[blind].traits.vision = 0.5;    // radius 1.50
+
+        // Both observers on the same tile; the third agent 2.5 tiles east —
+        // inside the sharp one's sight, outside the blind one's, and inside the
+        // 5x5 tile block the old fixed query would have swept for both.
+        w.pos_x[sharp] = 10.0; w.pos_y[sharp] = 10.0;
+        w.pos_x[blind] = 10.0; w.pos_y[blind] = 10.0;
+        w.pos_x[other] = 12.5; w.pos_y[other] = 10.0;
+        w.spatial.rebuild(&w.pos_x, &w.pos_y);
+
+        let mut buf = Vec::new();
+        let sharp_density = w.perceive(sharp, &mut buf).0[3];
+        let blind_density = w.perceive(blind, &mut buf).0[3];
+
+        // The sharp one sees two: the blind observer beside it and the far one.
+        assert!((sharp_density - 2.0 / DENSITY_FULL).abs() < 1e-6,
+            "sharp saw {sharp_density}, expected 2 neighbours");
+        // The blind one sees only what it is standing next to.
+        assert!((blind_density - 1.0 / DENSITY_FULL).abs() < 1e-6,
+            "blind saw {blind_density}, expected 1 neighbour");
+    }
+
+    /// The separation force is physical contact, not sight, and must keep its
+    /// own fixed reach however good the eyes are.
+    #[test]
+    fn separation_ignores_the_vision_trait() {
+        let mut w = World::new(20, 2, 9);
+        w.genome[0].traits.vision = 1.05;
+        w.pos_x[0] = 10.0; w.pos_y[0] = 10.0;
+        // 2.0 tiles away: well inside a 3.15-tile sight, well outside the
+        // 1.2-tile repulsion.
+        w.pos_x[1] = 12.0; w.pos_y[1] = 10.0;
+        w.spatial.rebuild(&w.pos_x, &w.pos_y);
+
+        let mut buf = Vec::new();
+        let (fx, fy) = w.separation_force(0, 10.0, 10.0, 20.0, &mut buf);
+        assert_eq!((fx, fy), (0.0, 0.0), "pushed by an agent it is not touching");
+
+        w.pos_x[1] = 10.8;   // now inside the repulsion radius
+        w.spatial.rebuild(&w.pos_x, &w.pos_y);
+        let (fx, _) = w.separation_force(0, 10.0, 10.0, 20.0, &mut buf);
+        assert!(fx < 0.0, "not pushed away from a neighbour at 0.8 tiles");
+    }
+
 }
 
 #[cfg(test)]

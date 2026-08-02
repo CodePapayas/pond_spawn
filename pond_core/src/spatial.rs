@@ -34,6 +34,16 @@ impl SpatialHashGrid {
         &self.buckets[self.flat(tx, ty)]
     }
 
+    /// One bucket by flat index. For passes that sweep every tile and do not
+    /// care where a tile is, only who is standing on it.
+    pub fn bucket(&self, flat: usize) -> &[usize] {
+        &self.buckets[flat]
+    }
+
+    pub fn bucket_count(&self) -> usize {
+        self.buckets.len()
+    }
+
     pub fn count_at_tile(&self, tx: usize, ty: usize) -> usize {
         self.buckets[self.flat(tx, ty)].len()
     }
@@ -53,11 +63,28 @@ impl SpatialHashGrid {
     /// All agent indices in every tile within ceil(radius) of (x, y), wrapping toroidally.
     /// Caller filters by actual Euclidean distance as needed.
     pub fn agents_near(&self, x: f32, y: f32, radius: f32) -> Vec<usize> {
+        let mut out = Vec::new();
+        self.agents_near_into(x, y, radius, &mut out);
+        out
+    }
+
+    /// As `agents_near`, into a caller-owned buffer. A pass that queries once
+    /// per agent per tick can then allocate once per pass instead of once per
+    /// agent — which in a crowded pond is the difference that matters, since
+    /// what each query copies is the whole of every bucket it touches.
+    ///
+    /// The block is square and the radius is not: the caller filtering by
+    /// Euclidean distance is not optional if it wants the radius it asked for.
+    /// A 5x5 block reaches 3.5 tiles into its corners.
+    pub fn agents_near_into(&self, x: f32, y: f32, radius: f32, out: &mut Vec<usize>) {
+        out.clear();
         let gs = self.grid_size as i32;
-        let r_cells = radius.ceil() as i32;
+        // A block wider than the grid would visit the same bucket twice and
+        // hand the caller the same agent twice — double-counted density, double
+        // infection rolls. The grid can be as small as 6 tiles.
+        let r_cells = (radius.ceil() as i32).min((gs - 1) / 2);
         let cx = x.floor() as i32;
         let cy = y.floor() as i32;
-        let mut out = Vec::new();
         for dy in -r_cells..=r_cells {
             for dx in -r_cells..=r_cells {
                 let tx = (cx + dx).rem_euclid(gs) as usize;
@@ -65,7 +92,6 @@ impl SpatialHashGrid {
                 out.extend_from_slice(&self.buckets[ty * self.grid_size + tx]);
             }
         }
-        out
     }
 
     /// Move one agent from its old tile to its new tile (O(bucket size)).
