@@ -712,8 +712,12 @@ hidden inside the food economy — but mechanically it *is* starvation, which is
 the point: an outbreak lands on the economy and takes the already-marginal first.
 
 **Contagion** (0.02–0.30) is a per-contact chance at full local crowding.
-Transmission reads neighbours within `CONTACT_RADIUS` (1.1 tiles), scaled by
-crowding up to `CROWDING_FULL` (6) and clamped. **Nothing scales with total
+Transmission reads neighbours within `CONTACT_RADIUS` (1.1 tiles) — measured,
+toroidally, per neighbour — scaled by crowding up to `CROWDING_FULL` (6) and
+clamped. Until 2026-08-01 the spec said 1.1 and the code took whatever the
+spatial query returned, which is whole tiles: a 5×5 block reaching 3.5 tiles into
+its corners. Both the reach and the crowd count were correspondingly inflated,
+and crowding pinned to 1.0 wherever agents clustered at all. **Nothing scales with total
 population.** An outbreak in a tight cluster behaves identically in a pond of 40
 and a pond of 400, which is what lets it overshoot and crash instead of trimming
 toward a setpoint.

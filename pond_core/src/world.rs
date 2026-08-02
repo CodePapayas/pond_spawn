@@ -2428,11 +2428,28 @@ impl World {
 
         let mut caught: Vec<(usize, u32)> = Vec::new();
         let mut jumps: Vec<u32> = Vec::new();
+        let world_size = self.grid_size as f32;
+        let mut neighbours = std::mem::take(&mut self.scratch_neighbours);
         for (i, disease_id) in carriers {
             let Some(d) = self.diseases.get(disease_id as usize - 1) else { continue };
             let (contagion, origin, jumped) = (d.contagion, d.origin_species, d.jumped);
             let (px, py) = (self.pos_x[i], self.pos_y[i]);
-            let neighbours = self.spatial.agents_near(px, py, CONTACT_RADIUS);
+            // Contact means contact. The query returns whole tiles, so what this
+            // used to iterate was a 5x5 block reaching 3.5 tiles into its
+            // corners — a `CONTACT_RADIUS` of 1.1 that in practice infected
+            // across three tiles, and a crowd factor counting that whole block
+            // against a divisor of six, so crowding pinned to 1.0 in any cluster
+            // and contagion ran at its full rate almost everywhere.
+            self.spatial.agents_near_into(px, py, CONTACT_RADIUS, &mut neighbours);
+            let half = world_size * 0.5;
+            let contact_sq = CONTACT_RADIUS * CONTACT_RADIUS;
+            neighbours.retain(|&j| {
+                let mut dx = px - self.pos_x[j];
+                let mut dy = py - self.pos_y[j];
+                if dx > half { dx -= world_size; } else if dx < -half { dx += world_size; }
+                if dy > half { dy -= world_size; } else if dy < -half { dy += world_size; }
+                dx * dx + dy * dy <= contact_sq
+            });
 
             let crowd = (neighbours.len() as f64 / CROWDING_FULL).clamp(0.0, 1.0);
             for &j in &neighbours {
@@ -2457,6 +2474,7 @@ impl World {
                 }
             }
         }
+        self.scratch_neighbours = neighbours;
         for (j, id) in caught {
             if self.infection[j] == 0 { self.infect(j, id); }
         }
@@ -4249,6 +4267,31 @@ mod tests {
         w.tick_disease();
         let infected = w.infection.iter().filter(|&&v| v != 0).count();
         assert!(infected > 1, "a full-contagion carrier in a scrum infected nobody");
+    }
+
+    /// Contact is a radius, not the tile block the query happens to return.
+    /// A neighbour two and a half tiles away sits inside the 5x5 block and well
+    /// outside `CONTACT_RADIUS`, and must not catch anything.
+    #[test]
+    fn infection_does_not_reach_across_the_query_block() {
+        let mut w = World::new(20, 3, 17);
+        w.set_automatic_predators(false);
+        let id = plant_disease(&mut w, 0.0, 1.0, 0);
+        for i in 0..w.ids.len() {
+            w.species_ids[i] = 0;
+            w.genome[i].traits.immunity = 0.0;   // nothing resists
+            w.pos_y[i] = 10.0;
+        }
+        w.pos_x[0] = 10.0;   // the carrier
+        w.pos_x[1] = 10.6;   // touching — inside 1.1
+        w.pos_x[2] = 12.5;   // two and a half tiles east — inside the block only
+        w.spatial.rebuild(&w.pos_x, &w.pos_y);
+
+        w.infect(0, id);
+        for _ in 0..20 { w.tick_disease(); }
+
+        assert!(w.infection[1] != 0, "the neighbour in contact never caught it");
+        assert_eq!(w.infection[2], 0, "infected across the tile block");
     }
 
     #[test]
