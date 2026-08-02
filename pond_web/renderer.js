@@ -520,6 +520,12 @@ function open_setup() {
     sim_running = false;
     setup.show();
     document.getElementById('setup-banner').style.display = 'block';
+    // Clear the screen behind it. The panel is a full-attention state — the pond
+    // is frozen and nothing else on screen describes anything you can act on —
+    // and on a small window the legend and the keybind column were framing a
+    // form. Same mechanism as zen: one class, no panel's own state touched, so
+    // whatever was open is still open when the panel closes.
+    document.body.classList.add('setup-open');
 }
 
 /** Dismiss the setup panel without starting anything: the run that was frozen
@@ -528,6 +534,7 @@ function cancel_setup() {
     if (!setup.isOpen()) return;
     setup.hide();
     document.getElementById('setup-banner').style.display = 'none';
+    document.body.classList.remove('setup-open');
     sim_running = true;
 }
 
@@ -570,6 +577,7 @@ function clear_run_panels() {
 function close_setup() {
     setup.hide();
     document.getElementById('setup-banner').style.display = 'none';
+    document.body.classList.remove('setup-open');
     sim_running = true;
 }
 
@@ -1474,6 +1482,8 @@ function draw_idle_scene(time_sec) {
 /** Wordmark on its own smoked panel, matching the setup panel's chrome.
  *
  *  Drawn before the idle creature, so the creature passes in front of it. */
+let last_logo_bottom = -1;
+
 function draw_logo() {
     const W = canvas.width, H = canvas.height;
     const target_w = Math.min(W * 0.72, 860);
@@ -1498,6 +1508,16 @@ function draw_logo() {
         w: text_w + pad_x * 2,
         h: text_h + pad_y * 2,
     };
+
+    // Tell the stylesheet where the wordmark ends, so the setup panel can hang
+    // below it instead of being centred on the window and covering it. Canvas
+    // pixels are CSS pixels here (see resize), so this needs no conversion.
+    // Only written when it moves — this runs every idle frame.
+    const logo_bottom = Math.round(box.y + box.h);
+    if (logo_bottom !== last_logo_bottom) {
+        last_logo_bottom = logo_bottom;
+        document.documentElement.style.setProperty('--logo-bottom', `${logo_bottom}px`);
+    }
 
     ctx.save();
     ctx.fillStyle = 'rgba(4, 10, 18, 0.88)';

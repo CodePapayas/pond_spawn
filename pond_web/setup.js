@@ -91,13 +91,24 @@ export function initSetup(root, onStart, defaults, ranges, onCancel) {
         ...d, def: ranges[i * 3], min: ranges[i * 3 + 1], max: ranges[i * 3 + 2],
     }));
 
+    // Two columns, because nothing else is on screen while this is open. The
+    // panel used to be one tall strip sized for a UI it had to share space
+    // with — and at that height it sat straight over the wordmark on a short
+    // window. Wide and short fits under it instead. The columns collapse back
+    // to one on a narrow viewport (see the media query in index.html).
     root.innerHTML =
         `<h2>new run</h2>` +
+        `<div class="setup-cols">` +
+        `<div class="setup-col">` +
         row('grid', 'grid size', 'number', defaults.grid, `${LIMITS.grid.min}–${LIMITS.grid.max} tiles per side`) +
         row('population', 'population', 'number', defaults.population, `starting agents`) +
         row('seed', 'seed', 'text', String(defaults.seed), `same seed = same pond`) +
-        `<h2>rules</h2>` +
+        `</div>` +
+        `<div class="setup-col">` +
+        `<h2 class="col-head">rules</h2>` +
         dials.map(dial_row).join('') +
+        `</div>` +
+        `</div>` +
         `<div class="setup-warn" id="setup-warn"></div>` +
         `<div class="setup-actions">` +
         `<button id="setup-random">random seed</button>` +

@@ -347,25 +347,45 @@ canvas { display: block; }
    dials made the panel taller, it grew upward past the banner, and the two
    overlapped. Stacking them means the panel can be any height and the banner
    still sits directly above it. */
+/* Hung under the wordmark rather than centred on the window. The renderer
+   measures where the logo ends each frame and publishes it as --logo-bottom
+   (draw_logo), so the panel sits below it at any window size instead of being
+   centred and covering it on a short one. The fallback keeps it sane before the
+   first idle frame has been drawn. */
 #setup-stack {
   position: fixed;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
+  top: calc(var(--logo-bottom, 30vh) + 20px);
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  max-height: calc(100vh - 24px);
+  gap: 12px;
+  max-height: calc(100vh - var(--logo-bottom, 30vh) - 40px);
 }
 #setup {
   position: static;
-  width: 300px;
+  width: min(680px, calc(100vw - 32px));
   /* Closed on load. The pond auto-starts and the splash card covers it; the
      panel opens from there, from `new run`, or from N. */
   display: none;
   border-color: rgba(255, 60, 220, 0.45);
   box-shadow: 0 0 40px rgba(255, 60, 220, 0.18);
   min-height: 0;    /* so the panel, not the stack, is what scrolls */
+}
+/* Two columns while there is room; one below 620px, where side-by-side dials
+   get too narrow to read their own labels. */
+.setup-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 22px;
+  align-items: start;
+}
+.setup-col { min-width: 0; }
+.setup-col .col-head { margin-top: 0; }
+@media (max-width: 620px) {
+  .setup-cols { grid-template-columns: 1fr; }
+  .setup-col .col-head { margin-top: 12px; }
 }
 .setup-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .setup-row label { flex: 1; color: rgba(160, 240, 255, 0.85); }
@@ -816,6 +836,25 @@ canvas { display: block; }
   margin-top: 6px; color: rgba(110, 140, 155, 0.65);
   font-size: 9px; line-height: 1.5;
 }
+
+/* ── New-run screen ───────────────────────────────────────────────────── */
+/* While the setup panel is up the pond is frozen and every other panel is
+   describing a run you are about to discard. Clear them all: what is left is
+   the wordmark, the banner and the form. Everything keeps its own visible flag,
+   exactly as zen does, so closing the panel restores what was there. */
+body.setup-open #hud,
+body.setup-open #hint,
+body.setup-open #hint-show,
+body.setup-open #side-right,
+body.setup-open #god,
+body.setup-open #graphs,
+body.setup-open #archetypes,
+body.setup-open #inspector,
+body.setup-open .float-window,
+body.setup-open #species-toast,
+body.setup-open #paused-banner,
+body.setup-open #tree-hover,
+body.setup-open #graph-hover-preview { display: none !important; }
 
 /* ── Zen mode ─────────────────────────────────────────────────────────── */
 /* C clears the UI. One class, and every panel's own state is left untouched,
