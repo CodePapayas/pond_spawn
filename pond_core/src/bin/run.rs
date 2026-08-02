@@ -45,14 +45,22 @@ fn main() {
 
     println!("pond_core — headless runner");
     println!("grid={}×{}  pop={}  steps={}  seed={}", grid_size, grid_size, population, steps, seed);
-    println!("{:<8} {:<8} {:<12} {:<12} {:<10}", "step", "agents", "avg_energy", "total_food", "ms/step");
-    println!("{}", "-".repeat(56));
+    // `hash` is the parity column: the browser prints the same number on its M
+    // HUD, so a mismatched pond can be localised to the step it first differs
+    // at instead of argued about from populations.
+    println!("{:<8} {:<8} {:<12} {:<12} {:<10} {:<12}",
+        "step", "agents", "avg_energy", "total_food", "ms/step", "hash");
+    println!("{}", "-".repeat(70));
 
     let mut world = World::new(grid_size, population, seed);
     if no_predators { world.set_automatic_predators(false); }
     if brains { world.brain_clusters.set_enabled(true); }
     if let Some(r) = regen { world.set_food_regen_scale(r); }
     let print_every = (steps / 20).max(1);
+    // The first few steps are printed whatever the interval works out to: if two
+    // builds differ at step 1 the cause is construction, and no amount of
+    // sampling at step 1500 will say so.
+    let early = [1u32, 2, 5, 10, 50, 100];
     let total_start = Instant::now();
 
     for s in 1..=steps {
@@ -60,15 +68,16 @@ fn main() {
         world.step();
         let step_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
-        if s % print_every == 0 || s == steps {
+        if s % print_every == 0 || s == steps || early.contains(&s) {
             let stats = world.get_stats();
             println!(
-                "{:<8} {:<8} {:<12.2} {:<12} {:<10.3}",
+                "{:<8} {:<8} {:<12.2} {:<12} {:<10.3} {:<12}",
                 s,
                 stats.alive_agents,
                 stats.avg_energy,
                 stats.total_food,
                 step_ms,
+                world.fingerprint() as u64,
             );
         }
 

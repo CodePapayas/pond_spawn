@@ -953,6 +953,29 @@ impl World {
     // Setters clamp in core rather than trusting the caller: the UI is one
     // caller, and a regen scale of 5.0 or a k of 0 would panic or wedge the sim.
 
+    /// A single number standing for the entire pond state, for comparing two
+    /// builds or two runners at the same step.
+    ///
+    /// This exists because the browser and the headless runner produced
+    /// different ponds from the same seed and nothing in either code path
+    /// explained it. Eyeballing populations cannot localise that; one number
+    /// per step can. Order-sensitive on purpose — agent slots are swap-removed,
+    /// so two ponds holding the same animals in a different order are not the
+    /// same pond and must not hash alike.
+    pub fn fingerprint(&self) -> f64 {
+        let mut acc = self.ids.len() as f64 * 7.0 + self.step_count as f64;
+        for i in 0..self.ids.len() {
+            acc = acc * 1.000_001
+                + self.ids[i] as f64
+                + self.pos_x[i] as f64 * 3.0
+                + self.pos_y[i] as f64 * 7.0
+                + self.energy[i] * 11.0;
+        }
+        // Fold to something a human can compare at a glance without losing the
+        // low bits that carry the divergence.
+        (acc.abs() % 1.0e9).floor()
+    }
+
     pub fn tunables(&self) -> Tunables {
         self.tunables
     }

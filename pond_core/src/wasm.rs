@@ -712,6 +712,13 @@ impl WasmWorld {
         out
     }
 
+    /// State hash for the current step — compare against the headless runner's
+    /// `hash` column at the same step to tell whether the two are running the
+    /// same pond. Shown on the `M` HUD.
+    pub fn fingerprint(&self) -> f64 {
+        self.inner.fingerprint()
+    }
+
     pub fn predator_count(&self) -> u32 {
         self.inner.predators.len() as u32
     }

@@ -1683,6 +1683,10 @@ function render(buf, time_sec) {
             // is above `lod`, no amount of zooming will engage sprites and the
             // run needs a bigger grid, not a different camera. That is exactly
             // the guess this line is here to stop.
+            // Parity with the headless runner: same seed and step must give the
+            // same hash. If it does not, the two are not running the same pond
+            // and the step it first differs at says where to look.
+            `hash    ${world.fingerprint().toFixed(0)}  seed ${SEED}\n` +
             `grid    ${GRID}  canvas ${canvas.width}×${canvas.height}  ` +
             `fit ${fit_scale().toFixed(1)} px/tile` +
             (fit_scale() > SPRITE_LOD_MAX_SCALE_PX ? '  ← never reaches lod' : '');
